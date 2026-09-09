@@ -2,17 +2,17 @@
  * Formatação central das mensagens que o bot envia no chat.
  *
  * Objetivos:
- *  - Texto bonito, organizado e fácil de ler na Twitch (e YouTube).
+ *  - Formato de LISTA: um comando por linha, com explicação curta após
+ *    o travessão — muito mais legível no chat da Twitch (e YouTube).
  *  - Cada mensagem respeita o limite de ~500 caracteres por linha do IRC.
  *  - Sem hardcode espalhado: todo texto de chat do bot nasce aqui.
  */
 
 const { BOTOES, DIRECOES, BOTOES_ACAO } = require('./commands');
+const { config } = require('./config');
 
 /** Limite prático de caracteres por mensagem (Twitch = 500). */
 const LIMITE_CARACTERES = 480;
-
-const SEPARADOR = '━━━━━━━━━━━━━━';
 
 /**
  * Formata duração em texto amigável.
@@ -40,75 +40,76 @@ function garantirLimite(texto) {
 }
 
 /**
- * Linha de direções formatada: "⬆ cima · ⬇ baixo · ⬅ esquerda · ➡ direita"
- * (mostra só os nomes em português para economizar caracteres;
- *  os nomes em inglês também funcionam e aparecem na ajuda detalhada)
- */
-function linhaDirecoes() {
-  return DIRECOES.map((d) => `${BOTOES[d].icone} ${BOTOES[d].rotulo}`).join(' · ');
-}
-
-/**
- * Linha de botões de ação formatada: "🅰 A · 🅱 B · 🔵 L · 🔴 R · ▶ START · ▦ SELECT"
- */
-function linhaBotoesAcao() {
-  return BOTOES_ACAO.map((b) => `${BOTOES[b].icone} ${BOTOES[b].rotulo}`).join(' · ');
-}
-
-/**
  * Mensagem completa de comandos (resposta ao !comandos / !ajuda).
- * São 2 mensagens para caber tudo com folga e ficar legível.
+ * São 2 mensagens em formato de LISTA — um comando por linha, com
+ * explicação curta após o travessão — muito mais legível no chat.
  * @returns {string[]}
  */
 function msgComandos() {
+  const aliasEN = { up: 'up', down: 'down', left: 'left', right: 'right' };
+  const linhasMovimento = DIRECOES.map(
+    (d) => `${BOTOES[d].icone} ${BOTOES[d].rotulo.toLowerCase()} (ou ${aliasEN[d]})`
+  );
+
+  const acoes = {
+    a: 'confirmar / interagir',
+    b: 'cancelar / correr',
+    l: 'ombro esquerdo',
+    r: 'ombro direito',
+    start: 'abrir o menu',
+    select: 'trocar item',
+  };
+  const linhasBotoes = BOTOES_ACAO.map((b) => `${BOTOES[b].icone} ${b} — ${acoes[b]}`);
+
   const parte1 = [
-    '🎮 POKÉMON CHAT PLAYS — COMANDOS 🎮',
-    SEPARADOR,
-    `DIREÇÕES: ${linhaDirecoes()}`,
-    `TAMBÉM VALE: up · down · left · right`,
-    `AÇÕES: ${linhaBotoesAcao()}`,
-    'TAMBÉM VALE: start · select · seleciona',
+    '🎮 COMANDOS DO JOGO (1/2)',
+    ...linhasMovimento,
+    ...linhasBotoes,
   ].join('\n');
 
   const parte2 = [
-    '✊ SEGURAR TECLA (hold):',
-    'hold <direção/botão> [tempo]',
-    'ex: hold cima = 1s · hold baixo 3 = 3s · hold up 500ms',
-    `máximo de ${formatarDuracao(10000)} por segurança`,
-    '🔓 soltar → solta TODAS as teclas presas',
-    SEPARADOR,
-    '📊 !stats · 🏆 !top · ✊ !segurar',
+    '✊ SEGURAR TECLA (2/2)',
+    `hold cima — segura ${formatarDuracao(config.geral.holdPadraoMs)}`,
+    'hold baixo 3 — segura 3s',
+    'hold up 500ms — meio segundo',
+    `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
+    '🔓 soltar — solta todas as teclas',
+    '📊 !stats — estatísticas da live',
+    '🏆 !top — ranking dos jogadores',
+    '✊ !segurar — ajuda só do hold',
   ].join('\n');
 
   return [garantirLimite(parte1), garantirLimite(parte2)];
 }
 
 /**
- * Mensagem de ajuda específica dos comandos de segurar.
+ * Mensagem de ajuda específica dos comandos de segurar (também em lista).
  * @returns {string}
  */
 function msgHoldAjuda() {
   const texto = [
     '✊ COMO SEGURAR TECLAS:',
-    `hold <direção/botão> → segura ${formatarDuracao(1000)}`,
-    'hold cima 3 → segura 3s (número ≤30 = segundos)',
-    'hold up 500ms → segura meio segundo',
-    'hold left 2s → aceita sufixo s ou ms',
-    `🔐 tempo máximo: ${formatarDuracao(10000)}`,
-    '🔓 soltar → solta todas as teclas na hora',
+    `hold cima — segura ${formatarDuracao(config.geral.holdPadraoMs)} (padrão)`,
+    'hold cima 3 — segura 3s',
+    'hold cima 500ms — meio segundo',
+    'hold left 2s — sufixos s e ms valem',
+    `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
+    '🔓 soltar — solta tudo na hora',
   ].join('\n');
   return garantirLimite(texto);
 }
 
 /**
- * Anúncio automático periódico (curto e chamativo).
+ * Anúncio automático periódico (curto e em lista).
  * @returns {string}
  */
 function msgAnuncio() {
   const texto = [
-    '🎮 O CHAT CONTROLA O JOGO! 🎮',
-    `digite: ${DIRECOES.map((d) => BOTOES[d].rotulo.toLowerCase()).join(', ')}, ${BOTOES_ACAO.join(', ')}`,
-    '✊ segurar: hold cima [tempo] · 🔓 soltar · 📜 !comandos',
+    '🎮 O CHAT CONTROLA O JOGO!',
+    'mova: cima, baixo, esquerda, direita',
+    'aperte: a, b, l, r, start, select',
+    '✊ hold cima [tempo] · 🔓 soltar',
+    '📜 !comandos — lista completa',
   ].join('\n');
   return garantirLimite(texto);
 }
@@ -167,7 +168,7 @@ function msgUsoHold(usuario) {
     [
       `@${usuario} uso: hold <direção/botão> [tempo]`,
       'ex: hold cima · hold baixo 3 · hold up 500ms',
-    ].join(' — ')
+    ].join('\n')
   );
 }
 

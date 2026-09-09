@@ -87,8 +87,44 @@ test('!comandos responde em 2 mensagens organizadas', () => {
   const partes = msg.msgComandos();
   assert.strictEqual(partes.length, 2, 'esperado 2 mensagens (jogo + hold)');
   // primeira parte = controles, segunda = hold/extras
-  assert.ok(partes[0].includes('DIREÇÕES'));
+  assert.ok(partes[0].includes('COMANDOS DO JOGO'));
   assert.ok(partes[1].includes('SEGURAR'));
+});
+
+test('!comandos é uma lista legível: 1 comando por linha, linhas curtas', () => {
+  for (const parte of msg.msgComandos()) {
+    const linhas = parte.split('\n');
+    assert.ok(
+      linhas.length >= 9,
+      `esperado formato de lista (>= 9 linhas), veio ${linhas.length}`
+    );
+    for (const linha of linhas) {
+      assert.ok(
+        linha.length <= 45,
+        `linha longa demais (${linha.length} chars): "${linha}"`
+      );
+    }
+  }
+  // botões e comandos de hold têm o padrão "comando — explicação"
+  const tudo = msg.msgComandos().join('\n');
+  const comTravessao = tudo.split('\n').filter((l) => l.includes(' — '));
+  assert.ok(
+    comTravessao.length >= 12,
+    `esperado >= 12 linhas com "comando — explicação", veio ${comTravessao.length}`
+  );
+  // cada linha de movimento cita o alias em inglês
+  const parte1 = msg.msgComandos()[0];
+  for (const alias of ['up', 'down', 'left', 'right']) {
+    assert.ok(parte1.includes(`(ou ${alias})`), `falta "(ou ${alias})" na lista de movimento`);
+  }
+});
+
+test('ajuda do hold também é uma lista linha a linha', () => {
+  const linhas = msg.msgHoldAjuda().split('\n');
+  assert.ok(linhas.length >= 6, 'esperado >= 6 linhas na ajuda de hold');
+  for (const linha of linhas) {
+    assert.ok(linha.length <= 45, `linha longa demais: "${linha}"`);
+  }
 });
 
 test('anúncio automático é curto e cita os essenciais', () => {
@@ -96,6 +132,10 @@ test('anúncio automático é curto e cita os essenciais', () => {
   assert.ok(anuncio.length <= 500);
   assert.ok(anuncio.includes('hold'));
   assert.ok(anuncio.includes('!comandos'));
+  // anúncio também em formato de lista (linhas curtas)
+  for (const linha of anuncio.split('\n')) {
+    assert.ok(linha.length <= 45, `linha longa demais no anúncio: "${linha}"`);
+  }
 });
 
 test('confirmação de hold cita usuário, botão e duração', () => {

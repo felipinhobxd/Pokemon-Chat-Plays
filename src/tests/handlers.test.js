@@ -117,7 +117,7 @@ test('"!comandos" responde com a lista completa em 2 mensagens', () => {
   processarMensagem({ plataforma: 'twitch', usuario: 'curioso', texto: '!comandos', responder });
   const partes = respostas.map((r) => r.texto);
   assert.strictEqual(partes.length, 2, '!comandos deve mandar 2 mensagens');
-  assert.ok(partes[0].includes('DIREÇÕES'));
+  assert.ok(partes[0].includes('COMANDOS DO JOGO'));
   assert.ok(partes[1].includes('SEGURAR'));
 });
 
