@@ -32,7 +32,7 @@ Se voce so quer USAR o bot (sem programar nada):
 2. Descompacte o `.zip` em qualquer pasta (ex: `Meus Documents\Chat Joga\`).
 3. Abra o arquivo `.env` com o Bloco de Notas e preencha:
    - `TWITCH_BOT_USERNAME` = nome do seu bot
-   - `TWITCH_OAUTH_TOKEN` = token gerado em https://twitchtokengenerator.com/ (marque "Chat Token")
+   - `TWITCH_OAUTH_TOKEN` = Access token gerado em https://twitchtokengenerator.com/ (pode colar com ou sem o prefixo `oauth:`)
    - `TWITCH_CHANNEL` = `sindromegames` (ou seu canal)
    - *(opcional)* `YOUTUBE_ENABLED`, `YOUTUBE_API_KEY`, `YOUTUBE_VIDEO_ID` para YouTube
 4. Salve e feche o `.env`.
@@ -42,10 +42,12 @@ Se voce so quer USAR o bot (sem programar nada):
 
 > **Como obter o token da Twitch (passo a passo):**
 > 1. Acesse https://twitchtokengenerator.com/ (logado com a conta do seu bot)
-> 2. Marque a opcao **"Chat Token"**
-> 3. Clique em **"Generate Token!"** e autorize
-> 4. Copie o token (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`
+> 2. Clique em **"Bot Chat Token"** (o card do robô verde)
+> 3. Clique em **"Generate Token!"** e autorize a aplicacao
+> 4. Na tela de resultado, copie o campo **"Access token"**
+> 5. Cole o valor em `TWITCH_OAUTH_TOKEN` (pode ser com ou sem o prefixo `oauth:` — o bot detecta automaticamente)
 >
+> *Os outros campos que aparecem (Refresh token, Client ID) NAO sao necessarios para este bot.*
 > *(O site antigo twitchapps.com/tmi/ foi descontinuado em 2024 e nao funciona mais.)*
 
 > **Importante:** o bot so funciona com o emulador em foco. Se voce clicar em outra janela, os comandos vao para o programa errado.
@@ -147,12 +149,19 @@ ANNOUNCE_INTERVAL_MIN=10
 
 1. Crie uma conta no Twitch para o seu bot (ou reutilize uma conta secundaria).
 2. Acesse https://twitchtokengenerator.com/ estando logado com a conta do bot.
-3. Marque a opcao **"Chat Token"** (isso inclui os escopos `chat:read` e `chat:edit`).
-4. Clique em **Generate Token!** e autorize a aplicacao.
-5. Copie o token gerado (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`.
-6. Preencha `TWITCH_BOT_USERNAME` com o nome do bot e `TWITCH_CHANNEL` com o nome do seu canal (`sindromegames`).
+3. Na tela inicial, clique em **"Bot Chat Token"** (o card do robô verde).
+4. Clique em **"Generate Token!"** e autorize a aplicacao.
+5. Na tela de resultado, voce vera tres campos:
+   - **Access token** (este e o que voce precisa!)
+   - Refresh token (nao necessario)
+   - Client ID (nao necessario)
+6. Clique em **Copy** ao lado do **Access token** e cole em `TWITCH_OAUTH_TOKEN`.
+   - O bot aceita o token com ou sem o prefixo `oauth:`. Se voce colar apenas o Access Token (sem `oauth:`), o bot adiciona o prefixo automaticamente.
+7. Preencha `TWITCH_BOT_USERNAME` com o nome do bot e `TWITCH_CHANNEL` com o nome do seu canal (`sindromegames`).
 
 > Aviso: o twitchtokengenerator.com e um servico terceiro. Para maxima seguranca, voce pode usar a Opcao 2 abaixo.
+>
+> Importante: o token gerado e mostrado **apenas uma vez**. Copie imediatamente antes de fechar a pagina.
 
 #### Opcao 2 - Oficial (recomendada para desenvolvedores)
 

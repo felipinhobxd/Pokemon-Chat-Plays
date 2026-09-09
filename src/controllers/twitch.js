@@ -26,6 +26,18 @@ async function iniciar() {
 
   canal = config.twitch.channel;
 
+  // Normaliza o token OAuth: o tmi.js aceita com ou sem o prefixo "oauth:",
+  // mas para evitar ambiguidade, garantimos o prefixo.
+  // O twitchtokengenerator.com retorna o Access Token SEM o prefixo.
+  let token = config.twitch.oauthToken.trim();
+  if (!token.startsWith('oauth:')) {
+    token = `oauth:${token}`;
+    logger.info('[Twitch] Token OAuth detectado sem prefixo "oauth:" - prefixo adicionado automaticamente.');
+  }
+  // Log seguro: mostra só os primeiros 10 chars + "..."
+  const preview = token.length > 14 ? `${token.substring(0, 10)}...(${token.length} chars)` : '(muito curto)';
+  logger.info(`[Twitch] Token carregado: ${preview}`);
+
   cliente = new tmi.Client({
     options: {
       debug: config.geral.debug,
@@ -36,7 +48,7 @@ async function iniciar() {
     },
     identity: {
       username: config.twitch.username,
-      password: config.twitch.oauthToken,
+      password: token,
     },
     channels: [canal],
   });
