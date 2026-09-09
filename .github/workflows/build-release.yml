@@ -82,7 +82,7 @@ jobs:
 
             1. Baixe e descompacte o arquivo `PokemonChatPlays-Windows.zip`.
             2. Edite o arquivo `.env` (abra com o Bloco de Notas) e preencha com suas credenciais da Twitch/YouTube.
-               - Token da Twitch: https://twitchapps.com/tmi/
+               - Token da Twitch: https://twitchtokengenerator.com/ (pode colar com ou sem o prefixo oauth:)
                - API Key do YouTube: https://console.cloud.google.com/ (ative a YouTube Data API v3)
             3. De um duplo-clique em `iniciar.bat`.
             4. Abra o emulador (VisualBoyAdvance-M) e deixe em foco.
