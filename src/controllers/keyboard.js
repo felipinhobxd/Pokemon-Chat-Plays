@@ -19,6 +19,15 @@
  *    PowerShell novo a cada comando; agora é ~1ms).
  *  - Erros do PowerShell agora APARECEM no terminal (antes eram engolidos).
  *
+ * Correção da v2.2.3 (setas apertavam o TECLADO NUMÉRICO!):
+ *  - Setas e teclas de navegação são "teclas estendidas" no Windows (scan
+ *    code com prefixo E0). Sem a flag KEYEVENTF_EXTENDEDKEY (0x01), o
+ *    keybd_event injeta a tecla "gêmea" do teclado numérico (VK_UP vira o
+ *    8 do numpad, VK_LEFT vira o 4...) e o emulador não move o personagem.
+ *    Agora TODAS as chamadas usam flagsKeybd(), que soma 0x01 às teclas
+ *    estendidas no keydown E no keyup (o keyup sem a flag certa nem solta
+ *    a tecla de verdade, deixando ela presa no jogo).
+ *
  * Mapeamento padrão (compatível com VisualBoyAdvance-M):
  *   ⬆ up -> seta cima     ⬇ down -> seta baixo
  *   ⬅ left -> seta esq    ➡ right -> seta dir
@@ -78,6 +87,51 @@ function vkWindows(tecla) {
   if (VK_WINDOWS[t] !== undefined) return VK_WINDOWS[t];
   if (/^[a-z0-9]$/.test(t)) return t.toUpperCase().charCodeAt(0);
   return null;
+}
+
+/**
+ * VK codes de TECLAS ESTENDIDAS do Windows (físicas mandam scan code com
+ * prefixo E0): setas, Page Up/Down, Home, End, Insert, Delete, divisão do
+ * numpad, Num Lock, Windows direita e menu de contexto.
+ *
+ * ⚠️ Sem a flag KEYEVENTF_EXTENDEDKEY, o keybd_event injeta a versão
+ * NÃO-estendida da tecla — que é o TECLADO NUMÉRICO (VK_UP e o "8" do
+ * numpad com Num Lock desligado são a MESMA tecla virtual). Foi exatamente
+ * o bug da v2.2.2: o chat mandava "cima" e o VBA-M recebia o 8 do numpad.
+ */
+const VK_ESTENDIDOS = new Set([
+  0x21, // Page Up
+  0x22, // Page Down
+  0x23, // End
+  0x24, // Home
+  0x25, // Left  (seta esquerda)
+  0x26, // Up    (seta cima)
+  0x27, // Right (seta direita)
+  0x28, // Down  (seta baixo)
+  0x2d, // Insert
+  0x2e, // Delete
+  0x5c, // Windows direita
+  0x5d, // Menu de contexto
+  0x6f, // Divisão do teclado numérico
+  0x90, // Num Lock
+]);
+
+/** KEYEVENTF_EXTENDEDKEY = 0x01 — transforma a tecla na versão estendida. */
+const FLAG_ESTENDIDA = 0x01;
+/** KEYEVENTF_KEYUP = 0x02 — solta a tecla. */
+const FLAG_KEYUP = 0x02;
+
+/**
+ * Flags do keybd_event para pressionar/soltar um VK code.
+ * Teclas estendidas (setas!) ganham KEYEVENTF_EXTENDEDKEY no down E no up —
+ * sem isso o Windows entrega a tecla "gêmea" do teclado numérico.
+ * @param {number} vk - VK code do Windows
+ * @param {boolean} down - true = keydown, false = keyup
+ * @returns {number} dwFlags pronto para o keybd_event
+ */
+function flagsKeybd(vk, down) {
+  const estendida = VK_ESTENDIDOS.has(vk) ? FLAG_ESTENDIDA : 0;
+  return (down ? 0 : FLAG_KEYUP) | estendida;
 }
 
 /** Key codes do macOS (System Events). */
@@ -247,7 +301,7 @@ const PS_BOOT = [
 function scriptWindows(eventos, esperaMs = 0) {
   const partes = [PS_KEYBD];
   for (const ev of eventos) {
-    const flags = ev.down ? 0 : 2; // 0 = keydown, 2 = KEYEVENTF_KEYUP
+    const flags = flagsKeybd(ev.vk, ev.down); // setas: 1 (down) / 3 (up)
     partes.push(`[KB]::keybd_event(${ev.vk},[KB]::MapVirtualKey(${ev.vk},0),${flags},[UIntPtr]::Zero);`);
     // o sleep vem DEPOIS do keydown (e antes do keyup que segue no tap)
     if (ev.down && esperaMs > 0) {
@@ -294,7 +348,7 @@ const worker = {
 
 /** Linha PowerShell que pressiona (down=true) ou solta (down=false) um VK. */
 function linhaKey(vk, down) {
-  const flags = down ? 0 : 2;
+  const flags = flagsKeybd(vk, down); // setas ganham KEYEVENTF_EXTENDEDKEY
   return `[KB]::keybd_event(${vk},[KB]::MapVirtualKey(${vk},0),${flags},[UIntPtr]::Zero)`;
 }
 
@@ -807,4 +861,7 @@ module.exports = {
   configurarMapeamento,
   verificarSistema,
   MAPEAMENTO_PADRAO,
+  // Expostos APENAS para os testes unitários (src/tests/keyboard.test.js)
+  // — não use em produção; a API pública está acima.
+  __test: { vkWindows, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS },
 };
