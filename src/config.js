@@ -121,6 +121,13 @@ const config = {
   // --- Novidades v2.3: teclas configuráveis via .env ---
   teclado: {
     preset: getEnv('EMULADOR_PRESET', 'vbam'),
+    // --- Novidade v2.4: modo janela (teclas só no emulador) ---
+    // EMULADOR_EXE: caminho do .exe do emulador — define o alvo das teclas.
+    // Vazio = o bot PERGUNTA no terminal ao iniciar (e lembra a resposta).
+    emuladorExe: getEnv('EMULADOR_EXE'),
+    // MODO_TECLADO: janela (padrão — teclas vão SÓ para a janela do
+    // emulador) | global (comportamento antigo — teclas vão p/ janela em foco)
+    modo: getEnv('MODO_TECLADO', 'janela').toLowerCase(),
     teclas: {
       up: getEnv('TECLA_UP'),
       down: getEnv('TECLA_DOWN'),

@@ -14,6 +14,13 @@
  *    (Enter no terminal também funciona)
  *  - Aviso automático quando sai versão nova no GitHub
  *
+ * Novidade v2.4 (MODO JANELA — o chat controla SÓ o jogo):
+ *  - No boot o bot pergunta o .exe do emulador (ou lê EMULADOR_EXE do .env)
+ *    e passa a mandar as teclas DIRETO para a janela dele (PostMessage):
+ *    o streamer pode ficar no OBS sem as teclas do chat vazarem para lá.
+ *  - O caminho fica salvo em dados/emulador.json (Enter mantém o salvo).
+ *  - MODO_TECLADO=global devolve o comportamento antigo.
+ *
  * Uso:
  *   npm start
  *   node src/index.js
@@ -30,6 +37,7 @@ const teclado = require('./controllers/keyboard');
 const pausa = require('./utils/pausa');
 const overlay = require('./overlay');
 const atualizacao = require('./utils/atualizacao');
+const emulador = require('./utils/emulador');
 const { montarMapeamento } = require('./presets');
 const { msgChatPausado, msgChatLiberado } = require('./messages');
 const { verificarSistema, soltarTodasSync } = teclado;
@@ -67,6 +75,82 @@ async function encerrar(sinal) {
     logger.erro(`Erro no encerramento: ${err.message}`);
   }
   process.exit(0);
+}
+
+/**
+ * Pergunta/decide o emulador alvo ANTES de conectar o chat (v2.4).
+ * Ordem: MODO_TECLADO=global (força antigo) > EMULADOR_EXE do .env >
+ * prompt no terminal (com Enter mantendo o último salvo).
+ * Define o modo no controlador de teclado e reflete na overlay.
+ */
+async function configurarAlvoDoEmulador() {
+  const arquivoSalvo = path.resolve(process.cwd(), 'dados', 'emulador.json');
+
+  // 1) .env força o comportamento antigo — nem pergunta
+  if (config.teclado.modo === 'global') {
+    teclado.configurarAlvoJanela(null);
+    overlay.setAlvo(null);
+    logger.aviso('[Teclado] MODO_TECLADO=global no .env — teclas vão para a janela EM FOCO (comportamento antigo).');
+    return;
+  }
+
+  // 2) .env já define o caminho — usa direto
+  const doEnv = emulador.normalizarCaminhoExe(config.teclado.emuladorExe);
+  if (doEnv) {
+    teclado.configurarAlvoJanela(doEnv);
+    overlay.setAlvo(doEnv);
+    logger.info(`[Teclado] 🎯 EMULADOR_EXE do .env: ${doEnv}`);
+    if (!emulador.arquivoExiste(doEnv)) {
+      logger.aviso('[Teclado] ⚠️ Esse arquivo não existe agora — o bot avisa se não achar o emulador rodando.');
+    }
+    return;
+  }
+
+  const salvo = emulador.carregarSalvo(arquivoSalvo);
+
+  // 3) sem terminal interativo (serviço/CI): usa o salvo ou cai no global
+  if (!process.stdin.isTTY) {
+    if (salvo) {
+      teclado.configurarAlvoJanela(salvo);
+      overlay.setAlvo(salvo);
+      logger.info(`[Teclado] 🎯 Emulador salvo: ${salvo} — teclas do chat vão DIRETO para a janela dele.`);
+    } else {
+      teclado.configurarAlvoJanela(null);
+      overlay.setAlvo(null);
+      logger.aviso('[Teclado] Sem terminal interativo e sem emulador salvo — modo global (janela em foco).');
+    }
+    return;
+  }
+
+  // 4) pergunta o .exe (pedido do streamer: "antes de iniciar pede o .exe")
+  const pergunta = [
+    '🎮 Para o chat controlar SÓ O JOGO (você fica livre mexendo no OBS),',
+    '   cole o caminho do .exe do emulador. Ex.: C:\\Emuladores\\visualboyadvance-m.exe',
+    salvo
+      ? `   Enter = manter "${salvo}" · ou cole outro caminho · "global" = modo antigo:`
+      : '   Enter = modo global (teclas vão para a janela em foco) · ou cole um caminho:',
+    '> ',
+  ].join('\n');
+  const resposta = await emulador.perguntar(pergunta);
+  const decisao = emulador.decidirAlvo({ salvo, resposta });
+
+  if (decisao.salvar) {
+    emulador.salvarAlvo(arquivoSalvo, decisao.exe);
+  }
+
+  teclado.configurarAlvoJanela(decisao.exe);
+  overlay.setAlvo(decisao.exe);
+
+  if (decisao.exe) {
+    logger.info(`[Teclado] 🎯 Alvo definido (${decisao.origem}): ${decisao.exe}`);
+    logger.info('[Teclado] As teclas do chat vão DIRETO para a janela do emulador — pode clicar no OBS sem medo.');
+    if (!emulador.arquivoExiste(decisao.exe)) {
+      logger.aviso(`[Teclado] ⚠️ "${decisao.exe}" não existe agora. Se o caminho estiver errado, o bot avisa quando o emulador não for encontrado (reinicie para redigitar).`);
+    }
+  } else {
+    logger.info('[Teclado] Modo GLOBAL: as teclas do chat vão para a janela EM FOCO (igual às versões antigas).');
+    logger.info('[Teclado] Dica: reinicie e cole o caminho do .exe do emulador para ativar o modo janela.');
+  }
 }
 
 /**
@@ -187,6 +271,9 @@ async function main() {
   if (!validarConfig()) {
     process.exit(1);
   }
+
+  // Emulador alvo (v2.4): pergunta o .exe ANTES de mexer em qualquer tecla
+  await configurarAlvoDoEmulador();
 
   // Teclas customizáveis (v2.3) — antes de qualquer coisa tocar no teclado
   aplicarMapeamentoTeclas();

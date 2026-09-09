@@ -23,6 +23,7 @@
  */
 
 const http = require('http');
+
 const logger = require('./utils/logger');
 const { BOTOES } = require('./commands');
 
@@ -39,6 +40,8 @@ const estado = {
   pausado: false,
   conexoes: { twitch: false, youtube: false },
   acoes: [],
+  // v2.4: alvo do teclado (modo janela)
+  alvo: { ativo: false, nome: '' },
 };
 
 /** Provedores injetados pelo index.js (evita dependências circulares). */
@@ -70,6 +73,23 @@ function setConexao(plataforma, conectado) {
   if (plataforma === 'twitch' || plataforma === 'youtube') {
     estado.conexoes[plataforma] = Boolean(conectado);
   }
+}
+
+/**
+ * Define o emulador alvo do teclado (v2.4) — mostra no rodapé da overlay
+ * se as teclas estão indo só para o emulador (modo janela).
+ * @param {string|null} exe - caminho do .exe ou null (modo global)
+ */
+function setAlvo(exe) {
+  const caminho = String(exe || '').trim();
+  if (!caminho) {
+    estado.alvo = { ativo: false, nome: '' };
+    return;
+  }
+  // caminho pode ser do Windows (barras invertidas) — basename manual
+  // para mostrar só o nome do .exe em qualquer plataforma
+  const nome = caminho.replace(/\\/g, '/').split('/').filter(Boolean).pop() || caminho;
+  estado.alvo = { ativo: true, nome };
 }
 
 /**
@@ -105,6 +125,7 @@ function snapshot() {
     conexoes: { ...estado.conexoes },
     uptimeMs,
     acoes: estado.acoes,
+    alvo: { ...estado.alvo },
     seguradas: provedores.seguradas ? provedores.seguradas() : [],
     stats: {
       total: stats.total || 0,
@@ -291,7 +312,8 @@ const PAGINA = [
   '}',
   '.chip small { color: #c4b5fd; font-weight: 600; }',
   '/* ---------- rodapé ---------- */',
-  '.rodape { display: flex; justify-content: space-between; font-size: 14px; color: #7d8fa8; }',
+  '.rodape { display: flex; justify-content: space-between; font-size: 14px; color: #7d8fa8; gap: 10px; }',
+  '#alvo { color: #facc15; font-weight: 600; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
   '.reconectando { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;',
   '  background: rgba(11,13,19,0.88); font-size: 22px; font-weight: 700; color: #facc15; }',
   '</style>',
@@ -325,6 +347,7 @@ const PAGINA = [
   '      <div class="chips" id="seguradas"><span class="vazio">nada preso</span></div>',
   '    </div>',
   '    <div class="painel rodape" style="margin-top:auto">',
+  '      <span id="alvo" title="para onde as teclas do chat estão indo">⌨️ teclado global</span>',
   '      <span id="total">0 comandos</span>',
   '      <span id="uptime">0min</span>',
   '    </div>',
@@ -418,6 +441,14 @@ const PAGINA = [
   '  }',
   '  document.getElementById("total").textContent = (d.stats ? d.stats.total : 0) + " comandos";',
   '  document.getElementById("uptime").textContent = fmtUptime(d.uptimeMs);',
+  '  var alvoEl = document.getElementById("alvo");',
+  '  if (d.alvo && d.alvo.ativo) {',
+  '    alvoEl.textContent = "🎯 " + d.alvo.nome;',
+  '    alvoEl.title = "teclas do chat indo SÓ para: " + d.alvo.nome;',
+  '  } else {',
+  '    alvoEl.textContent = "⌨️ teclado global";',
+  '    alvoEl.title = "teclas do chat indo para a janela em foco";',
+  '  }',
   '}',
   'var falhas = 0;',
   'function ciclar() {',
@@ -446,6 +477,7 @@ module.exports = {
   setPausado,
   setConexao,
   setVersao,
+  setAlvo,
   configurarProvedores,
   PAGINA,
 };

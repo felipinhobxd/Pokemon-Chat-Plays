@@ -69,7 +69,7 @@ O diferencial desta versão:
 1. **Plug-and-play de verdade** — baixe o `.zip`, preencha o `.env`, dê dois cliques no `iniciar.bat`. Zero programação, zero compilação, zero build tools.
 2. **Hold real** — keydown e keyup separados: o chat consegue *segurar* uma tecla por segundos e *soltar* depois.
 3. **Feito para o Brasil** — comandos em português e inglês, mensagens formatadas com emojis, README 100% em PT-BR.
-4. **Robusto** — 90 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
+4. **Robusto** — 107 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
 5. **Kit completo do streamer** — tecla **F9** pausa o chat na hora, **overlay ao vivo pro OBS**, ranking **persistente** entre lives e aviso automático de versão nova.
 
 ---
@@ -131,7 +131,9 @@ Salve o `.env`, feche o Bloco de Notas e rode o `iniciar.bat` de novo.
 
 1. Abra o **emulador VBA-M** e carregue a ROM do jogo (File → Open);
 2. Confira se os controles estão no mapeamento padrão ([tabela abaixo](#o-emulador-visual-boy-advance));
-3. **Clique uma vez na janela do emulador** para deixá-lo em foco.
+3. Na primeira vez que o bot iniciar, ele vai **pedir o caminho do `.exe` do emulador** — cole o caminho (ex.: `C:\Program Files\visualboyadvance-m\visualboyadvance-m.exe`) e pronto: as teclas do chat passam a ir **SÓ para o jogo**, sem precisar deixar o emulador em foco.
+
+> 💡 Cole com botão direito no terminal (ou `Ctrl+Shift+V`). O caminho fica salvo — nas próximas vezes basta dar **ENTER** para manter.
 
 ### 6. VAI!
 
@@ -139,7 +141,7 @@ O bot conecta no seu canal e anuncia os comandos no chat. Manda um `up` aí de t
 
 > 💡 **Dicas de streamer:** aperte **F9** a qualquer momento para pausar o chat (aperte de novo para liberar) e coloque o **overlay ao vivo** no OBS (`http://localhost:8899` como fonte de navegador) para o chat ver as ações e o ranking em cima da gameplay. Veja [Ferramentas do streamer](#ferramentas-do-streamer-f9-overlay-e-mais).
 
-> ⚠️ **O emulador precisa estar em foco** para receber as teclas. Se você clicar em outra janela, os comandos vão parar no programa errado. Dica: deixe o emulador em modo janela ao lado do terminal do bot.
+> ✅ **v2.4 (modo janela):** o emulador NÃO precisa mais estar em foco — as teclas do chat vão direto para a janela dele, mesmo com você mexendo no OBS. É só responder o prompt do `.exe` no boot (ou configurar `EMULADOR_EXE` no `.env`). Se preferir o comportamento antigo, responda `global` no prompt ou use `MODO_TECLADO=global`.
 >
 > 🛡️ **O Windows mostrou "Protegeu seu PC"?** É normal — o `.exe` não tem assinatura digital porque é um projeto gratuito. Clique em **Mais informações → Executar mesmo assim**.
 >
@@ -358,6 +360,37 @@ Nomes de tecla aceitos: `up`, `down`, `left`, `right`, `enter`, `backspace`, `sp
 
 > 🆕 **Novo na v2.3.** O botão de pânico e o painel que faltavam pra live.
 
+### 🎯 Modo janela — o chat controla SÓ o jogo (v2.4)
+
+> 🆕 **Novo na v2.4.** Resolve o clássico: você está mexendo no OBS e o chat manda `up` — a tecla caía no OBS (troca de cena, abre menu...). Nunca mais.
+
+**Como funciona:** ao iniciar, o bot pergunta o caminho do `.exe` do emulador. A partir daí as teclas do chat são entregues **direto na janela do emulador** (via `PostMessage`) — input em segundo plano:
+
+- ✅ O jogo responde **mesmo com o emulador minimizado ou sem foco**;
+- ✅ Você fica livre no OBS, navegador, Discord — **nada vaza** para outras janelas;
+- ✅ O caminho fica **salvo** (`dados/emulador.json`): no próximo boot basta dar ENTER para manter;
+- ✅ O overlay mostra o alvo no rodapé (`🎯 visualboyadvance-m.exe`);
+- ✅ Se o emulador não estiver rodando, o bot avisa no terminal e **não manda tecla em lugar nenhum**.
+
+```text
+🎮 Para o chat controlar SÓ O JOGO (você fica livre mexendo no OBS),
+   cole o caminho do .exe do emulador. Ex.: C:\Emuladores\visualboyadvance-m.exe
+   Enter = modo global (teclas vão para a janela em foco) · ou cole um caminho:
+> C:\Emuladores\visualboyadvance-m.exe
+[Teclado] 🎯 Alvo definido (digitado): C:\Emuladores\visualboyadvance-m.exe
+[Teclado] 🎯 Emulador detectado: "VBA-M — Pokemon Esmeralda" — teclas do chat indo para lá.
+```
+
+Configuração sem prompt:
+
+| `.env` | Efeito |
+|---|---|
+| `EMULADOR_EXE=C:\...\emulador.exe` | Define o alvo direto (nem pergunta) |
+| `MODO_TECLADO=janela` | Padrão — teclas só no emulador |
+| `MODO_TECLADO=global` | Força o comportamento antigo (janela em foco) |
+
+Quem quiser voltar ao modo antigo na hora: reinicie e responda `global` no prompt (a escolha fica salva). Compatível com VBA-M, mGBA e DeSmuME; **RetroArch** lê o teclado por *polling* (não por mensagem) — nesse caso use `MODO_TECLADO=global`.
+
 ### 🛑 Tecla F9 — pausa o chat na hora
 
 Precisou assumir o jogo num momento crítico? **Aperte F9 em qualquer lugar** (funciona mesmo com o emulador em foco — não precisa clicar na janela do bot):
@@ -387,7 +420,7 @@ O que aparece na tela (atualiza a cada 1s, tudo em português):
 | **Status** | 🟢 CHAT NO CONTROLE ou ⛔ PAUSADO PELO STREAMER (pulsando) |
 | **Top jogadores** | Pódio 🥇🥈🥉 com barra de progresso |
 | **Segurando agora** | Chips com a tecla presa e contagem regressiva (ex.: `UP 5s`) |
-| **Cabeçalho/rodapé** | Versão, conexões Twitch/YouTube, total de comandos e uptime |
+| **Cabeçalho/rodapé** | Versão, conexões Twitch/YouTube, alvo do teclado (🎯 modo janela), total de comandos e uptime |
 
 A página é servida pelo próprio bot (zero dependências externas, sem internet), funciona dentro do `.exe` e é segura: nomes de usuários são escapados contra HTML malicioso. Não quer o servidor? `OVERLAY_ATIVA=false` no `.env`.
 
@@ -446,6 +479,8 @@ Todas as opções ficam no arquivo `.env` (copiado do `.env.example`). Esta é a
 | Variável | Padrão | Descrição |
 |---|:---:|---|
 | `EMULADOR_PRESET` | `vbam` | Layout do emulador: `vbam`, `mgba`, `desmume` ou `retroarch` |
+| `EMULADOR_EXE` | (pergunta no boot) | Caminho do `.exe` do emulador — ativa o **modo janela** (teclas só no jogo, sem precisar de foco). Vazio = o bot pergunta no início |
+| `MODO_TECLADO` | `janela` | `janela` = teclas vão SÓ para o emulador · `global` = comportamento antigo (janela em foco) |
 | `TECLA_A` ... `TECLA_SELECT` | (do preset) | Sobrescreve a tecla de UM botão (ex.: `TECLA_A=q`). Válidos: setas, `enter`, `backspace`, `space`, `tab`, `esc`, `shift`, `a`-`z`, `0`-`9` |
 
 ### Stats persistentes (v2.3)
@@ -498,7 +533,7 @@ Comparado ao projeto original que o inspirou, esta versão traz:
 - **Overlay embutida** — servidor HTTP próprio (sem dependências) servindo a página do OBS de dentro do `.exe`;
 - **Configuração via `.env`** — nada de credenciais escondidas no código;
 - **Logs coloridos com níveis** e arquivo de log por dia;
-- **90 testes automatizados** rodando offline com o `node:test` nativo;
+- **107 testes automatizados** rodando offline com o `node:test` nativo;
 - **CI no GitHub Actions** — os testes rodam antes de todo build do `.exe`;
 - **.exe gerado automaticamente** a cada tag `v*` via GitHub Actions;
 - **Setup interativo** (`npm run setup`) para quem nunca mexeu com `.env`.
@@ -531,7 +566,7 @@ Scripts disponíveis:
 | `npm start` | Inicia o bot |
 | `npm run dev` | Inicia com **auto-restart** ao editar o código (`node --watch`) |
 | `npm run setup` | Setup interativo (pergunta tudo e monta o `.env`) |
-| `npm test` | Roda os 90 testes automatizados |
+| `npm test` | Roda os 107 testes automatizados |
 | `npm run build` | Gera o `.exe` localmente (requer `pkg`) |
 
 ### Requisitos por sistema
@@ -550,7 +585,7 @@ Scripts disponíveis:
 npm test
 ```
 
-- **90 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
+- **107 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas, modo janela com PostMessage), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
 - **100% offline** — não precisa de emulador, Twitch nem credenciais;
 - **Compatível com Node 18, 20, 22 e 24+** (o wrapper `scripts/run-tests.js` lista os arquivos explicitamente, contornando as diferenças do runner entre versões);
 - Roda automaticamente no **CI antes de todo build** do `.exe`.
@@ -612,18 +647,20 @@ Pokemon-Chat-Plays/
     ├── controllers/
     │   ├── twitch.js          # Cliente Twitch (tmi.js) com fila de envio
     │   ├── youtube.js         # Cliente YouTube (googleapis)
-    │   └── keyboard.js        # Teclado assíncrono com hold (PowerShell/xdotool/osascript)
+    │   └── keyboard.js        # Teclado assíncrono com hold (PowerShell/xdotool/osascript) + modo janela (PostMessage)
     ├── utils/
     │   ├── logger.js          # Logger colorido com níveis
     │   ├── atualizacao.js    # Aviso de versão nova via API do GitHub
     │   ├── cooldown.js        # Anti-spam por usuário + global
     │   ├── pausa.js           # Botão de pânico: watcher da tecla F9 (PowerShell)
+    │   ├── emulador.js        # Pergunta/persiste o .exe alvo do modo janela (v2.4)
     │   └── stats.js           # Estatísticas persistentes (dados/stats.json)
-    └── tests/                 # 90 testes automatizados (node:test)
+    └── tests/                 # 107 testes automatizados (node:test)
         ├── commands.test.js
         ├── messages.test.js
         ├── handlers.test.js
         ├── keyboard.test.js
+        ├── janela.test.js
         ├── presets.test.js
         ├── overlay.test.js
         ├── pausa.test.js

@@ -28,6 +28,18 @@
  *    estendidas no keydown E no keyup (o keyup sem a flag certa nem solta
  *    a tecla de verdade, deixando ela presa no jogo).
  *
+ * Novidade da v2.4 (MODO JANELA — o chat controla SÓ o jogo):
+ *  - Problema: o keybd_event injeta teclas GLOBALMENTE — elas vão para a
+ *    janela em FOCO. Se o streamer está mexendo no OBS e o chat manda "up",
+ *    a tecla cai no OBS (muda de cena, abre menu...).
+ *  - Solução: classe PCP em C# que descobre a JANELA do emulador (pelo
+ *    caminho do .exe pedido no boot) e envia WM_KEYDOWN/WM_KEYUP direto
+ *    nela com PostMessage — input em SEGUNDO PLANO: funciona com o
+ *    emulador minimizado ou sem foco, e NÃO toca no OBS nem em nada mais.
+ *  - O caminho do .exe é perguntado no início (src/utils/emulador.js),
+ *    fica salvo em dados/emulador.json e pode vir do EMULADOR_EXE do .env.
+ *  - MODO_TECLADO=global no .env devolve o comportamento antigo.
+ *
  * Mapeamento padrão (compatível com VisualBoyAdvance-M):
  *   ⬆ up -> seta cima     ⬇ down -> seta baixo
  *   ⬅ left -> seta esq    ➡ right -> seta dir
@@ -57,6 +69,65 @@ const MAPEAMENTO_PADRAO = {
 
 let mapeamentoAtual = { ...MAPEAMENTO_PADRAO };
 const duracaoPadraoMs = () => config.geral.tempoPressionarTeclaMs;
+
+// ---------------------------------------------------------------------------
+// Modo JANELA (v2.4): teclas do chat vão SOMENTE para a janela do emulador
+// ---------------------------------------------------------------------------
+
+/** Modos de envio de teclas. */
+const MODO_GLOBAL = 'global';
+const MODO_JANELA = 'janela';
+
+/** Caminho do .exe do emulador que vai receber as techas (null = global). */
+let alvoExe = null;
+/** Modo atual de envio. */
+let modoTeclado = MODO_GLOBAL;
+
+/** Throttle dos avisos vindos do worker (WARN EMULADOR_OFF). */
+let ultimoWarnWorker = 0;
+/** Throttle das informações de janela detectada (JANELA ...). */
+let ultimoInfoWorker = 0;
+
+/**
+ * Define o emulador alvo. Com caminho: modo JANELA (PostMessage na janela
+ * do emulador). Sem caminho: modo GLOBAL (keybd_event, como sempre foi).
+ * Reinicia o worker para que o alvo seja compilado no boot.
+ * @param {string|null} exe
+ */
+function configurarAlvoJanela(exe) {
+  const novo = exe ? normalizarCaminhoAlvo(exe) : null;
+  alvoExe = novo;
+  modoTeclado = novo ? MODO_JANELA : MODO_GLOBAL;
+  if (worker.proc) {
+    // o alvo é compilado no boot do worker: mata o atual — a próxima
+    // tecla re-sobe o worker já com o novo alvo
+    try { worker.proc.kill(); } catch { /* já morreu */ }
+  }
+  if (novo) {
+    logger.info(`[Teclado] 🎯 Modo JANELA: teclas do chat vão DIRETO para o emulador (${novo}) — o resto do PC não é afetado.`);
+  } else {
+    logger.info('[Teclado] Modo GLOBAL: teclas do chat vão para a janela EM FOCO (comportamento antigo).');
+  }
+}
+
+/**
+ * Normaliza o caminho do alvo (remove aspas coladas, espaços, barras duplas).
+ * @param {string} exe
+ * @returns {string}
+ */
+function normalizarCaminhoAlvo(exe) {
+  let t = String(exe || '').trim();
+  const aspas = (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"));
+  if (aspas && t.length >= 2) t = t.slice(1, -1).trim();
+  // barras duplicadas de caminhos UNC mal colados
+  t = t.replace(/\\\\+/g, '\\');
+  return t;
+}
+
+/** @returns {boolean} true se o modo janela está ativo. */
+function modoJanela() {
+  return modoTeclado === MODO_JANELA && Boolean(alvoExe);
+}
 
 // ---------------------------------------------------------------------------
 // Tradução de teclas para cada backend
@@ -280,12 +351,144 @@ const PS_KEYBD = [
 ].join('\n');
 
 /**
- * Script de boot do worker residente: compila o P/Invoke UMA vez, avisa
- * "READY" e passa a executar cada linha recebida via stdin (uma tecla por
- * linha), respondendo "OK" ou "ERR <motivo>" no stdout.
+ * Fonte C# da classe PCP — teclas direto na JANELA do emulador (v2.4).
+ *
+ * Por que PostMessage em vez de keybd_event: o keybd_event injeta a tecla
+ * no TECLADO DO SISTEMA (vai para a janela em foco — OBS, navegador...).
+ * O PostMessage entrega WM_KEYDOWN/WM_KEYUP direto na fila de mensagens da
+ * janela do emulador: o jogo recebe MESMO SEM FOCO, e mais nada no PC é
+ * afetado. Funciona com VBA-M, mGBA e DeSmuME (todos leem teclado por
+ * mensagem). Se _alvo for null, cai no keybd_event antigo (modo global).
+ *
+ * ⚠️ Não pode conter aspas simples (é embutida numa string PS delimitada
+ * por '') — os testes garantem isso.
  */
-const PS_BOOT = [
-  PS_KEYBD,
+const CS_PCP = [
+  'using System;',
+  'using System.IO;',
+  'using System.Text;',
+  'using System.Collections.Generic;',
+  'using System.Diagnostics;',
+  'using System.Runtime.InteropServices;',
+  'public class PCP {',
+  '  [DllImport("user32.dll")]',
+  '  static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+  '  [DllImport("user32.dll")]',
+  '  static extern uint MapVirtualKey(uint uCode, uint uMapType);',
+  '  [DllImport("user32.dll", SetLastError = true)]',
+  '  static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);',
+  '  [DllImport("user32.dll")]',
+  '  static extern bool IsWindow(IntPtr hWnd);',
+  '  [DllImport("user32.dll")]',
+  '  static extern bool IsWindowVisible(IntPtr hWnd);',
+  '  [DllImport("user32.dll")]',
+  '  static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);',
+  '  [DllImport("user32.dll", CharSet = CharSet.Unicode)]',
+  '  static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);',
+  '  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);',
+  '  [DllImport("user32.dll")]',
+  '  static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);',
+  '  const uint WM_KEYDOWN = 0x0100;',
+  '  const uint WM_KEYUP = 0x0101;',
+  '  static string _alvo = null;',
+  '  static IntPtr _hwnd = IntPtr.Zero;',
+  '  static int _ultimaBusca = -100000;',
+  '  static bool _avisada = false;',
+  '  static HashSet<int> _pids = new HashSet<int>();',
+  '  public static void DefinirAlvo(string caminho) {',
+  '    if (String.IsNullOrEmpty(caminho)) { _alvo = null; }',
+  '    else { try { _alvo = Path.GetFullPath(caminho); } catch { _alvo = caminho; } }',
+  '    _hwnd = IntPtr.Zero;',
+  '    _avisada = false;',
+  '    _pids.Clear();',
+  '  }',
+  '  public static string Alvo() { return _alvo; }',
+  '  public static IntPtr Janela() { return _hwnd; }',
+  '  public static bool EhEstendido(int vk) {',
+  '    return vk == 0x21 || vk == 0x22 || vk == 0x23 || vk == 0x24',
+  '        || (vk >= 0x25 && vk <= 0x28)',
+  '        || vk == 0x2D || vk == 0x2E || vk == 0x5C || vk == 0x5D',
+  '        || vk == 0x6F || vk == 0x90;',
+  '  }',
+  '  public static uint MontarLParam(uint scan, bool estendida, bool down) {',
+  '    uint lp = 1u | (scan << 16);',
+  '    if (estendida) lp |= 0x01000000u;',
+  '    if (!down) lp |= 0xC0000000u;',
+  '    return lp;',
+  '  }',
+  '  static void Buscar() {',
+  '    _hwnd = IntPtr.Zero;',
+  '    int agora = Environment.TickCount;',
+  '    if (agora - _ultimaBusca < 2000) return;',
+  '    _ultimaBusca = agora;',
+  '    _pids.Clear();',
+  '    IntPtr achada = IntPtr.Zero;',
+  '    try {',
+  '      Process[] todos = Process.GetProcesses();',
+  '      foreach (Process p in todos) {',
+  '        try {',
+  '          string exe = null;',
+  '          try { exe = p.MainModule.FileName; } catch { }',
+  '          if (exe == null) continue;',
+  '          if (!String.Equals(exe, _alvo, StringComparison.OrdinalIgnoreCase)) continue;',
+  '          _pids.Add(p.Id);',
+  '          if (achada == IntPtr.Zero && p.MainWindowHandle != IntPtr.Zero) {',
+  '            achada = p.MainWindowHandle;',
+  '          }',
+  '        } catch { }',
+  '        finally { try { p.Dispose(); } catch { } }',
+  '      }',
+  '    } catch { }',
+  '    if (achada == IntPtr.Zero && _pids.Count > 0) {',
+  '      IntPtr porEnum = IntPtr.Zero;',
+  '      EnumWindows(delegate(IntPtr h, IntPtr l) {',
+  '        uint pid;',
+  '        GetWindowThreadProcessId(h, out pid);',
+  '        if (porEnum == IntPtr.Zero && _pids.Contains((int)pid) && IsWindowVisible(h)) {',
+  '          StringBuilder sb = new StringBuilder(64);',
+  '          if (GetWindowText(h, sb, 64) > 0) { porEnum = h; return false; }',
+  '        }',
+  '        return true;',
+  '      }, IntPtr.Zero);',
+  '      achada = porEnum;',
+  '    }',
+  '    if (achada != IntPtr.Zero) {',
+  '      _hwnd = achada;',
+  '      if (!_avisada) {',
+  '        _avisada = true;',
+  '        StringBuilder t = new StringBuilder(256);',
+  '        GetWindowText(_hwnd, t, 256);',
+  '        Console.Out.WriteLine("JANELA " + t.ToString());',
+  '      }',
+  '    }',
+  '  }',
+  '  public static void Env(int vk, int down) {',
+  '    if (_alvo == null) {',
+  '      uint scanG = MapVirtualKey((uint)vk, 0);',
+  '      uint flagsG = (down == 0 ? 2u : 0u) | (EhEstendido(vk) ? 1u : 0u);',
+  '      keybd_event((byte)vk, (byte)scanG, flagsG, UIntPtr.Zero);',
+  '      return;',
+  '    }',
+  '    if (_hwnd != IntPtr.Zero && !IsWindow(_hwnd)) { _hwnd = IntPtr.Zero; _avisada = false; }',
+  '    if (_hwnd == IntPtr.Zero) Buscar();',
+  '    if (_hwnd == IntPtr.Zero) { Console.Out.WriteLine("WARN EMULADOR_OFF"); return; }',
+  '    uint scan = MapVirtualKey((uint)vk, 0);',
+  '    uint lp = MontarLParam(scan, EhEstendido(vk), down != 0);',
+  '    PostMessage(_hwnd, down != 0 ? WM_KEYDOWN : WM_KEYUP, (IntPtr)vk, unchecked((IntPtr)(int)lp));',
+  '  }',
+  '}',
+];
+
+/** PS_PCP: compila a classe PCP (string PS de aspas simples multilinha). */
+const PS_PCP = [
+  "$sig = '",
+  ...CS_PCP,
+  "';",
+  'Add-Type -TypeDefinition $sig;',
+].join('\n');
+
+/** Loop stdin/stdout do worker residente (protocolo READY/OK/ERR). */
+const PS_LOOP = [
   "[Console]::Out.WriteLine('READY');",
   'while($true){',
   '  $l = [Console]::In.ReadLine();',
@@ -294,6 +497,20 @@ const PS_BOOT = [
   "  catch { [Console]::Out.WriteLine('ERR ' + $_.Exception.Message) }",
   '}',
 ].join('\n');
+
+/**
+ * Monta o script de boot do worker residente conforme o modo atual:
+ *  - janela: compila a PCP (PostMessage) + fixa o alvo + loop
+ *  - global: compila a KB (keybd_event) + loop — IGUAL às versões antigas
+ * @returns {string}
+ */
+function montarBootPS() {
+  if (modoJanela()) {
+    const alvoEscapado = alvoExe.replace(/'/g, "''");
+    return [PS_PCP, `[PCP]::DefinirAlvo('${alvoEscapado}');`, PS_LOOP].join('\n');
+  }
+  return [PS_KEYBD, PS_LOOP].join('\n');
+}
 
 /**
  * Monta o script PowerShell (modo compatível / encerramento) que
@@ -364,6 +581,47 @@ function linhaTap(vk, ms) {
   return `${linhaKey(vk, true)};[System.Threading.Thread]::Sleep(${Math.round(ms)});${linhaKey(vk, false)}`;
 }
 
+// ---------------------------------------------------------------------------
+// v2.4: linhas do MODO JANELA (teclas via [PCP]::Env -> PostMessage)
+// ---------------------------------------------------------------------------
+
+/**
+ * Linha PowerShell que pressiona/solta um VK NA JANELA DO EMULADOR.
+ * A classe PCP (compilada no boot do worker) resolve a janela pelo .exe,
+ * monta o lParam com scan code + flag estendida e faz o PostMessage.
+ * @param {number} vk
+ * @param {boolean} down
+ * @returns {string}
+ */
+function linhaKeyJanela(vk, down) {
+  return `[PCP]::Env(${vk},${down ? 1 : 0})`;
+}
+
+/** Toque completo NA JANELA DO EMULADOR: down + sleep + up. */
+function linhaTapJanela(vk, ms) {
+  return `${linhaKeyJanela(vk, true)};[System.Threading.Thread]::Sleep(${Math.round(ms)});${linhaKeyJanela(vk, false)}`;
+}
+
+/**
+ * Script avulso do MODO JANELA (worker indisponível / encerramento):
+ * compila a PCP, fixa o alvo e envia cada evento com PostMessage.
+ * @param {Array<{vk: number, down: boolean}>} eventos
+ * @param {number} [esperaMs]
+ * @param {string} exe - caminho do emulador alvo
+ * @returns {string}
+ */
+function scriptWindowsJanela(eventos, esperaMs = 0, exe = alvoExe) {
+  const alvoEscapado = String(exe || '').replace(/'/g, "''");
+  const partes = [PS_PCP, `[PCP]::DefinirAlvo('${alvoEscapado}');`];
+  for (const ev of eventos) {
+    partes.push(`${linhaKeyJanela(ev.vk, ev.down)};`);
+    if (ev.down && esperaMs > 0) {
+      partes.push(`Start-Sleep -Milliseconds ${Math.round(esperaMs)};`);
+    }
+  }
+  return partes.join('\n');
+}
+
 /** Conclui a ação em execução no worker (idempotente). */
 function finalizarAcaoWorker() {
   const a = worker.acao;
@@ -381,7 +639,7 @@ function liberarPendentes() {
   }
 }
 
-/** Processa uma linha de resposta do worker (READY/OK/ERR). */
+/** Processa uma linha de resposta do worker (READY/OK/ERR/WARN/JANELA). */
 function tratarLinhaWorker(linha) {
   if (linha === 'READY') {
     worker.pronto = true;
@@ -389,12 +647,36 @@ function tratarLinhaWorker(linha) {
     worker.chegouReady = true;
     worker.falhasBoot = 0;
     if (worker.timerReady) { clearTimeout(worker.timerReady); worker.timerReady = null; }
-    logger.info('[Teclado] Worker PowerShell ativo — teclas em ~1ms.');
+    logger.info(modoJanela()
+      ? '[Teclado] Worker PowerShell ativo (modo janela) — teclas direto no emulador, ~1ms.'
+      : '[Teclado] Worker PowerShell ativo — teclas em ~1ms.');
     liberarPendentes();
     return;
   }
   if (linha === 'OK') {
     finalizarAcaoWorker();
+    return;
+  }
+  if (linha.startsWith('WARN')) {
+    // aviso do worker (emulador não encontrado etc.) — não conclui a ação;
+    // o OK continua vindo em seguida. Log com throttle para não virar spam.
+    const agora = Date.now();
+    if (agora - ultimoWarnWorker > 10000) {
+      ultimoWarnWorker = agora;
+      if (linha.includes('EMULADOR_OFF')) {
+        logger.aviso(`[Teclado] ⚠️ Emulador não encontrado (${alvoExe}) — as teclas do chat NÃO foram enviadas. Abra o emulador, ou reinicie o bot para redigitar o caminho.`);
+      } else {
+        logger.aviso(`[Teclado] ${linha.slice(4).trim()}`);
+      }
+    }
+    return;
+  }
+  if (linha.startsWith('JANELA ')) {
+    const agora = Date.now();
+    if (agora - ultimoInfoWorker > 2000) {
+      ultimoInfoWorker = agora;
+      logger.info(`[Teclado] 🎯 Emulador detectado: "${linha.slice(7).trim()}" — teclas do chat indo para lá.`);
+    }
     return;
   }
   if (linha.startsWith('ERR')) {
@@ -413,7 +695,8 @@ function iniciarWorker() {
 
   let proc;
   try {
-    const encoded = Buffer.from(PS_BOOT, 'utf16le').toString('base64');
+    // boot conforme o modo: janela (PCP + PostMessage) ou global (KB)
+    const encoded = Buffer.from(montarBootPS(), 'utf16le').toString('base64');
     proc = spawn(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
@@ -553,7 +836,12 @@ function keyDown(tecla) {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
       if (worker.legacy) {
-        rodarPowerShell(scriptWindows([{ vk, down: true }]), 4000, concluir);
+        const script = modoJanela()
+          ? scriptWindowsJanela([{ vk, down: true }], 0, alvoExe)
+          : scriptWindows([{ vk, down: true }]);
+        rodarPowerShell(script, 4000, concluir);
+      } else if (modoJanela()) {
+        executarNoWorker(linhaKeyJanela(vk, true), 4000, concluir, `segurar ${tecla}`);
       } else {
         executarNoWorker(linhaKey(vk, true), 4000, concluir, `segurar ${tecla}`);
       }
@@ -588,7 +876,12 @@ function keyUp(tecla) {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
       if (worker.legacy) {
-        rodarPowerShell(scriptWindows([{ vk, down: false }]), 4000, concluir);
+        const script = modoJanela()
+          ? scriptWindowsJanela([{ vk, down: false }], 0, alvoExe)
+          : scriptWindows([{ vk, down: false }]);
+        rodarPowerShell(script, 4000, concluir);
+      } else if (modoJanela()) {
+        executarNoWorker(linhaKeyJanela(vk, false), 4000, concluir, `soltar ${tecla}`);
       } else {
         executarNoWorker(linhaKey(vk, false), 4000, concluir, `soltar ${tecla}`);
       }
@@ -624,7 +917,14 @@ function tocarTecla(tecla, durMs) {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
       if (worker.legacy) {
-        rodarPowerShell(scriptWindows([{ vk, down: true }, { vk, down: false }], duracao), duracao + 5000, concluir);
+        const script = modoJanela()
+          ? scriptWindowsJanela([{ vk, down: true }, { vk, down: false }], duracao, alvoExe)
+          : scriptWindows([{ vk, down: true }, { vk, down: false }], duracao);
+        rodarPowerShell(script, duracao + 5000, concluir);
+      } else if (modoJanela()) {
+        // o sleep do toque roda DENTRO do worker: a tecla fica mesmo
+        // pressionada por duracao ms antes do keyup (PostMessage)
+        executarNoWorker(linhaTapJanela(vk, duracao), duracao + 4000, concluir, `toque ${tecla}`);
       } else {
         // o sleep do toque roda DENTRO do worker: a tecla fica mesmo
         // pressionada por duracao ms antes do keyup
@@ -745,7 +1045,12 @@ function soltarTodasSync() {
     if (plat === 'win32') {
       const eventos = teclas.map((t) => ({ vk: vkWindows(t), down: false })).filter((e) => e.vk !== null);
       if (eventos.length > 0) {
-        const encoded = Buffer.from(scriptWindows(eventos), 'utf16le').toString('base64');
+        // no modo janela solta via PostMessage na janela do emulador;
+        // no modo global segue o keybd_event de sempre
+        const script = modoJanela()
+          ? scriptWindowsJanela(eventos, 0, alvoExe)
+          : scriptWindows(eventos);
+        const encoded = Buffer.from(script, 'utf16le').toString('base64');
         execFileSync('powershell.exe',
           ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
           { stdio: 'ignore', timeout: 5000 });
@@ -844,7 +1149,9 @@ async function verificarSistema() {
     return new Promise((resolve) => {
       const checar = () => {
         if (worker.pronto) {
-          logger.info('[Teclado] Backend Windows OK (PowerShell + keybd_event) — teclas instantâneas.');
+          logger.info(modoJanela()
+            ? '[Teclado] Backend Windows OK (PowerShell + PostMessage na janela do emulador) — teclas só no jogo.'
+            : '[Teclado] Backend Windows OK (PowerShell + keybd_event) — teclas instantâneas.');
           resolve(true);
         } else if (worker.legacy) {
           try {
@@ -892,9 +1199,27 @@ module.exports = {
   listarSeguradas,
   teclaSuportada,
   configurarMapeamento,
+  configurarAlvoJanela,
+  modoJanela,
   verificarSistema,
   MAPEAMENTO_PADRAO,
   // Expostos APENAS para os testes unitários (src/tests/keyboard.test.js)
   // — não use em produção; a API pública está acima.
-  __test: { vkWindows, keycodeMac, nomeXdotool, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS },
+  __test: {
+    vkWindows,
+    keycodeMac,
+    nomeXdotool,
+    flagsKeybd,
+    linhaKey,
+    linhaTap,
+    scriptWindows,
+    VK_ESTENDIDOS,
+    // --- v2.4: modo janela (PostMessage no emulador) ---
+    linhaKeyJanela,
+    linhaTapJanela,
+    scriptWindowsJanela,
+    montarBootPS,
+    normalizarCaminhoAlvo,
+    fontePCP: CS_PCP.join('\n'),
+  },
 };
