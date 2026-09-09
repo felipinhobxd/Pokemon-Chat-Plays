@@ -67,7 +67,8 @@ jobs:
       - name: Extrair versao da tag
         id: versao
         if: startsWith(github.ref, 'refs/tags/')
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $env:GITHUB_OUTPUT
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Criar Release no GitHub (com tag)
         if: startsWith(github.ref, 'refs/tags/')
