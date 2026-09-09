@@ -1,20 +1,23 @@
 /**
- * Controlador de teclado SEM dependências nativas — versão 2.2.
+ * Controlador de teclado SEM dependências nativas — versão 2.2.1.
  *
  * Backends por plataforma:
  *  - Windows: PowerShell + keybd_event (user32.dll) via -EncodedCommand
+ *             com WORKER RESIDENTE (processo único, teclas em ~1ms)
  *  - Linux:   xdotool (keydown / keyup / sleep)
  *  - macOS:   osascript + System Events (key code / key down / key up)
  *
- * Novidades da v2.2:
- *  - HOLD REAL: keydown e keyup são enviados separados, então o chat pode
- *    SEGURAR uma tecla por um tempo ("hold cima 3") e soltar depois ("soltar").
- *  - Duração de toque configurável em TODAS as plataformas (antes o Windows
- *    ignorava KEY_PRESS_DURATION_MS por causa do SendKeys).
- *  - Execução ASSÍNCRONA com fila sequencial (spawn em vez de execFileSync):
- *    o event loop do Node nunca bloqueia enquanto as teclas são enviadas.
- *  - macOS corrigido: setas agora usam "key code" (antes "keystroke Up_Arrow"
- *    não funcionava).
+ * Correções da v2.2.1 (teclas não chegavam no jogo!):
+ *  - O tempo do toque agora fica ENTRE o keydown e o keyup. Na v2.2.0 o
+ *    Start-Sleep era inserido no lugar errado (antes do keydown), então o
+ *    toque durava 0ms e emuladores que leem o teclado por quadro (VBA-M/SDL)
+ *    simplesmente não viam a tecla.
+ *  - O keybd_event agora envia o SCAN CODE da tecla (via MapVirtualKey).
+ *    Vários jogos/emuladores ignoram teclas sintéticas sem scan code.
+ *  - PowerShell RODANDO EM SEGUNDO PLANO: o P/Invoke é compilado UMA vez
+ *    e cada tecla é enviada por stdin (era ~1,5s por tecla abrindo um
+ *    PowerShell novo a cada comando; agora é ~1ms).
+ *  - Erros do PowerShell agora APARECEM no terminal (antes eram engolidos).
  *
  * Mapeamento padrão (compatível com VisualBoyAdvance-M):
  *   ⬆ up -> seta cima     ⬇ down -> seta baixo
@@ -201,41 +204,62 @@ function rodarProcesso(comando, args, timeoutMs, aoTerminar) {
 }
 
 // ---------------------------------------------------------------------------
-// Windows: PowerShell + keybd_event (permite keydown/keyup separados!)
+// Windows: PowerShell + keybd_event com WORKER RESIDENTE
 // ---------------------------------------------------------------------------
 
-/** Cabeçalho C# com o P/Invoke do keybd_event (compilado uma vez por script). */
+/** Cabeçalho C# com os P/Invokes do keybd_event e MapVirtualKey. */
 const PS_KEYBD = [
-  '$sig = \'using System.Runtime.InteropServices;',
+  "$sig = 'using System;",
+  'using System.Runtime.InteropServices;',
   'public class KB {',
   '  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
-  '}\';',
+  '  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint uCode, uint uMapType);',
+  "}';",
   'Add-Type -TypeDefinition $sig;',
-].join(' ');
+].join('\n');
 
 /**
- * Monta o script PowerShell que pressiona/solta teclas do Windows.
+ * Script de boot do worker residente: compila o P/Invoke UMA vez, avisa
+ * "READY" e passa a executar cada linha recebida via stdin (uma tecla por
+ * linha), respondendo "OK" ou "ERR <motivo>" no stdout.
+ */
+const PS_BOOT = [
+  PS_KEYBD,
+  "[Console]::Out.WriteLine('READY');",
+  'while($true){',
+  '  $l = [Console]::In.ReadLine();',
+  "  if($null -eq $l -or $l -eq 'QUIT'){ break }",
+  "  try { Invoke-Expression $l; [Console]::Out.WriteLine('OK') }",
+  "  catch { [Console]::Out.WriteLine('ERR ' + $_.Exception.Message) }",
+  '}',
+].join('\n');
+
+/**
+ * Monta o script PowerShell (modo compatível / encerramento) que
+ * pressiona/solta teclas do Windows.
+ * IMPORTANTE: esperaMs é o tempo ENTRE o keydown e o keyup — é isso que faz
+ * o "toque" existir de verdade para o jogo (na v2.2.0 era inserido antes
+ * do keydown e o toque durava 0ms).
  * @param {Array<{vk: number, down: boolean}>} eventos
- * @param {number} [esperaMs] - Pausa entre o primeiro down e o up (tap)
+ * @param {number} [esperaMs] - Pausa entre o down e o up (tap)
  * @returns {string} Script PowerShell pronto
  */
-function scriptWindows(eventos, esperaMs) {
+function scriptWindows(eventos, esperaMs = 0) {
   const partes = [PS_KEYBD];
   for (const ev of eventos) {
     const flags = ev.down ? 0 : 2; // 0 = keydown, 2 = KEYEVENTF_KEYUP
-    partes.push(`[KB]::keybd_event(${ev.vk},0,${flags},[UIntPtr]::Zero);`);
+    partes.push(`[KB]::keybd_event(${ev.vk},[KB]::MapVirtualKey(${ev.vk},0),${flags},[UIntPtr]::Zero);`);
+    // o sleep vem DEPOIS do keydown (e antes do keyup que segue no tap)
+    if (ev.down && esperaMs > 0) {
+      partes.push(`Start-Sleep -Milliseconds ${Math.round(esperaMs)};`);
+    }
   }
-  if (esperaMs > 0) {
-    // insere o sleep antes do keyup (o tap tem formato down;sleep;up)
-    const idxDown = partes.findIndex((p) => p.includes('keybd_event'));
-    partes.splice(idxDown + 1, 0, `Start-Sleep -Milliseconds ${esperaMs};`);
-  }
-  return partes.join('');
+  return partes.join('\n');
 }
 
 /**
- * Executa um script PowerShell via -EncodedCommand (Base64 UTF-16LE).
- * Esse formato elimina completamente problemas de escape de aspas.
+ * Executa um script PowerShell avulso via -EncodedCommand (Base64 UTF-16LE).
+ * Usado apenas no modo compatível (worker indisponível) e no encerramento.
  * @param {string} script - Script PowerShell
  * @param {number} timeoutMs
  * @param {() => void} aoTerminar
@@ -248,6 +272,209 @@ function rodarPowerShell(script, timeoutMs, aoTerminar) {
     timeoutMs,
     aoTerminar
   );
+}
+
+// ---------------------------------------------------------------------------
+// Worker PowerShell residente (Windows): rápido e com erros visíveis
+// ---------------------------------------------------------------------------
+
+/** Estado do worker PowerShell residente. */
+const worker = {
+  proc: null,       // processo filho do PowerShell
+  pronto: false,    // recebeu READY?
+  booting: false,   // está subindo agora
+  chegouReady: false, // este processo chegou a ficar pronto alguma vez?
+  buffer: '',       // buffer do stdout
+  acao: null,       // { concluir, timeoutId, desc } da ação em execução
+  pendentes: [],    // ações aguardando o worker subir
+  timerReady: null,
+  falhasBoot: 0,
+  legacy: false,    // true = worker não sobe; usar spawn por tecla
+};
+
+/** Linha PowerShell que pressiona (down=true) ou solta (down=false) um VK. */
+function linhaKey(vk, down) {
+  const flags = down ? 0 : 2;
+  return `[KB]::keybd_event(${vk},[KB]::MapVirtualKey(${vk},0),${flags},[UIntPtr]::Zero)`;
+}
+
+/** Linha PowerShell que dá um toque completo: down + sleep + up. */
+function linhaTap(vk, ms) {
+  return `${linhaKey(vk, true)};[System.Threading.Thread]::Sleep(${Math.round(ms)});${linhaKey(vk, false)}`;
+}
+
+/** Conclui a ação em execução no worker (idempotente). */
+function finalizarAcaoWorker() {
+  const a = worker.acao;
+  if (!a) return;
+  worker.acao = null;
+  if (a.timeoutId) clearTimeout(a.timeoutId);
+  a.concluir();
+}
+
+/** Envia as ações que esperavam o worker ficar pronto. */
+function liberarPendentes() {
+  const pend = worker.pendentes.splice(0);
+  for (const p of pend) {
+    enviarParaWorker(p.linha, p.timeoutMs, p.concluir, p.desc);
+  }
+}
+
+/** Processa uma linha de resposta do worker (READY/OK/ERR). */
+function tratarLinhaWorker(linha) {
+  if (linha === 'READY') {
+    worker.pronto = true;
+    worker.booting = false;
+    worker.chegouReady = true;
+    worker.falhasBoot = 0;
+    if (worker.timerReady) { clearTimeout(worker.timerReady); worker.timerReady = null; }
+    logger.info('[Teclado] Worker PowerShell ativo — teclas em ~1ms.');
+    liberarPendentes();
+    return;
+  }
+  if (linha === 'OK') {
+    finalizarAcaoWorker();
+    return;
+  }
+  if (linha.startsWith('ERR')) {
+    logger.erro(`[Teclado] PowerShell rejeitou a tecla: ${linha.slice(3).trim()}`);
+    finalizarAcaoWorker();
+  }
+}
+
+/** Sobe o worker do PowerShell (se ainda não existir). */
+function iniciarWorker() {
+  if (worker.proc || worker.booting || worker.legacy) return;
+  worker.booting = true;
+  worker.chegouReady = false;
+  worker.pronto = false;
+  worker.buffer = '';
+
+  let proc;
+  try {
+    const encoded = Buffer.from(PS_BOOT, 'utf16le').toString('base64');
+    proc = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+  } catch (err) {
+    worker.booting = false;
+    worker.legacy = true;
+    logger.erro(`[Teclado] PowerShell indisponível (${err.message}) — usando modo compatível.`);
+    const pend = worker.pendentes.splice(0);
+    for (const p of pend) p.concluir();
+    return;
+  }
+  worker.proc = proc;
+
+  proc.stdin.on('error', () => { /* EPIPE: o exit do worker cuida da limpeza */ });
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', (chunk) => {
+    worker.buffer += chunk;
+    let idx;
+    while ((idx = worker.buffer.indexOf('\n')) >= 0) {
+      const linha = worker.buffer.slice(0, idx).trim();
+      worker.buffer = worker.buffer.slice(idx + 1);
+      if (linha) tratarLinhaWorker(linha);
+    }
+  });
+
+  // erros do PowerShell agora APARECEM no terminal (antes eram engolidos).
+  // Quando o stderr é redirecionado, o PowerShell serializa erros em CLIXML
+  // (XML) — extraímos o texto legível de dentro dele.
+  let erroJaLogado = false;
+  proc.stderr.setEncoding('utf8');
+  proc.stderr.on('data', (chunk) => {
+    if (erroJaLogado) return;
+    erroJaLogado = true;
+    const txt = String(chunk);
+    let msg = '';
+    const partes = txt.match(/<S S="Error">([\s\S]*?)<\/S>/g) || [];
+    if (partes.length > 0) {
+      msg = partes
+        .map((p) => p.replace(/<[^>]+>/g, '').replace(/_x000A_/g, ' ').trim())
+        .join(' ')
+        .trim();
+    } else {
+      msg = txt.split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#') && !l.startsWith('<'))[0] || '';
+    }
+    if (msg) logger.erro(`[Teclado] PowerShell (worker): ${msg.slice(0, 300)}`);
+  });
+
+  proc.on('exit', () => {
+    if (worker.proc !== proc) return; // já substituído por outro worker
+    worker.proc = null;
+    worker.pronto = false;
+    worker.booting = false;
+    if (worker.timerReady) { clearTimeout(worker.timerReady); worker.timerReady = null; }
+    // destrava a ação em execução e as pendências (a fila nunca trava)
+    finalizarAcaoWorker();
+    const pend = worker.pendentes.splice(0);
+    for (const p of pend) p.concluir();
+    if (!worker.chegouReady) {
+      worker.falhasBoot += 1;
+      if (worker.falhasBoot >= 2) {
+        worker.legacy = true;
+        logger.aviso('[Teclado] Worker não sobe neste Windows — modo compatível (spawn por tecla, mais lento).');
+      }
+    }
+  });
+
+  proc.on('error', (err) => {
+    logger.erro(`[Teclado] Worker PowerShell falhou: ${err.message}`);
+    if (worker.proc !== proc) return;
+    worker.legacy = true;
+    worker.proc = null;
+    worker.booting = false;
+    finalizarAcaoWorker();
+    const pend = worker.pendentes.splice(0);
+    for (const p of pend) p.concluir();
+  });
+
+  // o READY (compilação do Add-Type) deve chegar em até 25s
+  worker.timerReady = setTimeout(() => {
+    if (!worker.pronto && worker.proc === proc) {
+      logger.erro('[Teclado] Worker PowerShell não ficou pronto em 25s — reiniciando...');
+      try { proc.kill(); } catch { /* já morreu */ }
+    }
+  }, 25000);
+}
+
+/**
+ * Envia uma linha de comando ao worker (ou enfileira enquanto ele sobe).
+ * @param {string} linha - Comando PowerShell de UMA linha
+ * @param {number} timeoutMs - Tempo máximo esperando o OK
+ * @param {() => void} concluir - Callback de conclusão da fila
+ * @param {string} desc - Descrição para logs de erro
+ */
+function executarNoWorker(linha, timeoutMs, concluir, desc) {
+  if (!worker.pronto || !worker.proc) {
+    worker.pendentes.push({ linha, timeoutMs, concluir, desc });
+    iniciarWorker();
+    return;
+  }
+  enviarParaWorker(linha, timeoutMs, concluir, desc);
+}
+
+/** Escreve a linha no stdin do worker e agenda o timeout da ação. */
+function enviarParaWorker(linha, timeoutMs, concluir, desc) {
+  const proc = worker.proc;
+  if (!proc || !worker.pronto) { concluir(); return; }
+  worker.acao = { concluir, timeoutId: null, desc };
+  worker.acao.timeoutId = setTimeout(() => {
+    logger.erro(`[Teclado] Worker não respondeu (${desc}) — reiniciando...`);
+    if (worker.proc) { try { worker.proc.kill(); } catch { /* já morreu */ } }
+    finalizarAcaoWorker();
+  }, timeoutMs);
+  try {
+    proc.stdin.write(linha + '\n');
+  } catch (err) {
+    logger.erro(`[Teclado] Falha ao enviar tecla ao worker: ${err.message}`);
+    finalizarAcaoWorker();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +491,11 @@ function keyDown(tecla) {
     if (plat === 'win32') {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
-      rodarPowerShell(scriptWindows([{ vk, down: true }]), 4000, concluir);
+      if (worker.legacy) {
+        rodarPowerShell(scriptWindows([{ vk, down: true }]), 4000, concluir);
+      } else {
+        executarNoWorker(linhaKey(vk, true), 4000, concluir, `segurar ${tecla}`);
+      }
     } else if (plat === 'linux') {
       const nome = nomeXdotool(tecla);
       if (!nome) { concluir(); return; }
@@ -295,7 +526,11 @@ function keyUp(tecla) {
     if (plat === 'win32') {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
-      rodarPowerShell(scriptWindows([{ vk, down: false }]), 4000, concluir);
+      if (worker.legacy) {
+        rodarPowerShell(scriptWindows([{ vk, down: false }]), 4000, concluir);
+      } else {
+        executarNoWorker(linhaKey(vk, false), 4000, concluir, `soltar ${tecla}`);
+      }
     } else if (plat === 'linux') {
       const nome = nomeXdotool(tecla);
       if (!nome) { concluir(); return; }
@@ -327,7 +562,13 @@ function tocarTecla(tecla, durMs) {
     if (plat === 'win32') {
       const vk = vkWindows(tecla);
       if (vk === null) { concluir(); return; }
-      rodarPowerShell(scriptWindows([{ vk, down: true }, { vk, down: false }], duracao), duracao + 5000, concluir);
+      if (worker.legacy) {
+        rodarPowerShell(scriptWindows([{ vk, down: true }, { vk, down: false }], duracao), duracao + 5000, concluir);
+      } else {
+        // o sleep do toque roda DENTRO do worker: a tecla fica mesmo
+        // pressionada por duracao ms antes do keyup
+        executarNoWorker(linhaTap(vk, duracao), duracao + 4000, concluir, `toque ${tecla}`);
+      }
     } else if (plat === 'linux') {
       const nome = nomeXdotool(tecla);
       if (!nome) { concluir(); return; }
@@ -511,14 +752,33 @@ function configurarMapeamento(novoMapa) {
 async function verificarSistema() {
   const plat = process.platform;
   if (plat === 'win32') {
-    try {
-      execFileSync('powershell.exe', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion'], { stdio: 'ignore', timeout: 8000 });
-      logger.info('[Teclado] Backend Windows (PowerShell + keybd_event) OK.');
-      return true;
-    } catch {
-      logger.erro('[Teclado] PowerShell não encontrado neste Windows. Isso é muito raro.');
-      return false;
-    }
+    // Sobe o worker com antecedência: o Add-Type compila 1x aqui, e a
+    // primeira tecla do chat já sai instantânea.
+    iniciarWorker();
+    const inicio = Date.now();
+    return new Promise((resolve) => {
+      const checar = () => {
+        if (worker.pronto) {
+          logger.info('[Teclado] Backend Windows OK (PowerShell + keybd_event) — teclas instantâneas.');
+          resolve(true);
+        } else if (worker.legacy) {
+          try {
+            execFileSync('powershell.exe', ['-NoProfile', '-Command', 'exit 0'], { stdio: 'ignore', timeout: 8000 });
+            logger.aviso('[Teclado] Backend Windows em modo compatível (spawn por tecla, mais lento).');
+            resolve(true);
+          } catch {
+            logger.erro('[Teclado] PowerShell não encontrado neste Windows. Isso é muito raro.');
+            resolve(false);
+          }
+        } else if (Date.now() - inicio > 30000) {
+          logger.erro('[Teclado] PowerShell não respondeu — as teclas podem não funcionar.');
+          resolve(false);
+        } else {
+          setTimeout(checar, 250);
+        }
+      };
+      checar();
+    });
   }
   if (plat === 'linux') {
     try {

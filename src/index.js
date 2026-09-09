@@ -19,6 +19,16 @@ const stats = require('./utils/stats');
 const teclado = require('./controllers/keyboard');
 const { verificarSistema, soltarTodasSync } = teclado;
 
+// Silencia avisos experimentais (ex.: "Fetch API is an experimental feature"
+// no Node 18 do .exe) para não poluir o terminal durante a live.
+process.on('warning', (aviso) => {
+  if (aviso && String(aviso.name).includes('ExperimentalWarning')) return;
+  console.error(aviso && aviso.stack ? aviso.stack : aviso);
+});
+
+// Versão lida do package.json (mantém o banner sempre em dia)
+const { version: VERSAO } = require('../package.json');
+
 // Trata Ctrl+C e encerramento limpo
 let encerrando = false;
 
@@ -42,8 +52,9 @@ async function encerrar(sinal) {
  * Função principal.
  */
 async function main() {
+  const versaoEspacada = `v${VERSAO}`.padEnd(10);
   logger.info('╔══════════════════════════════════════════╗');
-  logger.info('║   🎮  POKÉMON CHAT PLAYS  v2.2.0        ║');
+  logger.info(`║   🎮  POKÉMON CHAT PLAYS  ${versaoEspacada.padEnd(11)}  ║`);
   logger.info('║   SindromeGames Edition                  ║');
   logger.info('╚══════════════════════════════════════════╝');
   logger.info(`Plataformas ativas: ${config.geral.plataformasAtivas.join(', ') || 'nenhuma'}`);
