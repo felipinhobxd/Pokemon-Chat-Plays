@@ -16,7 +16,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test \"src/tests/**/*.test.js\"",
+    "test": "node --test src/tests/",
     "setup": "node scripts/setup.js",
     "build": "node scripts/build.js"
   },
