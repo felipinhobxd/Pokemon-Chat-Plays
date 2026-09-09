@@ -69,7 +69,7 @@ O diferencial desta versão:
 1. **Plug-and-play de verdade** — baixe o `.zip`, preencha o `.env`, dê dois cliques no `iniciar.bat`. Zero programação, zero compilação, zero build tools.
 2. **Hold real** — keydown e keyup separados: o chat consegue *segurar* uma tecla por segundos e *soltar* depois.
 3. **Feito para o Brasil** — comandos em português e inglês, mensagens formatadas com emojis, README 100% em PT-BR.
-4. **Robusto** — 107 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
+4. **Robusto** — 112 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
 5. **Kit completo do streamer** — tecla **F9** pausa o chat na hora, **overlay ao vivo pro OBS**, ranking **persistente** entre lives e aviso automático de versão nova.
 
 ---
@@ -432,6 +432,16 @@ As estatísticas agora ficam salvas em `dados/stats.json` (autosave a cada 30s +
 
 Ao iniciar, o bot checa no GitHub se saiu release mais nova e mostra o link do download no terminal — nunca mais você fica rodando `.exe` antigo com bug já corrigido. (Sem internet? Fica em silêncio, sem erro.) Desative com `VERIFICAR_ATUALIZACAO=false`.
 
+### ⚡ Auditoria de performance (v2.4.1)
+
+Passe de bateria completo no código com foco em latência e robustez:
+
+- **Log em disco sem travar o chat** — o arquivo de log era gravado linha a linha de forma síncrona (uma operação de disco a cada comando, bloqueando o bot); agora as linhas são acumuladas e gravadas em lote a cada 2s, fora do caminho crítico (**~30× menos tempo por comando**, e nada se perde no `Ctrl+C`);
+- **Busca da janela do emulador mais leve** — em vez de varrer todos os processos do Windows lendo o caminho de cada `.exe` (lento e cheio de exceção em processo protegido), o bot filtra direto pelo nome do emulador;
+- **Fila de teclas blindada** — se o worker do PowerShell reinicia no meio de uma rajada de comandos, todas as ações pendentes agora são concluídas em ordem (a fila nunca trava);
+- **Twitch nunca desiste sozinho** — se a primeira conexão falhar (internet caiu no boot), o bot tenta de novo a cada 15s; e se o problema for token inválido, ele avisa na hora em vez de re-tentar à toa;
+- **Ctrl+C com teto de tempo** — o encerramento espera no máximo alguns segundos por cada cliente (overlay/Twitch/YouTube) antes de sair — nunca fica preso.
+
 ---
 
 ## Configuração (referência do .env)
@@ -533,7 +543,7 @@ Comparado ao projeto original que o inspirou, esta versão traz:
 - **Overlay embutida** — servidor HTTP próprio (sem dependências) servindo a página do OBS de dentro do `.exe`;
 - **Configuração via `.env`** — nada de credenciais escondidas no código;
 - **Logs coloridos com níveis** e arquivo de log por dia;
-- **107 testes automatizados** rodando offline com o `node:test` nativo;
+- **112 testes automatizados** rodando offline com o `node:test` nativo;
 - **CI no GitHub Actions** — os testes rodam antes de todo build do `.exe`;
 - **.exe gerado automaticamente** a cada tag `v*` via GitHub Actions;
 - **Setup interativo** (`npm run setup`) para quem nunca mexeu com `.env`.
@@ -566,7 +576,7 @@ Scripts disponíveis:
 | `npm start` | Inicia o bot |
 | `npm run dev` | Inicia com **auto-restart** ao editar o código (`node --watch`) |
 | `npm run setup` | Setup interativo (pergunta tudo e monta o `.env`) |
-| `npm test` | Roda os 107 testes automatizados |
+| `npm test` | Roda os 112 testes automatizados |
 | `npm run build` | Gera o `.exe` localmente (requer `pkg`) |
 
 ### Requisitos por sistema
@@ -585,7 +595,7 @@ Scripts disponíveis:
 npm test
 ```
 
-- **107 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas, modo janela com PostMessage), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
+- **112 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas, modo janela com PostMessage), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
 - **100% offline** — não precisa de emulador, Twitch nem credenciais;
 - **Compatível com Node 18, 20, 22 e 24+** (o wrapper `scripts/run-tests.js` lista os arquivos explicitamente, contornando as diferenças do runner entre versões);
 - Roda automaticamente no **CI antes de todo build** do `.exe`.
@@ -655,7 +665,7 @@ Pokemon-Chat-Plays/
     │   ├── pausa.js           # Botão de pânico: watcher da tecla F9 (PowerShell)
     │   ├── emulador.js        # Pergunta/persiste o .exe alvo do modo janela (v2.4)
     │   └── stats.js           # Estatísticas persistentes (dados/stats.json)
-    └── tests/                 # 107 testes automatizados (node:test)
+    └── tests/                 # 112 testes automatizados (node:test)
         ├── commands.test.js
         ├── messages.test.js
         ├── handlers.test.js

@@ -21,6 +21,14 @@ const overlay = require('../overlay');
 let cliente = null;
 let canal = '';
 let intervaloAnuncio = null;
+let timerRetry = null;
+let parado = false;
+
+// Intervalo de retentativa quando a PRIMEIRA conexão falha (v2.4.1).
+// Depois de conectado, o próprio tmi.js reconecta sozinho (reconnect: true)
+// — mas se o connect() inicial falha (internet caiu no boot, Twitch fora do
+// ar), nada mais tentava: o bot ficava vivo e morto. Agora ele insiste.
+const RETRY_CONEXAO_MS = 15000;
 
 // ---------------------------------------------------------------------------
 // Fila de envio (anti rate-limit)
@@ -103,7 +111,6 @@ async function iniciar() {
     overlay.setConexao('twitch', true);
     iniciarAnunciosAutomaticos();
   });
-
   cliente.on('disconnected', (motivo) => {
     logger.aviso(`[Twitch] Desconectado: ${motivo}`);
     overlay.setConexao('twitch', false);
@@ -125,12 +132,40 @@ async function iniciar() {
   });
 
   try {
+    parado = false;
     await cliente.connect();
     return cliente;
   } catch (err) {
-    logger.erro(`[Twitch] Falha ao conectar: ${err.message}`);
+    // tmi rejeita com string às vezes ("Login authentication failed")
+    const motivo = (err && err.message) || String(err || 'motivo desconhecido');
+    logger.erro(`[Twitch] Falha ao conectar: ${motivo}`);
+    // token/oauth inválido não se resolve sozinho — não adianta re-tentar
+    if (!/authenticat|login|oauth|token|senha/i.test(motivo)) {
+      agendarReconexaoInicial();
+    } else {
+      logger.erro('[Twitch] Parece problema de credencial — confira o TWITCH_OAUTH_TOKEN no .env.');
+    }
     return null;
   }
+}
+
+/**
+ * Agenda uma nova tentativa de conexão (primeira conexão falhou).
+ * O 'connected' do tmi cuida do overlay/anúncios quando der certo.
+ */
+function agendarReconexaoInicial() {
+  if (timerRetry || parado || !cliente) return;
+  timerRetry = setTimeout(async () => {
+    timerRetry = null;
+    if (parado || !cliente) return;
+    logger.twitch('Tentando conectar ao Twitch de novo...');
+    try {
+      await cliente.connect();
+    } catch {
+      agendarReconexaoInicial(); // continua insistindo a cada 15s
+    }
+  }, RETRY_CONEXAO_MS);
+  timerRetry.unref?.();
 }
 
 /**
@@ -176,6 +211,11 @@ function enviarMensagem(mensagem) {
  * Desconecta o cliente Twitch.
  */
 async function parar() {
+  parado = true;
+  if (timerRetry) {
+    clearTimeout(timerRetry);
+    timerRetry = null;
+  }
   pararAnunciosAutomaticos();
   if (cliente) {
     try {

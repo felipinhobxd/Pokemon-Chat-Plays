@@ -105,6 +105,9 @@ function configurarAlvoJanela(exe) {
   }
   if (novo) {
     logger.info(`[Teclado] 🎯 Modo JANELA: teclas do chat vão DIRETO para o emulador (${novo}) — o resto do PC não é afetado.`);
+    if (process.platform !== 'win32') {
+      logger.aviso('[Teclado] ⚠️ Modo janela só funciona no Windows — neste sistema as teclas vão para a janela em foco.');
+    }
   } else {
     logger.info('[Teclado] Modo GLOBAL: teclas do chat vão para a janela EM FOCO (comportamento antigo).');
   }
@@ -391,13 +394,17 @@ const CS_PCP = [
   '  const uint WM_KEYDOWN = 0x0100;',
   '  const uint WM_KEYUP = 0x0101;',
   '  static string _alvo = null;',
+  '  static string _alvoNome = null;',
   '  static IntPtr _hwnd = IntPtr.Zero;',
   '  static int _ultimaBusca = -100000;',
   '  static bool _avisada = false;',
   '  static HashSet<int> _pids = new HashSet<int>();',
   '  public static void DefinirAlvo(string caminho) {',
-  '    if (String.IsNullOrEmpty(caminho)) { _alvo = null; }',
-  '    else { try { _alvo = Path.GetFullPath(caminho); } catch { _alvo = caminho; } }',
+  '    if (String.IsNullOrEmpty(caminho)) { _alvo = null; _alvoNome = null; }',
+  '    else {',
+  '      try { _alvo = Path.GetFullPath(caminho); } catch { _alvo = caminho; }',
+  '      try { _alvoNome = Path.GetFileNameWithoutExtension(_alvo); } catch { _alvoNome = null; }',
+  '    }',
   '    _hwnd = IntPtr.Zero;',
   '    _avisada = false;',
   '    _pids.Clear();',
@@ -424,19 +431,26 @@ const CS_PCP = [
   '    _pids.Clear();',
   '    IntPtr achada = IntPtr.Zero;',
   '    try {',
-  '      Process[] todos = Process.GetProcesses();',
-  '      foreach (Process p in todos) {',
-  '        try {',
-  '          string exe = null;',
-  '          try { exe = p.MainModule.FileName; } catch { }',
-  '          if (exe == null) continue;',
-  '          if (!String.Equals(exe, _alvo, StringComparison.OrdinalIgnoreCase)) continue;',
-  '          _pids.Add(p.Id);',
-  '          if (achada == IntPtr.Zero && p.MainWindowHandle != IntPtr.Zero) {',
-  '            achada = p.MainWindowHandle;',
-  '          }',
-  '        } catch { }',
-  '        finally { try { p.Dispose(); } catch { } }',
+  '      if (_alvoNome != null) {',
+  '        // v2.4.1: busca pelo NOME do processo (GetProcessesByName devolve',
+  '        // só os candidatos) em vez de varrer TODOS os processos com',
+  '        // MainModule.FileName — que é lento e lança exceção em processo',
+  '        // protegido. O caminho completo ainda é conferido quando dá para',
+  '        // ler; sem permissão, aceita pelo nome.',
+  '        Process[] cands = Process.GetProcessesByName(_alvoNome);',
+  '        foreach (Process p in cands) {',
+  '          try {',
+  '            try {',
+  '              string exe = p.MainModule.FileName;',
+  '              if (!String.Equals(exe, _alvo, StringComparison.OrdinalIgnoreCase)) continue;',
+  '            } catch { }',
+  '            _pids.Add(p.Id);',
+  '            if (achada == IntPtr.Zero && p.MainWindowHandle != IntPtr.Zero) {',
+  '              achada = p.MainWindowHandle;',
+  '            }',
+  '          } catch { }',
+  '          finally { try { p.Dispose(); } catch { } }',
+  '        }',
   '      }',
   '    } catch { }',
   '    if (achada == IntPtr.Zero && _pids.Count > 0) {',
@@ -563,7 +577,11 @@ const worker = {
   booting: false,   // está subindo agora
   chegouReady: false, // este processo chegou a ficar pronto alguma vez?
   buffer: '',       // buffer do stdout
-  acao: null,       // { concluir, timeoutId, desc } da ação em execução
+  // v2.4.1: ações EM VOO como FILA (era um slot único — se 2+ ações
+  // chegassem juntas durante o boot, a 1ª perdia o concluir() e a fila
+  // da teclado TRAVAVA para sempre; com FIFO o OK de cada linha conclui
+  // a ação mais antiga, que é exatamente a ordem em que o worker responde)
+  acoes: [],        // [{ concluir, timeoutId, desc }] em execução no worker
   pendentes: [],    // ações aguardando o worker subir
   timerReady: null,
   falhasBoot: 0,
@@ -622,13 +640,23 @@ function scriptWindowsJanela(eventos, esperaMs = 0, exe = alvoExe) {
   return partes.join('\n');
 }
 
-/** Conclui a ação em execução no worker (idempotente). */
+/**
+ * Conclui a ação MAIS ANTIGA em execução no worker (idempotente).
+ * O worker processa as linhas em ordem, então o OK/ERR que chega
+ * corresponde sempre à ação mais antiga ainda em voo.
+ */
 function finalizarAcaoWorker() {
-  const a = worker.acao;
+  const a = worker.acoes.shift();
   if (!a) return;
-  worker.acao = null;
   if (a.timeoutId) clearTimeout(a.timeoutId);
   a.concluir();
+}
+
+/** Conclui TODAS as ações em voo (worker morreu / travou). */
+function finalizarTodasAcoesWorker() {
+  while (worker.acoes.length > 0) {
+    finalizarAcaoWorker();
+  }
 }
 
 /** Envia as ações que esperavam o worker ficar pronto. */
@@ -755,7 +783,7 @@ function iniciarWorker() {
     worker.booting = false;
     if (worker.timerReady) { clearTimeout(worker.timerReady); worker.timerReady = null; }
     // destrava a ação em execução e as pendências (a fila nunca trava)
-    finalizarAcaoWorker();
+    finalizarTodasAcoesWorker();
     const pend = worker.pendentes.splice(0);
     for (const p of pend) p.concluir();
     if (!worker.chegouReady) {
@@ -773,7 +801,7 @@ function iniciarWorker() {
     worker.legacy = true;
     worker.proc = null;
     worker.booting = false;
-    finalizarAcaoWorker();
+    finalizarTodasAcoesWorker();
     const pend = worker.pendentes.splice(0);
     for (const p of pend) p.concluir();
   });
@@ -807,11 +835,14 @@ function executarNoWorker(linha, timeoutMs, concluir, desc) {
 function enviarParaWorker(linha, timeoutMs, concluir, desc) {
   const proc = worker.proc;
   if (!proc || !worker.pronto) { concluir(); return; }
-  worker.acao = { concluir, timeoutId: null, desc };
-  worker.acao.timeoutId = setTimeout(() => {
+  const acao = { concluir, timeoutId: null, desc };
+  worker.acoes.push(acao);
+  acao.timeoutId = setTimeout(() => {
     logger.erro(`[Teclado] Worker não respondeu (${desc}) — reiniciando...`);
     if (worker.proc) { try { worker.proc.kill(); } catch { /* já morreu */ } }
-    finalizarAcaoWorker();
+    // o exit do worker conclui tudo, mas garantimos aqui também (o kill
+    // pode demorar e a fila não pode esperar)
+    finalizarTodasAcoesWorker();
   }, timeoutMs);
   try {
     proc.stdin.write(linha + '\n');

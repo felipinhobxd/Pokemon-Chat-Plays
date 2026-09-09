@@ -117,7 +117,16 @@ function registrarAcao(usuario, botao, tipo, duracaoMs) {
 
 /** Gera o snapshot completo para /api/estado. */
 function snapshot() {
-  const stats = provedores.resumoStats() || {};
+  // provedores podem falhar (stats corrompido etc.) — a overlay do OBS não
+  // pode morrer por causa disso: cada parte cai no fallback vazio.
+  let stats = {};
+  let seguradas = [];
+  try {
+    stats = provedores.resumoStats() || {};
+  } catch { /* segue com vazio */ }
+  try {
+    seguradas = provedores.seguradas ? provedores.seguradas() : [];
+  } catch { /* segue com vazio */ }
   const uptimeMs = Date.now() - estado.iniciadoEm;
   return {
     versao: estado.versao,
@@ -126,7 +135,7 @@ function snapshot() {
     uptimeMs,
     acoes: estado.acoes,
     alvo: { ...estado.alvo },
-    seguradas: provedores.seguradas ? provedores.seguradas() : [],
+    seguradas,
     stats: {
       total: stats.total || 0,
       holds: stats.holds || 0,

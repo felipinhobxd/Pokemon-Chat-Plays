@@ -52,6 +52,24 @@ process.on('warning', (aviso) => {
 // Versão lida do package.json (mantém o banner sempre em dia)
 const { version: VERSAO } = require('../package.json');
 
+/**
+ * Espera uma promessa com TETO de tempo — o Ctrl+C nunca pode ficar
+ * refém de um cliente de chat que não responde (v2.4.1).
+ * @param {Promise|null} promessa
+ * @param {number} limiteMs
+ */
+function aguardarComLimite(promessa, limiteMs) {
+  let timer = null;
+  const limite = new Promise((resolve) => {
+    timer = setTimeout(resolve, limiteMs);
+    timer.unref?.();
+  });
+  return Promise.race([
+    Promise.resolve(promessa).catch(() => { /* já logado em cada módulo */ }),
+    limite,
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 // Trata Ctrl+C e encerramento limpo
 let encerrando = false;
 let interfaceTerminal = null;
@@ -67,9 +85,10 @@ async function encerrar(sinal) {
     stats.salvar();
     pausa.pararWatcher();
     if (interfaceTerminal) interfaceTerminal.close();
-    await overlay.parar();
-    await twitch.parar();
-    await youtube.parar();
+    // cada etapa com teto: nenhuma pode travar o Ctrl+C
+    await aguardarComLimite(overlay.parar(), 2000);
+    await aguardarComLimite(twitch.parar(), 3000);
+    await aguardarComLimite(youtube.parar(), 1000);
     stats.logResumo();
   } catch (err) {
     logger.erro(`Erro no encerramento: ${err.message}`);
