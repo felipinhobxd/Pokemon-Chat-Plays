@@ -15,7 +15,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { MAPEAMENTO_PADRAO, __test } = require('../controllers/keyboard');
 
-const { vkWindows, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS } = __test;
+const { vkWindows, keycodeMac, nomeXdotool, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS } = __test;
+const tecladoModulo = require('../controllers/keyboard');
 
 // ---------------------------------------------------------------------------
 // VK codes das teclas usadas pelo mapeamento padrão
@@ -153,4 +154,27 @@ test('os 4 direcionais do mapeamento padrão geram toques estendidos de ponta a 
     assert.match(tap, new RegExp(`keybd_event\\(${vk},\\[KB\\]::MapVirtualKey\\(${vk},0\\),3,`),
       `tap de "${tecla}" com keyup estendido`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// v2.3: teclas customizáveis (TECLA_*) — suporte multi-backend
+// ---------------------------------------------------------------------------
+
+test('teclaSuportada aceita setas, letras, dígitos e teclas nomeadas', () => {
+  const aceitas = ['up', 'down', 'left', 'right', 'enter', 'backspace', 'space', 'tab', 'esc', 'shift', 'a', 'q', 'z', '5'];
+  for (const tecla of aceitas) {
+    assert.ok(tecladoModulo.teclaSuportada(tecla), `"${tecla}" deveria ser suportada nos 3 backends`);
+  }
+});
+
+test('teclaSuportada rejeita lixo e teclas desconhecidas', () => {
+  for (const tecla of ['cima', 'seta', 'xyz', 'F9', 'enter2', '', null, undefined]) {
+    assert.ok(!tecladoModulo.teclaSuportada(tecla), `"${tecla}" NÃO deveria passar como tecla`);
+  }
+});
+
+test('shift funciona nos 3 backends (DeSmuME/RetroArch usam no Select)', () => {
+  assert.strictEqual(vkWindows('shift'), 0x10, 'VK_SHIFT');
+  assert.strictEqual(keycodeMac('shift'), 56, 'keycode macOS');
+  assert.strictEqual(nomeXdotool('shift'), 'Shift_L', 'keysym Linux');
 });

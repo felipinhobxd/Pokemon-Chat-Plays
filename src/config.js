@@ -118,6 +118,36 @@ const config = {
     holdMaxMs: getEnvInt('HOLD_MAX_MS', 10000),
     confirmarComandos: getEnvBool('CONFIRM_COMMANDS', true),
   },
+  // --- Novidades v2.3: teclas configuráveis via .env ---
+  teclado: {
+    preset: getEnv('EMULADOR_PRESET', 'vbam'),
+    teclas: {
+      up: getEnv('TECLA_UP'),
+      down: getEnv('TECLA_DOWN'),
+      left: getEnv('TECLA_LEFT'),
+      right: getEnv('TECLA_RIGHT'),
+      a: getEnv('TECLA_A'),
+      b: getEnv('TECLA_B'),
+      l: getEnv('TECLA_L'),
+      r: getEnv('TECLA_R'),
+      start: getEnv('TECLA_START'),
+      select: getEnv('TECLA_SELECT'),
+    },
+  },
+  // --- Novidades v2.3: stats persistentes ---
+  stats: {
+    persistente: getEnvBool('STATS_PERSISTENTES', true),
+    arquivo: getEnv('STATS_ARQUIVO', 'dados/stats.json'),
+  },
+  // --- Novidades v2.3: overlay do OBS ---
+  overlay: {
+    ativa: getEnvBool('OVERLAY_ATIVA', true),
+    porta: getEnvInt('OVERLAY_PORTA', 8899),
+  },
+  // --- Novidades v2.3: aviso de atualização ---
+  atualizacao: {
+    verificar: getEnvBool('VERIFICAR_ATUALIZACAO', true),
+  },
 };
 
 /**

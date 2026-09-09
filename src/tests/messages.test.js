@@ -176,3 +176,16 @@ test('todo botão tem ícone e rótulo definidos', () => {
     assert.ok(info.rotulo, `botão "${nome}" sem rótulo`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// v2.3: avisos de pausa do streamer (F9)
+// ---------------------------------------------------------------------------
+
+test('mensagens de pausa/liberação são curtas e claras', () => {
+  const pausada = msg.msgChatPausado();
+  const liberada = msg.msgChatLiberado();
+  assert.ok(pausada.includes('PAUSADO'), 'aviso de pausa diz PAUSADO');
+  assert.ok(pausada.length <= 480, 'cabe no limite da Twitch');
+  assert.ok(liberada.includes('liberado') || liberada.includes('Chat liberado'), 'aviso de liberação');
+  assert.ok(liberada.length <= 480, 'cabe no limite da Twitch');
+});

@@ -16,6 +16,7 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const { processarMensagem, resetarCooldownResposta } = require('../handlers');
 const { msgAnuncio } = require('../messages');
+const overlay = require('../overlay');
 
 let cliente = null;
 let canal = '';
@@ -99,11 +100,13 @@ async function iniciar() {
 
   cliente.on('connected', (endereco, porta) => {
     logger.twitch(`Conectado a ${endereco}:${porta} no canal #${canal}`);
+    overlay.setConexao('twitch', true);
     iniciarAnunciosAutomaticos();
   });
 
   cliente.on('disconnected', (motivo) => {
     logger.aviso(`[Twitch] Desconectado: ${motivo}`);
+    overlay.setConexao('twitch', false);
     pararAnunciosAutomaticos();
   });
 

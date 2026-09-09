@@ -1,9 +1,13 @@
 /**
  * Estatísticas de uso dos comandos.
  * Conta quantas vezes cada comando foi executado, por plataforma e por usuário,
- * incluindo os novos comandos de hold (v2.2).
+ * incluindo os comandos de hold (v2.2) e, desde a v2.3, PERSISTE tudo em
+ * arquivo (dados/stats.json): o ranking e os totais sobrevivem a restarts
+ * e o !top passa a valer por live inteira (ou para sempre).
  */
 
+const fs = require('fs');
+const path = require('path');
 const logger = require('./logger');
 const { config } = require('../config');
 
@@ -23,6 +27,92 @@ class StatsManager {
     this.soltas = 0;
     /** @type {number} - timestamp de início */
     this.inicio = Date.now();
+    /** @type {number} - minutos de live acumulados de sessões anteriores */
+    this.uptimeAcumuladoMin = 0;
+    /** @type {string|null} - caminho do arquivo de persistência */
+    this.arquivo = null;
+    /** @type {boolean} - há mudanças não salvas? */
+    this.sujo = false;
+    /** @type {NodeJS.Timeout|null} - timer do autosave */
+    this.timerSalvar = null;
+  }
+
+  /**
+   * Ativa a persistência: carrega o histórico existente e agenda autosave.
+   * @param {string} caminho - Caminho do arquivo JSON (relativo ao cwd)
+   * @returns {boolean} true se carregou um histórico existente
+   */
+  configurarArquivo(caminho) {
+    this.arquivo = caminho;
+    const carregou = this.carregar();
+    // autosave a cada 30s quando houver mudanças (unref: não trava o exit)
+    if (this.timerSalvar) clearInterval(this.timerSalvar);
+    this.timerSalvar = setInterval(() => this.salvar(), 30000);
+    this.timerSalvar.unref?.();
+    return carregou;
+  }
+
+  /**
+   * Carrega o histórico do arquivo (se existir e for válido).
+   * @returns {boolean}
+   */
+  carregar() {
+    if (!this.arquivo) return false;
+    try {
+      const bruto = fs.readFileSync(this.arquivo, 'utf8');
+      const dados = JSON.parse(bruto);
+      if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return false;
+
+      const paraMapa = (obj) => {
+        const m = new Map();
+        for (const [chave, valor] of Object.entries(obj || {})) {
+          const n = Number(valor);
+          if (chave && Number.isFinite(n) && n > 0) m.set(String(chave), n);
+        }
+        return m;
+      };
+
+      this.comandos = paraMapa(dados.comandos);
+      this.plataformas = paraMapa(dados.plataformas);
+      this.usuarios = paraMapa(dados.usuarios);
+      this.total = Number.isFinite(dados.total) ? Number(dados.total) : 0;
+      this.holds = Number.isFinite(dados.holds) ? Number(dados.holds) : 0;
+      this.soltas = Number.isFinite(dados.soltas) ? Number(dados.soltas) : 0;
+      this.uptimeAcumuladoMin = Number.isFinite(dados.uptimeMin) ? Number(dados.uptimeMin) : 0;
+      this.inicio = Date.now();
+      this.sujo = false;
+      return true;
+    } catch {
+      return false; // não existe ainda / corrompido — começa do zero
+    }
+  }
+
+  /**
+   * Salva o histórico no arquivo (se houver mudanças).
+   * @returns {boolean} true se salvou
+   */
+  salvar() {
+    if (!this.arquivo || !this.sujo) return false;
+    const dados = {
+      versao: 1,
+      salvoEm: new Date().toISOString(),
+      comandos: Object.fromEntries(this.comandos),
+      plataformas: Object.fromEntries(this.plataformas),
+      usuarios: Object.fromEntries(this.usuarios),
+      total: this.total,
+      holds: this.holds,
+      soltas: this.soltas,
+      uptimeMin: this.uptimeAcumuladoMin + Math.floor((Date.now() - this.inicio) / 60000),
+    };
+    try {
+      fs.mkdirSync(path.dirname(path.resolve(this.arquivo)), { recursive: true });
+      fs.writeFileSync(this.arquivo, JSON.stringify(dados, null, 2));
+      this.sujo = false;
+      return true;
+    } catch (err) {
+      logger.aviso(`[Stats] Não foi possível salvar o histórico (${err.message}).`);
+      return false;
+    }
   }
 
   /**
@@ -40,6 +130,7 @@ class StatsManager {
     this.total++;
     if (comando.startsWith('hold ')) this.holds++;
     if (comando === 'soltar') this.soltas++;
+    this.sujo = true;
   }
 
   /**
@@ -56,14 +147,14 @@ class StatsManager {
       .sort((a, b) => b[1] - a[1])
       .map(([cmd, count]) => ({ comando: cmd, count }));
 
-    const uptimeMs = Date.now() - this.inicio;
-    const uptimeMin = Math.floor(uptimeMs / 60000);
+    const uptimeMin = this.uptimeAcumuladoMin + Math.floor((Date.now() - this.inicio) / 60000);
 
     return {
       total: this.total,
       holds: this.holds,
       soltas: this.soltas,
       uptimeMin,
+      jogadores: this.usuarios.size,
       porPlataforma: Object.fromEntries(this.plataformas),
       porComando,
       topUsuarios,

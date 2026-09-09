@@ -14,6 +14,8 @@ const { config } = require('./config');
 const cooldown = require('./utils/cooldown');
 const stats = require('./utils/stats');
 const teclado = require('./controllers/keyboard');
+const pausa = require('./utils/pausa');
+const overlay = require('./overlay');
 const { parseComando } = require('./commands');
 const msg = require('./messages');
 
@@ -60,6 +62,48 @@ function resetarCooldownResposta(tipo) {
  */
 function resetarAntiFlood() {
   ultimaResposta.clear();
+}
+
+/**
+ * O streamer (dono do canal) não sofre cooldown — para poder testar
+ * o jogo sozinho sem ser travado pelo anti-spam.
+ * @param {string} usuario
+ * @returns {boolean}
+ */
+function ehStreamer(usuario) {
+  const canal = String(config.twitch.channel || '').toLowerCase().trim();
+  return Boolean(canal) && String(usuario || '').toLowerCase().trim() === canal;
+}
+
+/**
+ * Verifica o cooldown de um usuário (streamer é isento).
+ * @param {string} usuario
+ * @returns {{permitido: boolean, motivo?: string}}
+ */
+function verificarCooldown(usuario) {
+  if (ehStreamer(usuario)) return { permitido: true };
+  return cooldown.podeExecutar(usuario);
+}
+
+/** Última vez que logamos um comando bloqueado pela pausa (evita spam no terminal). */
+let ultimoLogPausa = 0;
+
+/**
+ * Comandos de jogo (botão/hold/soltar) são bloqueados quando o streamer
+ * pausou o chat (F9). Comandos de informação (!comandos, !stats...) seguem
+ * funcionando para o chat não ficar no escuro.
+ * @param {string} usuario
+ * @param {string} comando
+ * @returns {boolean} true se deve ignorar o comando
+ */
+function bloqueadoPelaPausa(usuario, comando) {
+  if (!pausa.estaPausado()) return false;
+  const agora = Date.now();
+  if (agora - ultimoLogPausa > 10000) {
+    ultimoLogPausa = agora;
+    logger.info(`[Pausa] ⛔ comandos do chat ignorados (ex: "${comando}" de @${usuario}) — streamer pausou com F9`);
+  }
+  return true;
 }
 
 /**
@@ -140,8 +184,10 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
 
     // ------------------------------------------------------------- soltar
     case 'soltar': {
+      if (bloqueadoPelaPausa(usuario, 'soltar')) return;
       const quantidade = teclado.soltarTodas();
       stats.registrar('soltar', plataforma, usuario);
+      overlay.registrarAcao(usuario, null, 'soltar');
       if (config.geral.confirmarComandos && podeResponder('soltar-confirmado')) {
         responderSeguro(responder, msg.msgSoltarConfirmado(usuario, quantidade), 'baixa');
       }
@@ -150,7 +196,8 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
 
     // ------------------------------------------------------------- hold
     case 'hold': {
-      const verificacao = cooldown.podeExecutar(usuario);
+      if (bloqueadoPelaPausa(usuario, `hold ${parsed.botao}`)) return;
+      const verificacao = verificarCooldown(usuario);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado no hold: ${verificacao.motivo}`);
@@ -161,6 +208,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       if (ok) {
         cooldown.registrarExecucao(usuario);
         stats.registrar(`hold ${parsed.botao}`, plataforma, usuario);
+        overlay.registrarAcao(usuario, parsed.botao, 'hold', parsed.duracaoMs);
         if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
           responderSeguro(responder, msg.msgHoldConfirmado(usuario, parsed.botao, parsed.duracaoMs), 'baixa');
         }
@@ -170,7 +218,8 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
 
     // ------------------------------------------------------------- botão
     case 'botao': {
-      const verificacao = cooldown.podeExecutar(usuario);
+      if (bloqueadoPelaPausa(usuario, parsed.botao)) return;
+      const verificacao = verificarCooldown(usuario);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado: ${verificacao.motivo}`);
@@ -181,6 +230,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       if (ok) {
         cooldown.registrarExecucao(usuario);
         stats.registrar(parsed.botao, plataforma, usuario);
+        overlay.registrarAcao(usuario, parsed.botao, 'tap');
       }
       return;
     }

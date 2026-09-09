@@ -43,6 +43,8 @@
 - [O emulador (Visual Boy Advance)](#o-emulador-visual-boy-advance)
 - [Credenciais passo a passo](#credenciais-passo-a-passo)
 - [Comandos](#comandos)
+- [Teclas personalizadas (presets de emulador)](#teclas-personalizadas-presets-de-emulador)
+- [Ferramentas do streamer (F9, overlay e mais)](#ferramentas-do-streamer-f9-overlay-e-mais)
 - [Configuração (referência do .env)](#configuração-referência-do-env)
 - [Funcionalidades](#funcionalidades)
 - [Modo desenvolvedor (Node.js)](#modo-desenvolvedor-nodejs)
@@ -67,7 +69,8 @@ O diferencial desta versão:
 1. **Plug-and-play de verdade** — baixe o `.zip`, preencha o `.env`, dê dois cliques no `iniciar.bat`. Zero programação, zero compilação, zero build tools.
 2. **Hold real** — keydown e keyup separados: o chat consegue *segurar* uma tecla por segundos e *soltar* depois.
 3. **Feito para o Brasil** — comandos em português e inglês, mensagens formatadas com emojis, README 100% em PT-BR.
-4. **Robusto** — 40 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
+4. **Robusto** — 90 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
+5. **Kit completo do streamer** — tecla **F9** pausa o chat na hora, **overlay ao vivo pro OBS**, ranking **persistente** entre lives e aviso automático de versão nova.
 
 ---
 
@@ -133,6 +136,8 @@ Salve o `.env`, feche o Bloco de Notas e rode o `iniciar.bat` de novo.
 ### 6. VAI!
 
 O bot conecta no seu canal e anuncia os comandos no chat. Manda um `up` aí de teste... e assista o seu chat virar o jogador. 🎮
+
+> 💡 **Dicas de streamer:** aperte **F9** a qualquer momento para pausar o chat (aperte de novo para liberar) e coloque o **overlay ao vivo** no OBS (`http://localhost:8899` como fonte de navegador) para o chat ver as ações e o ranking em cima da gameplay. Veja [Ferramentas do streamer](#ferramentas-do-streamer-f9-overlay-e-mais).
 
 > ⚠️ **O emulador precisa estar em foco** para receber as teclas. Se você clicar em outra janela, os comandos vão parar no programa errado. Dica: deixe o emulador em modo janela ao lado do terminal do bot.
 >
@@ -317,6 +322,85 @@ O chat pode **segurar** uma tecla por um tempo, em vez de só dar um toque — p
 
 ---
 
+## Teclas personalizadas (presets de emulador)
+
+> 🆕 **Novo na v2.3.** Use outro emulador (ou outro mapeamento) sem tocar em código.
+
+O bot já vem pronto para o **VisualBoyAdvance-M**. Se você usa outro emulador — ou remapeou as teclas dentro dele — basta apontar no `.env`:
+
+```env
+# layout padrão do SEU emulador
+EMULADOR_PRESET=vbam
+```
+
+| Preset | A | B | L | R | Start | Select | Observação |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| `vbam` | X | Z | A | S | Enter | Backspace | VisualBoyAdvance-M (padrão do bot) |
+| `mgba` | X | Z | A | S | Enter | Backspace | mGBA — mesmo layout do VBA-M |
+| `desmume` | X | Z | Q | W | Enter | Shift | DeSmuME (padrão do emulador) |
+| `retroarch` | X | Z | Q | W | Enter | Shift | RetroArch (padrão do retroarch.cfg) |
+
+E para ajustar **uma tecla só** (por exemplo, trocou o A para a tecla `L` no emulador):
+
+```env
+TECLA_A=l
+# TECLA_B, TECLA_L, TECLA_R, TECLA_START, TECLA_SELECT,
+# TECLA_UP, TECLA_DOWN, TECLA_LEFT, TECLA_RIGHT também funcionam
+```
+
+Nomes de tecla aceitos: `up`, `down`, `left`, `right`, `enter`, `backspace`, `space`, `tab`, `esc`, `shift` e letras/dígitos (`a`-`z`, `0`-`9`). Tecla inválida no `.env` não quebra nada: o bot avisa no terminal e mantém o padrão.
+
+> 💡 **Dica:** os presets seguem o layout *de fábrica* de cada emulador. Se você mudou as teclas lá dentro, espelhe a mudança com `TECLA_*`.
+
+---
+
+## Ferramentas do streamer (F9, overlay e mais)
+
+> 🆕 **Novo na v2.3.** O botão de pânico e o painel que faltavam pra live.
+
+### 🛑 Tecla F9 — pausa o chat na hora
+
+Precisou assumir o jogo num momento crítico? **Aperte F9 em qualquer lugar** (funciona mesmo com o emulador em foco — não precisa clicar na janela do bot):
+
+- **1º toque:** chat **PAUSADO** — nenhum comando do chat chega ao jogo. O bot solta todas as teclas presas (nada de personagem andando sozinho), avisa no chat (`⛔ O chat está PAUSADO...`) e o overlay acende em vermelho.
+- **2º toque:** chat **LIBERADO** — o chat volta ao controle e recebe o aviso `✅ Chat liberado!`.
+
+Detalhes úteis:
+
+- Comandos informativos (`!comandos`, `!stats`, `!top`) continuam funcionando durante a pausa;
+- No Linux/macOS (ou se o F9 não estiver disponível), aperte **ENTER no terminal** do bot — mesmo efeito;
+- O streamer (dono do canal) é **isento do cooldown** — pode testar os comandos sozinho sem ser travado pelo anti-spam.
+
+### 🖥️ Overlay ao vivo para o OBS
+
+Um painel pronto para colocar **em cima da gameplay** e o chat entender o que está acontecendo:
+
+1. Com o bot rodando, no OBS: **Fontes → + → Navegador**;
+2. Cole a URL que o bot mostra no terminal: `http://localhost:8899`;
+3. Redimensione como preferir (recomendo 700×500 ou maior).
+
+O que aparece na tela (atualiza a cada 1s, tudo em português):
+
+| Painel | Conteúdo |
+|---|---|
+| **Últimas ações do chat** | Quem apertou o quê, com o botão colorido e selo (TOQUE / HOLD 3s / SOLTOU TUDO) |
+| **Status** | 🟢 CHAT NO CONTROLE ou ⛔ PAUSADO PELO STREAMER (pulsando) |
+| **Top jogadores** | Pódio 🥇🥈🥉 com barra de progresso |
+| **Segurando agora** | Chips com a tecla presa e contagem regressiva (ex.: `UP 5s`) |
+| **Cabeçalho/rodapé** | Versão, conexões Twitch/YouTube, total de comandos e uptime |
+
+A página é servida pelo próprio bot (zero dependências externas, sem internet), funciona dentro do `.exe` e é segura: nomes de usuários são escapados contra HTML malicioso. Não quer o servidor? `OVERLAY_ATIVA=false` no `.env`.
+
+### 📊 Ranking que sobrevive ao fim da live
+
+As estatísticas agora ficam salvas em `dados/stats.json` (autosave a cada 30s + salvamento no `Ctrl+C`): o `!top` acumula entre lives, o uptime soma ao histórico e o overlay mostra totais históricos. Quer zerar o placar? Apague o arquivo.
+
+### 📦 Aviso de versão nova
+
+Ao iniciar, o bot checa no GitHub se saiu release mais nova e mostra o link do download no terminal — nunca mais você fica rodando `.exe` antigo com bug já corrigido. (Sem internet? Fica em silêncio, sem erro.) Desative com `VERIFICAR_ATUALIZACAO=false`.
+
+---
+
 ## Configuração (referência do .env)
 
 Todas as opções ficam no arquivo `.env` (copiado do `.env.example`). Esta é a referência completa:
@@ -357,11 +441,39 @@ Todas as opções ficam no arquivo `.env` (copiado do `.env.example`). Esta é a
 | `HOLD_MAX_MS` | `10000` | Tempo máximo que uma tecla pode ficar presa (segurança) |
 | `CONFIRM_COMMANDS` | `true` | Bot confirma no chat quem segurou/soltou teclas |
 
+### Teclas e emulador (v2.3)
+
+| Variável | Padrão | Descrição |
+|---|:---:|---|
+| `EMULADOR_PRESET` | `vbam` | Layout do emulador: `vbam`, `mgba`, `desmume` ou `retroarch` |
+| `TECLA_A` ... `TECLA_SELECT` | (do preset) | Sobrescreve a tecla de UM botão (ex.: `TECLA_A=q`). Válidos: setas, `enter`, `backspace`, `space`, `tab`, `esc`, `shift`, `a`-`z`, `0`-`9` |
+
+### Stats persistentes (v2.3)
+
+| Variável | Padrão | Descrição |
+|---|:---:|---|
+| `STATS_PERSISTENTES` | `true` | Salva ranking/totais em arquivo (sobrevivem a restarts) |
+| `STATS_ARQUIVO` | `dados/stats.json` | Caminho do arquivo de histórico (relativo à pasta do app) |
+
+### Overlay do OBS (v2.3)
+
+| Variável | Padrão | Descrição |
+|---|:---:|---|
+| `OVERLAY_ATIVA` | `true` | Sobe o servidor do overlay (fonte de navegador do OBS) |
+| `OVERLAY_PORTA` | `8899` | Porta do overlay (se ocupada, tenta +1..+5 sozinho) |
+
+### Atualização (v2.3)
+
+| Variável | Padrão | Descrição |
+|---|:---:|---|
+| `VERIFICAR_ATUALIZACAO` | `true` | Checa no GitHub se há release mais nova ao iniciar |
+
 ---
 
 ## Funcionalidades
 
-> 🆕 **Novidades da v2.2.0:** segurar teclas (`hold`/`segurar`/`soltar`), `!comandos` completo e formatado, `!stats` e `!top` com ranking, refatoração total com 40 testes e CI com testes antes do build.
+> 🆕 **Novidades da v2.3:** tecla **F9** de pausa do streamer, **overlay ao vivo pro OBS** (ações, top 3, teclas seguradas e status), **stats persistentes** entre lives, **teclas via `.env`** com presets de emulador (VBA-M, mGBA, DeSmuME, RetroArch), **aviso automático de versão nova** e streamer isento de cooldown. \
+> 🆕 **Novidades da v2.2:** segurar teclas (`hold`/`segurar`/`soltar`), `!comandos` completo e formatado, `!stats` e `!top` com ranking, refatoração total com testes e CI com testes antes do build.
 
 Comparado ao projeto original que o inspirou, esta versão traz:
 
@@ -373,18 +485,20 @@ Comparado ao projeto original que o inspirou, esta versão traz:
 - **Acentos ignorados automaticamente** — `olá`, `cimá`, `segurá` tudo funciona.
 
 **🛡️ Proteção para a sua live**
-- **Cooldown por usuário** — ninguém sozinho domina o jogo;
+- **Cooldown por usuário** — ninguém sozinho domina o jogo (e o streamer é isento, para testar à vontade);
 - **Cooldown global** — não sobrecarrega o emulador nem degrada o jogo;
+- **Tecla F9 de pânico** — pausa o chat na hora, solta as teclas presas e avisa no chat;
 - **Anti-flood de respostas** — 20 pedidos de `!comandos` = 1 resposta;
 - **Anúncio automático** dos comandos a cada X minutos (configurável);
-- **Encerramento limpo** — `Ctrl+C` solta TODAS as teclas presas antes de desligar.
+- **Encerramento limpo** — `Ctrl+C` solta TODAS as teclas presas e salva as stats antes de desligar.
 
 **🧱 Arquitetura**
 - **Teclado 100% assíncrono** com fila sequencial — o bot nunca congela;
 - **Backend sem compilação** — PowerShell + `keybd_event` (Windows), `xdotool` (Linux) ou `osascript` (macOS). Zero build tools, zero Visual Studio, zero robotjs;
+- **Overlay embutida** — servidor HTTP próprio (sem dependências) servindo a página do OBS de dentro do `.exe`;
 - **Configuração via `.env`** — nada de credenciais escondidas no código;
 - **Logs coloridos com níveis** e arquivo de log por dia;
-- **40 testes automatizados** rodando offline com o `node:test` nativo;
+- **90 testes automatizados** rodando offline com o `node:test` nativo;
 - **CI no GitHub Actions** — os testes rodam antes de todo build do `.exe`;
 - **.exe gerado automaticamente** a cada tag `v*` via GitHub Actions;
 - **Setup interativo** (`npm run setup`) para quem nunca mexeu com `.env`.
@@ -417,7 +531,7 @@ Scripts disponíveis:
 | `npm start` | Inicia o bot |
 | `npm run dev` | Inicia com **auto-restart** ao editar o código (`node --watch`) |
 | `npm run setup` | Setup interativo (pergunta tudo e monta o `.env`) |
-| `npm test` | Roda os 40 testes automatizados |
+| `npm test` | Roda os 90 testes automatizados |
 | `npm run build` | Gera o `.exe` localmente (requer `pkg`) |
 
 ### Requisitos por sistema
@@ -436,7 +550,7 @@ Scripts disponíveis:
 npm test
 ```
 
-- **40 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens e pipeline de mensagens com anti-flood;
+- **90 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
 - **100% offline** — não precisa de emulador, Twitch nem credenciais;
 - **Compatível com Node 18, 20, 22 e 24+** (o wrapper `scripts/run-tests.js` lista os arquivos explicitamente, contornando as diferenças do runner entre versões);
 - Roda automaticamente no **CI antes de todo build** do `.exe`.
@@ -488,23 +602,33 @@ Pokemon-Chat-Plays/
 │   ├── run-tests.js           # Wrapper de testes (compatível Node 18-24)
 │   └── setup.js               # Setup interativo (npm run setup)
 └── src/
-    ├── index.js               # Ponto de entrada (banner, ciclo de vida, Ctrl+C)
+    ├── index.js               # Ponto de entrada (banner, F9, overlay, stats, Ctrl+C)
     ├── config.js              # Carrega e valida o .env
     ├── commands.js            # Registro central de comandos + parser (hold, soltar)
     ├── messages.js            # Todas as mensagens do chat, formatadas e bonitas
-    ├── handlers.js            # Pipeline compartilhado Twitch/YouTube + anti-flood
+    ├── handlers.js            # Pipeline compartilhado Twitch/YouTube + anti-flood + pausa
+    ├── presets.js             # Presets de teclas por emulador (VBA-M, mGBA, DeSmuME, RetroArch)
+    ├── overlay.js             # Overlay do OBS: servidor HTTP + página ao vivo embutida
     ├── controllers/
     │   ├── twitch.js          # Cliente Twitch (tmi.js) com fila de envio
     │   ├── youtube.js         # Cliente YouTube (googleapis)
     │   └── keyboard.js        # Teclado assíncrono com hold (PowerShell/xdotool/osascript)
     ├── utils/
     │   ├── logger.js          # Logger colorido com níveis
+    │   ├── atualizacao.js    # Aviso de versão nova via API do GitHub
     │   ├── cooldown.js        # Anti-spam por usuário + global
-    │   └── stats.js           # Estatísticas de uso (com holds)
-    └── tests/                 # 40 testes automatizados (node:test)
+    │   ├── pausa.js           # Botão de pânico: watcher da tecla F9 (PowerShell)
+    │   └── stats.js           # Estatísticas persistentes (dados/stats.json)
+    └── tests/                 # 90 testes automatizados (node:test)
         ├── commands.test.js
         ├── messages.test.js
-        └── handlers.test.js
+        ├── handlers.test.js
+        ├── keyboard.test.js
+        ├── presets.test.js
+        ├── overlay.test.js
+        ├── pausa.test.js
+        ├── stats.test.js
+        └── atualizacao.test.js
 ```
 
 ---

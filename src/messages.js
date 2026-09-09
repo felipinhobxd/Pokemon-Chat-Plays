@@ -159,6 +159,22 @@ function msgSoltarConfirmado(usuario, quantidade) {
 }
 
 /**
+ * Aviso quando o streamer PAUSA o chat (tecla F9).
+ * @returns {string}
+ */
+function msgChatPausado() {
+  return garantirLimite('⛔ O chat está PAUSADO — o streamer assumiu o controle! Voltamos já');
+}
+
+/**
+ * Aviso quando o streamer LIBERA o chat (tecla F9 de novo).
+ * @returns {string}
+ */
+function msgChatLiberado() {
+  return garantirLimite('✅ Chat liberado! Manda os comandos! 🎮');
+}
+
+/**
  * Dica de uso quando mandam "hold" sem botão válido.
  * @param {string} usuario
  * @returns {string}
@@ -231,6 +247,8 @@ module.exports = {
   msgBoasVindas,
   msgHoldConfirmado,
   msgSoltarConfirmado,
+  msgChatPausado,
+  msgChatLiberado,
   msgUsoHold,
   msgStats,
   msgTop,

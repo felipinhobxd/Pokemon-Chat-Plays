@@ -48,9 +48,11 @@ require.cache[CAMINHO_TECLADO] = {
 };
 
 const cooldownReal = require(CAMINHO_COOLDOWN);
-// cooldown com intervalo zero: ninguém é bloqueado nos testes
+// cooldown stub com chave: pode bloquear todos para testar a isenção do
+// streamer (o streamer nunca é bloqueado, só os espectadores)
+let bloquearTodosNoCooldown = false;
 const cooldownStub = {
-  podeExecutar: () => ({ permitido: true }),
+  podeExecutar: () => (bloquearTodosNoCooldown ? { permitido: false, motivo: 'teste' } : { permitido: true }),
   registrarExecucao: () => {},
   limparAntigos: () => {},
 };
@@ -63,6 +65,7 @@ require.cache[CAMINHO_COOLDOWN] = {
 };
 
 const { processarMensagem, resetarAntiFlood } = require(CAMINHO_HANDLERS);
+const pausa = require('../utils/pausa');
 
 /**
  * Cria um responder espião que grava tudo que o bot mandaria no chat.
@@ -179,10 +182,78 @@ test('sem responder (YouTube), nada quebra', () => {
 });
 
 // ---------------------------------------------------------------------------
+// v2.3: botão de pânico (F9) — comandos de jogo bloqueados quando pausado
+// ---------------------------------------------------------------------------
+
+test('chat PAUSADO: botões/hold/soltar do chat são ignorados', () => {
+  pausa.resetar();
+  pausa.definir(true, 'teste');
+  chamadasTeclado = [];
+  const { respostas, responder } = criarResponderEspiao();
+
+  processarMensagem({ plataforma: 'twitch', usuario: 'zangado', texto: 'cima', responder });
+  processarMensagem({ plataforma: 'twitch', usuario: 'zangado', texto: 'hold baixo 2', responder });
+  processarMensagem({ plataforma: 'twitch', usuario: 'zangado', texto: 'soltar', responder });
+
+  assert.strictEqual(chamadasTeclado.length, 0, 'nada deve chegar ao teclado com o chat pausado');
+  assert.strictEqual(respostas.length, 0, 'sem confirmações de execução');
+
+  pausa.definir(false, 'teste');
+});
+
+test('chat PAUSADO: !comandos e !stats continuam funcionando (informativos)', () => {
+  pausa.resetar();
+  pausa.definir(true, 'teste');
+  resetarAntiFlood();
+  const { respostas, responder } = criarResponderEspiao();
+
+  processarMensagem({ plataforma: 'twitch', usuario: 'curioso', texto: '!comandos', responder });
+  assert.ok(respostas.length >= 1, 'lista de comandos segue disponível');
+
+  pausa.definir(false, 'teste');
+});
+
+test('chat LIBERADO de novo: comandos voltam a executar', () => {
+  pausa.resetar();
+  pausa.definir(true, 'teste');
+  pausa.definir(false, 'teste');
+  chamadasTeclado = [];
+  processarMensagem({ plataforma: 'twitch', usuario: 'de-volta', texto: 'a', responder: null });
+  assert.strictEqual(chamadasTeclado.length, 1);
+  assert.strictEqual(chamadasTeclado[0].botao, 'a');
+});
+
+// ---------------------------------------------------------------------------
+// v2.3: streamer é isento do cooldown (para testar sozinho sem travar)
+// ---------------------------------------------------------------------------
+
+test('cooldown bloqueando todo mundo: streamer (dono do canal) passa', () => {
+  const { config } = require('../config');
+  const canal = String(config.twitch.channel || '').toLowerCase();
+  assert.ok(canal, 'canal padrão deve existir para o teste');
+
+  bloquearTodosNoCooldown = true;
+  chamadasTeclado = [];
+  try {
+    // espectador comum: bloqueado pelo cooldown
+    processarMensagem({ plataforma: 'twitch', usuario: 'espectador', texto: 'cima', responder: null });
+    assert.strictEqual(chamadasTeclado.length, 0, 'espectador deve ser bloqueado');
+
+    // streamer (mesmo nome do canal): isento
+    processarMensagem({ plataforma: 'twitch', usuario: canal, texto: 'cima', responder: null });
+    assert.strictEqual(chamadasTeclado.length, 1, 'streamer deve passar livre');
+    assert.strictEqual(chamadasTeclado[0].botao, 'up');
+  } finally {
+    bloquearTodosNoCooldown = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Restaura os módulos reais no cache (cortesia para outros testes)
 // ---------------------------------------------------------------------------
 
 test.after?.(() => {
+  pausa.resetar();
   if (cacheOriginal) require.cache[CAMINHO_TECLADO] = cacheOriginal;
   else delete require.cache[CAMINHO_TECLADO];
   if (cacheOriginalCooldown) require.cache[CAMINHO_COOLDOWN] = cacheOriginalCooldown;

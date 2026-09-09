@@ -75,6 +75,9 @@ const VK_WINDOWS = {
   tab: 0x09,
   esc: 0x1b,
   escape: 0x1b,
+  shift: 0x10,
+  ctrl: 0x11,
+  alt: 0x12,
 };
 
 /**
@@ -143,6 +146,7 @@ const KEYCODES_MAC = {
   '8': 28, '9': 25,
   up: 126, down: 125, left: 123, right: 124,
   enter: 36, return: 36, backspace: 51, space: 49, tab: 48, esc: 53, escape: 53,
+  shift: 56, ctrl: 59, alt: 58,
 };
 
 /**
@@ -167,6 +171,9 @@ const TECLAS_XDOTOOL = {
   tab: 'Tab',
   esc: 'Escape',
   escape: 'Escape',
+  shift: 'Shift_L',
+  ctrl: 'Control_L',
+  alt: 'Alt_L',
 };
 
 /**
@@ -770,6 +777,30 @@ function totalSeguradas() {
   return teclasSeguradas.size;
 }
 
+/**
+ * Lista as teclas seguradas agora (para o overlay do OBS).
+ * @returns {Array<{tecla: string, dono: string|null, restanteMs: number}>}
+ */
+function listarSeguradas() {
+  const agora = Date.now();
+  return [...teclasSeguradas.entries()].map(([tecla, info]) => ({
+    tecla,
+    dono: info.dono,
+    restanteMs: Math.max(0, info.expiraEm - agora),
+  }));
+}
+
+/**
+ * Verifica se uma tecla genérica é conhecida nos TRÊS backends
+ * (Windows/Linux/macOS) — usada para validar TECLA_* do .env no startup.
+ * @param {string} tecla
+ * @returns {boolean}
+ */
+function teclaSuportada(tecla) {
+  const t = String(tecla || '').toLowerCase();
+  return vkWindows(t) !== null && keycodeMac(t) !== null && nomeXdotool(t) !== null;
+}
+
 // ---------------------------------------------------------------------------
 // API pública de alto nível
 // ---------------------------------------------------------------------------
@@ -858,10 +889,12 @@ module.exports = {
   soltarTodas,
   soltarTodasSync,
   totalSeguradas,
+  listarSeguradas,
+  teclaSuportada,
   configurarMapeamento,
   verificarSistema,
   MAPEAMENTO_PADRAO,
   // Expostos APENAS para os testes unitários (src/tests/keyboard.test.js)
   // — não use em produção; a API pública está acima.
-  __test: { vkWindows, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS },
+  __test: { vkWindows, keycodeMac, nomeXdotool, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS },
 };
