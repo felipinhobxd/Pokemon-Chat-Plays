@@ -40,8 +40,14 @@ test('logger: linhas vão para o buffer (sem syscall por linha)', () => {
   assert.strictEqual(logger.__test.pendentes(), 2, '2 linhas no buffer, 0 no disco');
 
   // o arquivo NÃO pode ter recebido nada ainda desse lote
-  // (pode ter flush de 2s atrás de outros testes — só checamos o marcador)
-  const antes = fs.readFileSync(caminho, 'utf8');
+  // (pode ter flush de 2s atrás de outros testes — só checamos o marcador;
+  // num checkout limpo o arquivo nem existe: a primeira gravação é lazy)
+  let antes = '';
+  try {
+    antes = fs.readFileSync(caminho, 'utf8');
+  } catch {
+    /* arquivo ainda não existe — ok, nada foi gravado */
+  }
   assert.ok(!antes.includes(marcador), 'marcador ainda não foi para o disco');
 
   // flush síncrono: tudo vai de uma vez
