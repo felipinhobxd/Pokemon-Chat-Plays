@@ -6,15 +6,20 @@ on:
       - 'v*'  # dispara quando uma tag v* é criada (ex: git tag v2.1.0)
   workflow_dispatch:  # permite rodar manualmente
 
+# Permissoes necessarias para criar releases e subir artefatos
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout do codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '18'
 
