@@ -1,35 +1,35 @@
 /**
- * Controlador de teclado SEM dependencias nativas.
+ * Controlador de teclado SEM dependências nativas — versão 2.2.
  *
- * Estrategia: usar PowerShell (SendKeys via WScript.Shell) no Windows,
- *             usar xdotool no Linux, e AppleScript no macOS.
+ * Backends por plataforma:
+ *  - Windows: PowerShell + keybd_event (user32.dll) via -EncodedCommand
+ *  - Linux:   xdotool (keydown / keyup / sleep)
+ *  - macOS:   osascript + System Events (key code / key down / key up)
  *
- * Vantagens:
- *  - Zero compilacao (nao precisa de Visual Studio Build Tools no Windows).
- *  - Funciona out-of-the-box em qualquer maquina com PowerShell/xdotool/osascript.
- *  - Cabe em um unico .exe via empacotador (pkg/nexe).
+ * Novidades da v2.2:
+ *  - HOLD REAL: keydown e keyup são enviados separados, então o chat pode
+ *    SEGURAR uma tecla por um tempo ("hold cima 3") e soltar depois ("soltar").
+ *  - Duração de toque configurável em TODAS as plataformas (antes o Windows
+ *    ignorava KEY_PRESS_DURATION_MS por causa do SendKeys).
+ *  - Execução ASSÍNCRONA com fila sequencial (spawn em vez de execFileSync):
+ *    o event loop do Node nunca bloqueia enquanto as teclas são enviadas.
+ *  - macOS corrigido: setas agora usam "key code" (antes "keystroke Up_Arrow"
+ *    não funcionava).
  *
- * Mapeamento padrao (compativel com VisualBoyAdvance):
- *   Seta Cima    -> 'up'
- *   Seta Baixo   -> 'down'
- *   Seta Esq     -> 'left'
- *   Seta Dir     -> 'right'
- *   Botao A      -> 'x'
- *   Botao B      -> 'z'
- *   Botao L      -> 'a'
- *   Botao R      -> 's'
- *   Start        -> 'enter'
- *   Select       -> 'backspace'
- *
- * Voce pode trocar o mapeamento editando o objeto MAPEAMENTO_PADRAO abaixo.
+ * Mapeamento padrão (compatível com VisualBoyAdvance-M):
+ *   ⬆ up -> seta cima     ⬇ down -> seta baixo
+ *   ⬅ left -> seta esq    ➡ right -> seta dir
+ *   🅰 A -> X   🅱 B -> Z   🔵 L -> A   🔴 R -> S
+ *   ▶ Start -> Enter   ▦ Select -> Backspace
  */
 
-const { execFileSync } = require('child_process');
-const path = require('path');
+const { spawn, execFileSync } = require('child_process');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 
-// Mapeamento: botao do GameBoy -> tecla do teclado (formato SendKeys/xdotool)
+// ---------------------------------------------------------------------------
+// Mapeamento botão -> tecla genérica (edite aqui se o seu emulador usar outras)
+// ---------------------------------------------------------------------------
 const MAPEAMENTO_PADRAO = {
   up: 'up',
   down: 'down',
@@ -43,193 +43,446 @@ const MAPEAMENTO_PADRAO = {
   select: 'backspace',
 };
 
-// Aliases em portugues para os comandos
-const ALIASES_PT = {
-  cima: 'up',
-  baixo: 'down',
-  esquerda: 'left',
-  direita: 'right',
-  start: 'start',
-  seleciona: 'select',
-  selecionar: 'select',
-  a: 'a',
-  b: 'b',
-  l: 'l',
-  r: 'r',
+let mapeamentoAtual = { ...MAPEAMENTO_PADRAO };
+const duracaoPadraoMs = () => config.geral.tempoPressionarTeclaMs;
+
+// ---------------------------------------------------------------------------
+// Tradução de teclas para cada backend
+// ---------------------------------------------------------------------------
+
+/** Virtual-key codes do Windows (user32 keybd_event). */
+const VK_WINDOWS = {
+  up: 0x26,
+  down: 0x28,
+  left: 0x25,
+  right: 0x27,
+  enter: 0x0d,
+  return: 0x0d,
+  backspace: 0x08,
+  space: 0x20,
+  tab: 0x09,
+  esc: 0x1b,
+  escape: 0x1b,
 };
 
-const LISTA_COMANDOS = [
-  { cmd: 'a', acao: 'Botão A' },
-  { cmd: 'b', acao: 'Botão B' },
-  { cmd: 'up', acao: 'Seta para cima (também: cima)' },
-  { cmd: 'down', acao: 'Seta para baixo (também: baixo)' },
-  { cmd: 'left', acao: 'Seta para esquerda (também: esquerda)' },
-  { cmd: 'right', acao: 'Seta para direita (também: direita)' },
-  { cmd: 'l', acao: 'Ombro esquerdo (L)' },
-  { cmd: 'r', acao: 'Ombro direito (R)' },
-  { cmd: 'start', acao: 'Botão Start' },
-  { cmd: 'select', acao: 'Botão Select (também: seleciona)' },
-];
-
-let mapeamentoAtual = { ...MAPEAMENTO_PADRAO };
-let duracaoTecla = config.geral.tempoPressionarTeclaMs;
-
 /**
- * Detecta a plataforma atual.
- * @returns {'win32'|'linux'|'darwin'}
+ * Converte uma tecla genérica no VK code do Windows.
+ * @param {string} tecla
+ * @returns {number|null}
  */
-function plataformaAtual() {
-  return process.platform;
+function vkWindows(tecla) {
+  const t = tecla.toLowerCase();
+  if (VK_WINDOWS[t] !== undefined) return VK_WINDOWS[t];
+  if (/^[a-z0-9]$/.test(t)) return t.toUpperCase().charCodeAt(0);
+  return null;
 }
 
+/** Key codes do macOS (System Events). */
+const KEYCODES_MAC = {
+  a: 0, b: 11, c: 12, d: 2, e: 14, f: 3, g: 15, h: 4, i: 34, j: 38,
+  k: 40, l: 37, m: 46, n: 45, o: 31, p: 35, q: 12, r: 15, s: 1, t: 17,
+  u: 32, v: 9, w: 13, x: 7, y: 16, z: 6,
+  '0': 29, '1': 18, '2': 19, '3': 20, '4': 21, '5': 23, '6': 22, '7': 26,
+  '8': 28, '9': 25,
+  up: 126, down: 125, left: 123, right: 124,
+  enter: 36, return: 36, backspace: 51, space: 49, tab: 48, esc: 53, escape: 53,
+};
+
 /**
- * Traduz nome de tecla generico (up/down/left/right/a/b/etc) para
- * o formato esperado por cada backend.
- *
- * SendKeys (Windows via WScript.Shell):
- *   - up    -> {UP}
- *   - down  -> {DOWN}
- *   - left  -> {LEFT}
- *   - right -> {RIGHT}
- *   - enter -> {ENTER}
- *   - backspace -> {BACKSPACE}
- *   - letras simples permanecem letras
- *
- * xdotool (Linux):
- *   - up    -> Up
- *   - down  -> Down
- *   - left  -> Left
- *   - right -> Right
- *   - enter -> Return
- *   - backspace -> BackSpace
- *   - letras permanecem minusculas
- *
- * AppleScript (macOS):
- *   - up    -> Up_Arrow
- *   - down  -> Down_Arrow
- *   - left  -> Left_Arrow
- *   - right -> Right_Arrow
- *   - enter -> Return
- *   - backspace -> Delete (no Mac, Delete e backspace)
- *   - letras permanecem minusculas
- *
- * @param {string} tecla - Nome generico da tecla
- * @returns {object} {sendKeys, xdotool, apple}
+ * Converte uma tecla genérica no keycode do macOS.
+ * @param {string} tecla
+ * @returns {number|null}
  */
-function traduzirTecla(tecla) {
-  const T = tecla.toLowerCase();
-  const map = {
-    up:      { sk: '{UP}',        xt: 'Up',       ap: 'Up_Arrow' },
-    down:    { sk: '{DOWN}',      xt: 'Down',     ap: 'Down_Arrow' },
-    left:    { sk: '{LEFT}',      xt: 'Left',     ap: 'Left_Arrow' },
-    right:   { sk: '{RIGHT}',     xt: 'Right',    ap: 'Right_Arrow' },
-    enter:   { sk: '{ENTER}',     xt: 'Return',   ap: 'Return' },
-    return:  { sk: '{ENTER}',     xt: 'Return',   ap: 'Return' },
-    backspace:{ sk: '{BACKSPACE}',xt: 'BackSpace', ap: 'Delete' },
-    space:   { sk: ' ',           xt: 'space',    ap: 'Space' },
-    tab:     { sk: '{TAB}',        xt: 'Tab',      ap: 'Tab' },
-    esc:     { sk: '{ESC}',        xt: 'Escape',   ap: 'Escape' },
-    escape:  { sk: '{ESC}',        xt: 'Escape',   ap: 'Escape' },
-  };
-  if (T in map) {
-    return { sendKeys: map[T].sk, xdotool: map[T].xt, apple: map[T].ap };
+function keycodeMac(tecla) {
+  return KEYCODES_MAC[tecla.toLowerCase()] ?? null;
+}
+
+/** Nomes de tecla para o xdotool (Linux). */
+const TECLAS_XDOTOOL = {
+  up: 'Up',
+  down: 'Down',
+  left: 'Left',
+  right: 'Right',
+  enter: 'Return',
+  return: 'Return',
+  backspace: 'BackSpace',
+  space: 'space',
+  tab: 'Tab',
+  esc: 'Escape',
+  escape: 'Escape',
+};
+
+/**
+ * Converte uma tecla genérica no nome aceito pelo xdotool.
+ * @param {string} tecla
+ * @returns {string|null}
+ */
+function nomeXdotool(tecla) {
+  const t = tecla.toLowerCase();
+  return TECLAS_XDOTOOL[t] ?? (/^[a-z0-9]$/.test(t) ? t : null);
+}
+
+// ---------------------------------------------------------------------------
+// Fila sequencial de ações de teclado (execução assíncrona, nunca bloqueia)
+// ---------------------------------------------------------------------------
+
+const filaAcoes = [];
+let processandoAcao = false;
+const FILA_MAX = 25;
+
+/**
+ * Enfileira uma ação de teclado. Ações são executadas UMA POR VEZ, em ordem,
+ * para garantir que keydown/keyup não se invertam entre comandos.
+ * @param {(concluir: () => void) => void} acao - Função que roda o processo
+ */
+function enfileirar(acao) {
+  if (filaAcoes.length >= FILA_MAX) {
+    const descartada = filaAcoes.shift();
+    logger.aviso('[Teclado] Fila cheia — ação antiga descartada para não atrasar o jogo.');
+    void descartada;
   }
-  // Letra simples
-  return { sendKeys: T, xdotool: T, apple: T };
+  filaAcoes.push(acao);
+  processarFila();
+}
+
+function processarFila() {
+  if (processandoAcao || filaAcoes.length === 0) return;
+  processandoAcao = true;
+  const acao = filaAcoes.shift();
+  try {
+    acao(() => {
+      processandoAcao = false;
+      setImmediate(processarFila);
+    });
+  } catch (err) {
+    processandoAcao = false;
+    logger.erro(`[Teclado] Erro ao executar ação: ${err.message}`);
+    setImmediate(processarFila);
+  }
 }
 
 /**
- * Pressiona e solta uma tecla, conforme a plataforma atual.
- * @param {string} tecla - Nome generico da tecla (up, down, left, right, a, b, etc.)
+ * Roda um processo filho com timeout e callback de conclusão.
+ * @param {string} comando - Executável
+ * @param {string[]} args - Argumentos
+ * @param {number} timeoutMs - Tempo máximo de vida do processo
+ * @param {() => void} aoTerminar - Chamado no exit OU no erro (sempre)
  */
-function pressionarTecla(tecla) {
-  const plat = plataformaAtual();
-  const trad = traduzirTecla(tecla);
+function rodarProcesso(comando, args, timeoutMs, aoTerminar) {
+  let terminado = false;
+  const finalizar = (codigo) => {
+    if (terminado) return;
+    terminado = true;
+    clearTimeout(mataProcesso);
+    aoTerminar(codigo);
+  };
 
+  let filho;
+  try {
+    filho = spawn(comando, args, { stdio: 'ignore', windowsHide: true });
+  } catch (err) {
+    logger.erro(`[Teclado] Falha ao iniciar "${comando}": ${err.message}`);
+    finalizar(-1);
+    return;
+  }
+
+  const mataProcesso = setTimeout(() => {
+    if (!terminado) {
+      logger.aviso(`[Teclado] Processo "${comando}" excedeu ${timeoutMs}ms — finalizando.`);
+      try { filho.kill(); } catch { /* já morreu */ }
+    }
+  }, timeoutMs);
+
+  filho.on('exit', (codigo) => finalizar(codigo));
+  filho.on('error', (err) => {
+    logger.erro(`[Teclado] Processo "${comando}" falhou: ${err.message}`);
+    finalizar(-1);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Windows: PowerShell + keybd_event (permite keydown/keyup separados!)
+// ---------------------------------------------------------------------------
+
+/** Cabeçalho C# com o P/Invoke do keybd_event (compilado uma vez por script). */
+const PS_KEYBD = [
+  '$sig = \'using System.Runtime.InteropServices;',
+  'public class KB {',
+  '  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+  '}\';',
+  'Add-Type -TypeDefinition $sig;',
+].join(' ');
+
+/**
+ * Monta o script PowerShell que pressiona/solta teclas do Windows.
+ * @param {Array<{vk: number, down: boolean}>} eventos
+ * @param {number} [esperaMs] - Pausa entre o primeiro down e o up (tap)
+ * @returns {string} Script PowerShell pronto
+ */
+function scriptWindows(eventos, esperaMs) {
+  const partes = [PS_KEYBD];
+  for (const ev of eventos) {
+    const flags = ev.down ? 0 : 2; // 0 = keydown, 2 = KEYEVENTF_KEYUP
+    partes.push(`[KB]::keybd_event(${ev.vk},0,${flags},[UIntPtr]::Zero);`);
+  }
+  if (esperaMs > 0) {
+    // insere o sleep antes do keyup (o tap tem formato down;sleep;up)
+    const idxDown = partes.findIndex((p) => p.includes('keybd_event'));
+    partes.splice(idxDown + 1, 0, `Start-Sleep -Milliseconds ${esperaMs};`);
+  }
+  return partes.join('');
+}
+
+/**
+ * Executa um script PowerShell via -EncodedCommand (Base64 UTF-16LE).
+ * Esse formato elimina completamente problemas de escape de aspas.
+ * @param {string} script - Script PowerShell
+ * @param {number} timeoutMs
+ * @param {() => void} aoTerminar
+ */
+function rodarPowerShell(script, timeoutMs, aoTerminar) {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  rodarProcesso(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+    timeoutMs,
+    aoTerminar
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Operações de teclado (multi-plataforma, enfileiradas)
+// ---------------------------------------------------------------------------
+
+/**
+ * Envia um keydown de uma tecla (fica pressionada até o keyup).
+ * @param {string} tecla - Tecla genérica
+ */
+function keyDown(tecla) {
+  const plat = process.platform;
+  enfileirar((concluir) => {
+    if (plat === 'win32') {
+      const vk = vkWindows(tecla);
+      if (vk === null) { concluir(); return; }
+      rodarPowerShell(scriptWindows([{ vk, down: true }]), 4000, concluir);
+    } else if (plat === 'linux') {
+      const nome = nomeXdotool(tecla);
+      if (!nome) { concluir(); return; }
+      rodarProcesso('xdotool', ['keydown', nome], 2000, concluir);
+    } else if (plat === 'darwin') {
+      const kc = keycodeMac(tecla);
+      if (kc === null) { concluir(); return; }
+      rodarProcesso(
+        'osascript',
+        ['-e', `tell application "System Events" to key down (key code ${kc})`],
+        2000,
+        concluir
+      );
+    } else {
+      logger.erro(`[Teclado] Plataforma não suportada: ${plat}`);
+      concluir();
+    }
+  });
+}
+
+/**
+ * Envia um keyup de uma tecla.
+ * @param {string} tecla - Tecla genérica
+ */
+function keyUp(tecla) {
+  const plat = process.platform;
+  enfileirar((concluir) => {
+    if (plat === 'win32') {
+      const vk = vkWindows(tecla);
+      if (vk === null) { concluir(); return; }
+      rodarPowerShell(scriptWindows([{ vk, down: false }]), 4000, concluir);
+    } else if (plat === 'linux') {
+      const nome = nomeXdotool(tecla);
+      if (!nome) { concluir(); return; }
+      rodarProcesso('xdotool', ['keyup', nome], 2000, concluir);
+    } else if (plat === 'darwin') {
+      const kc = keycodeMac(tecla);
+      if (kc === null) { concluir(); return; }
+      rodarProcesso(
+        'osascript',
+        ['-e', `tell application "System Events" to key up (key code ${kc})`],
+        2000,
+        concluir
+      );
+    } else {
+      concluir();
+    }
+  });
+}
+
+/**
+ * Envia um toque (keydown + espera + keyup) numa única ação.
+ * @param {string} tecla - Tecla genérica
+ * @param {number} [durMs] - Duração do toque
+ */
+function tocarTecla(tecla, durMs) {
+  const duracao = durMs ?? duracaoPadraoMs();
+  const plat = process.platform;
+  enfileirar((concluir) => {
+    if (plat === 'win32') {
+      const vk = vkWindows(tecla);
+      if (vk === null) { concluir(); return; }
+      rodarPowerShell(scriptWindows([{ vk, down: true }, { vk, down: false }], duracao), duracao + 5000, concluir);
+    } else if (plat === 'linux') {
+      const nome = nomeXdotool(tecla);
+      if (!nome) { concluir(); return; }
+      const segs = (duracao / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+      rodarProcesso('xdotool', ['keydown', nome, 'sleep', segs || '0.2', 'keyup', nome], duracao + 2000, concluir);
+    } else if (plat === 'darwin') {
+      const kc = keycodeMac(tecla);
+      if (kc === null) { concluir(); return; }
+      const segs = (duracao / 1000).toFixed(3);
+      rodarProcesso(
+        'osascript',
+        [
+          '-e', 'tell application "System Events"',
+          '-e', `key down (key code ${kc})`,
+          '-e', `delay ${segs}`,
+          '-e', `key up (key code ${kc})`,
+          '-e', 'end tell',
+        ],
+        duracao + 2000,
+        concluir
+      );
+    } else {
+      concluir();
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Estado das teclas seguradas (hold)
+// ---------------------------------------------------------------------------
+
+/** @type {Map<string, {timer: NodeJS.Timeout, dono: string|null, expiraEm: number}>} */
+const teclasSeguradas = new Map();
+
+/**
+ * Segura um botão do controle por X milissegundos.
+ * Se a tecla já estiver presa, o timer é estendido (não re-envia keydown).
+ * @param {string} botao - Botão canônico (up, down, a, b...)
+ * @param {number} duracaoMs - Por quanto tempo segurar
+ * @param {string|null} dono - Nome de quem pediu (para logs)
+ * @returns {boolean} true se aceito
+ */
+function segurar(botao, duracaoMs, dono = null) {
+  const tecla = mapeamentoAtual[botao];
+  if (!tecla) {
+    logger.aviso(`[Teclado] Botão desconhecido para segurar: "${botao}"`);
+    return false;
+  }
+
+  const atual = teclasSeguradas.get(tecla);
+  if (atual) {
+    // tecla já pressionada: só estende o tempo
+    clearTimeout(atual.timer);
+    const timer = setTimeout(() => soltarTecla(tecla), duracaoMs);
+    teclasSeguradas.set(tecla, { timer, dono: dono || atual.dono, expiraEm: Date.now() + duracaoMs });
+    logger.comando(`[Teclado] Hold estendido: ${botao} (${tecla}) por ${duracaoMs}ms${dono ? ` — @${dono}` : ''}`);
+    return true;
+  }
+
+  keyDown(tecla);
+  const timer = setTimeout(() => soltarTecla(tecla), duracaoMs);
+  teclasSeguradas.set(tecla, { timer, dono, expiraEm: Date.now() + duracaoMs });
+  logger.comando(`[Teclado] Hold: ${botao} (${tecla}) por ${duracaoMs}ms${dono ? ` — @${dono}` : ''}`);
+  return true;
+}
+
+/**
+ * Solta UMA tecla específica (se estiver presa).
+ * @param {string} tecla - Tecla genérica
+ */
+function soltarTecla(tecla) {
+  const info = teclasSeguradas.get(tecla);
+  if (info) {
+    clearTimeout(info.timer);
+    teclasSeguradas.delete(tecla);
+  }
+  keyUp(tecla);
+  logger.comando(`[Teclado] Tecla liberada: ${tecla}`);
+}
+
+/**
+ * Solta TODAS as teclas presas (comando "soltar" do chat).
+ * @returns {number} Quantas techas estavam presas
+ */
+function soltarTodas() {
+  const quantidade = teclasSeguradas.size;
+  for (const tecla of [...teclasSeguradas.keys()]) {
+    const info = teclasSeguradas.get(tecla);
+    clearTimeout(info.timer);
+    teclasSeguradas.delete(tecla);
+    keyUp(tecla);
+  }
+  if (quantidade > 0) {
+    logger.comando(`[Teclado] ${quantidade} tecla(s) liberada(s) pelo chat.`);
+  }
+  return quantidade;
+}
+
+/**
+ * Versão SÍNCRONA de soltarTodas para usar no encerramento (Ctrl+C),
+ * garantindo que nenhuma tecla fique presa quando o bot morre.
+ */
+function soltarTodasSync() {
+  if (teclasSeguradas.size === 0) return;
+  const teclas = [...teclasSeguradas.keys()];
+  for (const tecla of teclas) {
+    const info = teclasSeguradas.get(tecla);
+    clearTimeout(info.timer);
+    teclasSeguradas.delete(tecla);
+  }
+  const plat = process.platform;
   try {
     if (plat === 'win32') {
-      enviarWindows(trad.sendKeys);
-    } else if (plat === 'linux') {
-      enviarLinux(trad.xdotool);
-    } else if (plat === 'darwin') {
-      enviarMac(trad.apple);
-    } else {
-      logger.erro(`[Teclado] Plataforma nao suportada: ${plat}`);
-      return;
-    }
-  } catch (err) {
-    logger.erro(`[Teclado] Falha ao pressionar tecla "${tecla}": ${err.message}`);
-  }
-}
-
-/**
- * Envia uma tecla via PowerShell + WScript.Shell (Windows).
- * Faz key-down, espera duracaoTecla, key-up.
- * @param {string} sendKeys - Tecla no formato SendKeys (ex: '{UP}' ou 'a')
- */
-function enviarWindows(sendKeys) {
-  // WScript.Shell.SendKeys nao separa key-down/up, mas simula press+release.
-  // Para um efeito mais proximo do robotjs (com duracao customizada),
-  // usamos um script que mantem a tecla por N ms via SendWait no PowerShell.
-  // Para simplicidade e robustez, usamos SendKeys direto (press+release imediato).
-  // A duracao configurada e ignorada no Windows (a maior parte dos emuladores
-  // ja trata keydown curto como um toque valido).
-
-  const psScript = `$wshell = New-Object -ComObject WScript.Shell; $wshell.SendKeys('${sendKeys}')`;
-
-  // Executa PowerShell de forma silenciosa
-  // -WindowStyle Hidden: nao mostra janela do PowerShell
-  // -NoProfile: nao carrega perfil (mais rapido)
-  // -Command: comando direto
-  try {
-    execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-WindowStyle', 'Hidden',
-      '-Command', psScript,
-    ], { stdio: 'ignore', timeout: 5000 });
-  } catch (err) {
-    // Se falhar, tenta com cmd + mshta como fallback (raro)
-    logger.erro(`[Teclado][Win] PowerShell falhou: ${err.message}`);
-  }
-}
-
-/**
- * Envia uma tecla via xdotool (Linux).
- * @param {string} tecla - Tecla no formato xdotool (ex: 'Up', 'a')
- */
-function enviarLinux(tecla) {
-  try {
-    // keydown, espera, keyup
-    execFileSync('xdotool', ['keydown', tecla], { stdio: 'ignore', timeout: 2000 });
-    setTimeout(() => {
-      try {
-        execFileSync('xdotool', ['keyup', tecla], { stdio: 'ignore', timeout: 2000 });
-      } catch (err) {
-        logger.erro(`[Teclado][Linux] keyup falhou: ${err.message}`);
+      const eventos = teclas.map((t) => ({ vk: vkWindows(t), down: false })).filter((e) => e.vk !== null);
+      if (eventos.length > 0) {
+        const encoded = Buffer.from(scriptWindows(eventos), 'utf16le').toString('base64');
+        execFileSync('powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+          { stdio: 'ignore', timeout: 5000 });
       }
-    }, duracaoTecla);
+    } else if (plat === 'linux') {
+      const nomes = teclas.map(nomeXdotool).filter(Boolean);
+      if (nomes.length > 0) execFileSync('xdotool', ['keyup', ...nomes], { stdio: 'ignore', timeout: 2000 });
+    } else if (plat === 'darwin') {
+      for (const tecla of teclas) {
+        const kc = keycodeMac(tecla);
+        if (kc !== null) {
+          execFileSync('osascript',
+            ['-e', `tell application "System Events" to key up (key code ${kc})`],
+            { stdio: 'ignore', timeout: 2000 });
+        }
+      }
+    }
+    logger.info(`[Teclado] ${teclas.length} tecla(s) liberada(s) no encerramento.`);
   } catch (err) {
-    logger.erro(`[Teclado][Linux] xdotool falhou (instale com: sudo apt install xdotool): ${err.message}`);
+    logger.aviso(`[Teclado] Não foi possível soltar as teclas no encerramento: ${err.message}`);
   }
 }
 
 /**
- * Envia uma tecla via AppleScript / osascript (macOS).
- * @param {string} tecla - Tecla no formato AppleScript (ex: 'Up_Arrow', 'a')
+ * Quantidade de teclas atualmente presas.
+ * @returns {number}
  */
-function enviarMac(tecla) {
-  const script = `tell application "System Events" to keystroke "${tecla}"`;
-  try {
-    execFileSync('osascript', ['-e', script], { stdio: 'ignore', timeout: 2000 });
-  } catch (err) {
-    logger.erro(`[Teclado][macOS] osascript falhou: ${err.message}`);
-  }
+function totalSeguradas() {
+  return teclasSeguradas.size;
 }
 
+// ---------------------------------------------------------------------------
+// API pública de alto nível
+// ---------------------------------------------------------------------------
+
 /**
- * Executa um botao do controle do GameBoy.
- * @param {string} botao - Nome do botao (up, down, left, right, a, b, l, r, start, select)
- * @returns {boolean} true se o botao foi executado com sucesso
+ * Executa um toque simples num botão do controle.
+ * @param {string} botao - Botão canônico
+ * @returns {boolean} true se o botão existe e foi enfileirado
  */
 function executarBotao(botao) {
   const tecla = mapeamentoAtual[botao];
@@ -237,94 +490,33 @@ function executarBotao(botao) {
     logger.aviso(`[Teclado] Botão desconhecido: "${botao}"`);
     return false;
   }
-  logger.comando(`[Teclado] Pressionando: ${botao} -> tecla "${tecla}"`);
-  pressionarTecla(tecla);
+  logger.comando(`[Teclado] Toque: ${botao} -> tecla "${tecla}"`);
+  tocarTecla(tecla);
   return true;
 }
 
 /**
- * Normaliza a mensagem do chat para o nome de botao correspondente.
- * Aceita termos em ingles e portugues.
- * @param {string} mensagem - Mensagem bruta do chat
- * @returns {string|null} - Nome do botao ou null se nao for comando
- */
-function normalizarComando(mensagem) {
-  if (!mensagem) return null;
-  const texto = mensagem.trim().toLowerCase();
-
-  if (texto in mapeamentoAtual) return texto;
-  if (texto in ALIASES_PT) return ALIASES_PT[texto];
-
-  return null;
-}
-
-/**
- * Verifica se a mensagem e um gatilho para listar comandos.
- * @param {string} mensagem - Mensagem bruta
- * @returns {boolean}
- */
-function ehPedidoAjuda(mensagem) {
-  if (!mensagem) return false;
-  const texto = mensagem.trim().toLowerCase();
-  const prefixo = config.geral.prefixoAdmin;
-  const gatilhos = [
-    `${prefixo}comandos`,
-    `${prefixo}ajuda`,
-    `${prefixo}help`,
-    'comandos',
-    'ajuda',
-    'command',
-  ];
-  return gatilhos.includes(texto);
-}
-
-/**
- * Gera a mensagem de ajuda completa em portugues (multi-linha).
- * @returns {string}
- */
-function gerarMensagemAjuda() {
-  const linhas = ['Comandos para jogar Pokemon:'];
-  for (const c of LISTA_COMANDOS) {
-    linhas.push(`  ${c.cmd.padEnd(10)} -> ${c.acao}`);
-  }
-  linhas.push('');
-  linhas.push('Envie uma dessas palavras no chat para jogar!');
-  return linhas.join('\n');
-}
-
-/**
- * Gera a mensagem de ajuda curta (uma linha, para chat da Twitch que tem limite de 500 chars).
- * @returns {string}
- */
-function gerarMensagemAjudaCurta() {
-  const cmds = LISTA_COMANDOS.map((c) => c.cmd).join(', ');
-  return `Comandos para jogar: ${cmds} - Envie uma dessas palavras no chat para jogar!`;
-}
-
-/**
- * Atualiza o mapeamento de teclas.
+ * Atualiza o mapeamento de botões -> teclas.
  * @param {object} novoMapa
  */
 function configurarMapeamento(novoMapa) {
   mapeamentoAtual = { ...mapeamentoAtual, ...novoMapa };
-  logger.info('[Teclado] Mapeamento atualizado:', mapeamentoAtual);
+  logger.info(`[Teclado] Mapeamento atualizado: ${JSON.stringify(mapeamentoAtual)}`);
 }
 
 /**
- * Verifica se as dependencias de sistema para a plataforma atual estao OK.
- * Deve ser chamado na inicializacao.
+ * Verifica se as dependências de sistema da plataforma atual estão OK.
  * @returns {Promise<boolean>}
  */
 async function verificarSistema() {
-  const plat = plataformaAtual();
+  const plat = process.platform;
   if (plat === 'win32') {
-    // PowerShell vem com Windows; verificamos se existe
     try {
-      execFileSync('powershell.exe', ['-Command', '$PSVersionTable.PSVersion'], { stdio: 'ignore', timeout: 5000 });
-      logger.info('[Teclado] Backend Windows (PowerShell) OK.');
+      execFileSync('powershell.exe', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion'], { stdio: 'ignore', timeout: 8000 });
+      logger.info('[Teclado] Backend Windows (PowerShell + keybd_event) OK.');
       return true;
     } catch {
-      logger.erro('[Teclado] PowerShell nao encontrado neste Windows. Isso e muito raro.');
+      logger.erro('[Teclado] PowerShell não encontrado neste Windows. Isso é muito raro.');
       return false;
     }
   }
@@ -334,27 +526,25 @@ async function verificarSistema() {
       logger.info('[Teclado] Backend Linux (xdotool) OK.');
       return true;
     } catch {
-      logger.erro('[Teclado] xdotool nao encontrado. Instale com: sudo apt install xdotool');
+      logger.erro('[Teclado] xdotool não encontrado. Instale com: sudo apt install xdotool');
       return false;
     }
   }
   if (plat === 'darwin') {
-    // macOS exige permissao de acessibilidade; apenas logamos.
-    logger.info('[Teclado] Backend macOS (osascript) - lembre-se de conceder permissao de acessibilidade ao Terminal/Node.');
+    logger.info('[Teclado] Backend macOS (osascript) — lembre-se de conceder permissão de acessibilidade ao Terminal/Node.');
     return true;
   }
-  logger.erro(`[Teclado] Plataforma nao suportada: ${plat}`);
+  logger.erro(`[Teclado] Plataforma não suportada: ${plat}`);
   return false;
 }
 
 module.exports = {
   executarBotao,
-  normalizarComando,
-  ehPedidoAjuda,
-  gerarMensagemAjuda,
-  gerarMensagemAjudaCurta,
+  segurar,
+  soltarTodas,
+  soltarTodasSync,
+  totalSeguradas,
   configurarMapeamento,
   verificarSistema,
-  LISTA_COMANDOS,
   MAPEAMENTO_PADRAO,
 };

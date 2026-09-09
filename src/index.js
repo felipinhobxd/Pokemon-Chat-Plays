@@ -2,7 +2,9 @@
  * Pokemon Chat Plays
  * Ponto de entrada principal.
  *
- * Conecta o(s) cliente(s) (Twitch e/ou YouTube) e gerencia o ciclo de vida do bot.
+ * Conecta o(s) cliente(s) (Twitch e/ou YouTube) e gerencia o ciclo de vida
+ * do bot. No encerramento (Ctrl+C), garante que TODAS as teclas presas
+ * por comandos de hold sejam soltas antes de morrer.
  *
  * Uso:
  *   npm start
@@ -14,7 +16,8 @@ const { config, validarConfig } = require('./config');
 const twitch = require('./controllers/twitch');
 const youtube = require('./controllers/youtube');
 const stats = require('./utils/stats');
-const { verificarSistema } = require('./controllers/keyboard');
+const teclado = require('./controllers/keyboard');
+const { verificarSistema, soltarTodasSync } = teclado;
 
 // Trata Ctrl+C e encerramento limpo
 let encerrando = false;
@@ -24,6 +27,8 @@ async function encerrar(sinal) {
   encerrando = true;
   logger.aviso(`Sinal recebido (${sinal}). Encerrando...`);
   try {
+    // Primeiro solta as teclas (um jogo com tecla presa é péssimo)
+    soltarTodasSync();
     await twitch.parar();
     await youtube.parar();
     stats.logResumo();
@@ -37,20 +42,20 @@ async function encerrar(sinal) {
  * Função principal.
  */
 async function main() {
-  logger.info('==========================================');
-  logger.info(' Pokemon Chat Plays');
-  logger.info(' Versao 2.0.0 - SindromeGames Edition');
-  logger.info('==========================================');
+  logger.info('╔══════════════════════════════════════════╗');
+  logger.info('║   🎮  POKÉMON CHAT PLAYS  v2.2.0        ║');
+  logger.info('║   SindromeGames Edition                  ║');
+  logger.info('╚══════════════════════════════════════════╝');
   logger.info(`Plataformas ativas: ${config.geral.plataformasAtivas.join(', ') || 'nenhuma'}`);
 
   if (!validarConfig()) {
     process.exit(1);
   }
 
-  // Verifica dependencias de sistema (PowerShell/xdotool/osascript)
+  // Verifica dependências de sistema (PowerShell/xdotool/osascript)
   const sistemaOk = await verificarSistema();
   if (!sistemaOk) {
-    logger.aviso('[Main] Continuando mesmo assim - o teclado pode nao funcionar.');
+    logger.aviso('[Main] Continuando mesmo assim - o teclado pode não funcionar.');
   }
 
   const plataformas = config.geral.plataformasAtivas;
@@ -59,7 +64,7 @@ async function main() {
   if (plataformas.includes('twitch')) {
     promessas.push(
       twitch.iniciar().then((ok) => {
-        if (!ok) logger.erro('[Main] Nao foi possivel iniciar o cliente Twitch.');
+        if (!ok) logger.erro('[Main] Não foi possível iniciar o cliente Twitch.');
       })
     );
   }
@@ -67,7 +72,7 @@ async function main() {
   if (plataformas.includes('youtube')) {
     promessas.push(
       youtube.iniciar().then((ok) => {
-        if (!ok) logger.erro('[Main] Nao foi possivel iniciar o cliente YouTube.');
+        if (!ok) logger.erro('[Main] Não foi possível iniciar o cliente YouTube.');
       })
     );
   }
@@ -79,14 +84,15 @@ async function main() {
 
   await Promise.allSettled(promessas);
 
-  logger.info('Bot em execucao. Pressione Ctrl+C para parar.');
+  logger.info('Bot em execução. Pressione Ctrl+C para parar.');
+  logger.info(`Comandos de hold ativos: hold <direção/botão> [tempo] · "soltar" libera tudo.`);
 }
 
 // Handlers de sinais
 process.on('SIGINT', () => encerrar('SIGINT'));
 process.on('SIGTERM', () => encerrar('SIGTERM'));
 process.on('uncaughtException', (err) => {
-  logger.erro(`Excecao nao capturada: ${err.message}`);
+  logger.erro(`Exceção não capturada: ${err.message}`);
   if (err.stack) logger.erro(err.stack);
 });
 process.on('unhandledRejection', (razao) => {

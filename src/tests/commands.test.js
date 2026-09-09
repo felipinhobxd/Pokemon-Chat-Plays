@@ -1,0 +1,197 @@
+/**
+ * Testes do parser de comandos (src/commands.js).
+ * Roda com: npm test  (usa o node:test nativo — zero dependências)
+ */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const { parseComando, removerAcentos, ALIASES, BOTOES } = require('../commands');
+
+// ---------------------------------------------------------------------------
+// Botões simples
+// ---------------------------------------------------------------------------
+
+test('botões simples em inglês', () => {
+  const esperados = { a: 'a', b: 'b', l: 'l', r: 'r', start: 'start', select: 'select', up: 'up', down: 'down', left: 'left', right: 'right' };
+  for (const [cmd, esperado] of Object.entries(esperados)) {
+    const parsed = parseComando(cmd);
+    assert.strictEqual(parsed.tipo, 'botao', `"${cmd}" deveria ser botão`);
+    assert.strictEqual(parsed.botao, esperado, `"${cmd}" -> ${esperado}`);
+  }
+});
+
+test('botões simples em português', () => {
+  const casos = [
+    ['cima', 'up'],
+    ['baixo', 'down'],
+    ['esquerda', 'left'],
+    ['direita', 'right'],
+    ['seleciona', 'select'],
+    ['selecionar', 'select'],
+    ['sobe', 'up'],
+    ['desce', 'down'],
+    ['esq', 'left'],
+    ['dir', 'right'],
+  ];
+  for (const [entrada, esperado] of casos) {
+    const parsed = parseComando(entrada);
+    assert.strictEqual(parsed.tipo, 'botao', `"${entrada}" deveria ser botão`);
+    assert.strictEqual(parsed.botao, esperado, `"${entrada}" -> ${esperado}`);
+  }
+});
+
+test('mensagens normais não são comandos', () => {
+  const naoComandos = [
+    'oi pessoal tudo bem?',
+    'kkkkkk',
+    'vamo lá galera',
+    'qual o melhor starter?',
+    'charizard é top',
+    '',
+    null,
+    undefined,
+    '  ',
+  ];
+  for (const entrada of naoComandos) {
+    assert.strictEqual(parseComando(entrada), null, `"${entrada}" não deveria ser comando`);
+  }
+});
+
+test('maiúsculas e espaços extras funcionam', () => {
+  assert.strictEqual(parseComando('  CIMA  ').botao, 'up');
+  assert.strictEqual(parseComando('Up').botao, 'up');
+  assert.strictEqual(parseComando('  A ').botao, 'a');
+});
+
+test('acentos são removidos', () => {
+  assert.strictEqual(removerAcentos('olá çima àà'), 'ola cima aa');
+  // "olá" com acento é tratado como saudação
+  assert.strictEqual(parseComando('olá').tipo, 'ola');
+});
+
+// ---------------------------------------------------------------------------
+// Comandos de hold (segurar)
+// ---------------------------------------------------------------------------
+
+test('hold com verbo separado (EN e PT)', () => {
+  const casos = [
+    ['hold up', 'up'],
+    ['hold cima', 'up'],
+    ['hold down', 'down'],
+    ['hold baixo', 'down'],
+    ['segurar esquerda', 'left'],
+    ['segura direita', 'right'],
+    ['segure a', 'a'],
+    ['hold start', 'start'],
+    ['hold select', 'select'],
+    ['hold b', 'b'],
+  ];
+  for (const [entrada, esperado] of casos) {
+    const parsed = parseComando(entrada);
+    assert.ok(parsed, `"${entrada}" deveria parsear`);
+    assert.strictEqual(parsed.tipo, 'hold', `"${entrada}" deveria ser hold`);
+    assert.strictEqual(parsed.botao, esperado, `"${entrada}" -> ${esperado}`);
+  }
+});
+
+test('hold com verbo colado (holdcima, holdup)', () => {
+  assert.strictEqual(parseComando('holdup').botao, 'up');
+  assert.strictEqual(parseComando('holdcima').botao, 'up');
+  assert.strictEqual(parseComando('holdbaixo').botao, 'down');
+  assert.strictEqual(parseComando('holda').botao, 'a');
+  assert.strictEqual(parseComando('seguraresquerda').botao, 'left');
+});
+
+test('hold com duração padrão', () => {
+  const parsed = parseComando('hold cima');
+  assert.strictEqual(parsed.duracaoMs, 1000); // HOLD_DEFAULT_MS padrão
+});
+
+test('hold com número pequeno = segundos', () => {
+  assert.strictEqual(parseComando('hold cima 3').duracaoMs, 3000);
+  assert.strictEqual(parseComando('hold up 30').duracaoMs, 10000); // capado em 10s
+});
+
+test('hold com número grande = milissegundos', () => {
+  assert.strictEqual(parseComando('hold cima 500').duracaoMs, 500);
+});
+
+test('hold com sufixos s e ms', () => {
+  assert.strictEqual(parseComando('hold cima 2s').duracaoMs, 2000);
+  assert.strictEqual(parseComando('hold cima 2seg').duracaoMs, 2000);
+  assert.strictEqual(parseComando('hold cima 2segundos').duracaoMs, 2000);
+  assert.strictEqual(parseComando('hold cima 500ms').duracaoMs, 500);
+});
+
+test('hold é limitado ao máximo (10s)', () => {
+  assert.strictEqual(parseComando('hold cima 60').duracaoMs, 100); // >30 = ms, elevado ao piso de 100ms
+  assert.strictEqual(parseComando('hold cima 20s').duracaoMs, 10000); // 20s -> capado em 10s
+  assert.strictEqual(parseComando('hold cima 999999').duracaoMs, 10000);
+});
+
+test('hold com botão inválido', () => {
+  const parsed = parseComando('hold pizza');
+  assert.ok(parsed);
+  assert.strictEqual(parsed.tipo, 'hold-invalido');
+  const soVerbo = parseComando('hold');
+  assert.strictEqual(soVerbo.tipo, 'hold-invalido');
+});
+
+// ---------------------------------------------------------------------------
+// Soltar
+// ---------------------------------------------------------------------------
+
+test('comando soltar e sinônimos', () => {
+  for (const entrada of ['soltar', 'solta', 'solte', 'release', 'largar', 'SOLTAR', '  soltar  ']) {
+    const parsed = parseComando(entrada);
+    assert.strictEqual(parsed.tipo, 'soltar', `"${entrada}" deveria ser soltar`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Comandos de informação (com prefixo)
+// ---------------------------------------------------------------------------
+
+test('comandos de informação com prefixo', () => {
+  assert.deepStrictEqual(parseComando('!comandos'), { tipo: 'info', comando: 'comandos' });
+  assert.deepStrictEqual(parseComando('!ajuda'), { tipo: 'info', comando: 'ajuda' });
+  assert.deepStrictEqual(parseComando('!help'), { tipo: 'info', comando: 'ajuda' });
+  assert.deepStrictEqual(parseComando('!hold'), { tipo: 'info', comando: 'hold' });
+  assert.deepStrictEqual(parseComando('!segurar'), { tipo: 'info', comando: 'hold' });
+  assert.deepStrictEqual(parseComando('!stats'), { tipo: 'info', comando: 'stats' });
+  assert.deepStrictEqual(parseComando('!top'), { tipo: 'info', comando: 'top' });
+  assert.deepStrictEqual(parseComando('!ranking'), { tipo: 'info', comando: 'top' });
+  // com texto extra depois
+  assert.deepStrictEqual(parseComando('!comandos por favor'), { tipo: 'info', comando: 'comandos' });
+});
+
+test('prefixo desconhecido não é comando', () => {
+  assert.strictEqual(parseComando('!xyzabc'), null);
+  assert.strictEqual(parseComando('!'), null);
+});
+
+// ---------------------------------------------------------------------------
+// Saudações
+// ---------------------------------------------------------------------------
+
+test('saudações reconhecidas', () => {
+  for (const entrada of ['ola', 'olá', 'oi', 'hello', 'hi', 'salve', 'OI']) {
+    const parsed = parseComando(entrada);
+    assert.strictEqual(parsed.tipo, 'ola', `"${entrada}" deveria ser saudação`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Consistência do registro
+// ---------------------------------------------------------------------------
+
+test('todo alias aponta para um botão existente', () => {
+  for (const alias of Object.values(ALIASES)) {
+    assert.ok(BOTOES[alias], `alias "${alias}" não tem botão correspondente`);
+  }
+});
+
+test('mensagens longas são ignoradas (anti-abuso)', () => {
+  const longa = 'a'.repeat(150);
+  assert.strictEqual(parseComando(longa), null);
+});

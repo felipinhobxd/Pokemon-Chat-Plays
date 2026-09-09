@@ -113,6 +113,10 @@ const config = {
     statsAtivadas: getEnvBool('ENABLE_STATS', true),
     debug: getEnvBool('DEBUG', false),
     prefixoAdmin: getEnv('ADMIN_PREFIX', '!'),
+    // --- Novidades v2.2: segurar teclas (hold) ---
+    holdPadraoMs: getEnvInt('HOLD_DEFAULT_MS', 1000),
+    holdMaxMs: getEnvInt('HOLD_MAX_MS', 10000),
+    confirmarComandos: getEnvBool('CONFIRM_COMMANDS', true),
   },
 };
 

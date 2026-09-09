@@ -78,10 +78,10 @@ class CooldownManager {
 
 const instance = new CooldownManager();
 
-// Limpa registros antigos a cada 10 minutos (apos a instancia ser criada)
+// Limpa registros antigos a cada 10 minutos (unref: não impede o processo de encerrar)
 setInterval(() => {
   instance.limparAntigos();
-}, 600000);
+}, 600000).unref();
 
 module.exports = instance;
 module.exports.CooldownManager = CooldownManager;

@@ -12,7 +12,25 @@ permissions:
   packages: write
 
 jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Rodar testes
+        run: npm test
+
   build-windows:
+    needs: testar
     runs-on: windows-latest
     steps:
       - name: Checkout do codigo
@@ -74,12 +92,14 @@ jobs:
 
             | Comando | Acao |
             |---------|------|
-            | a, b | Botoes A e B |
+            | a, b, l, r, start, select | Botoes do controle |
             | up, down, left, right | Setas |
             | cima, baixo, esquerda, direita | Setas (PT) |
-            | l, r | Ombros L e R |
-            | start, select | Start e Select |
-            | !comandos | Lista de comandos no chat |
+            | hold cima / hold baixo 3 / hold up 500ms | SEGURA a tecla por um tempo (novo!) |
+            | segurar cima, segura baixo | Segurar em portugues |
+            | soltar | Solta todas as teclas presas |
+            | !comandos | Lista COMPLETA no chat (bonita e organizada) |
+            | !stats / !top | Estatisticas e ranking dos jogadores |
 
             ## Suporte
             - Twitch: https://twitch.tv/sindromegames

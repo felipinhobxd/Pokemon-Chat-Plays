@@ -1,6 +1,6 @@
 # Pokemon Chat Plays - SindromeGames Edition
 
-> Bot que permite que o chat da **Twitch** e do **YouTube** jogue Pokemon (ou qualquer outro jogo de GameBoy/GBA) enviando comandos no chat.
+> Bot que permite que o chat da **Twitch** e do **YouTube** jogue Pokemon (ou qualquer outro jogo de GameBoy/GBA) enviando comandos no chat — agora com **segurar teclas (hold)**!
 
 Versao brasileira, melhorada e bilingue do projeto [twitch-chat-plays-pokemon](https://github.com/William-Droin/twitch-chat-plays-pokemon), criada para o canal **[SindromeGames](https://www.twitch.tv/sindromegames)** no Twitch e no YouTube **[@SindromeGames](https://www.youtube.com/@SindromeGames)**.
 
@@ -74,18 +74,25 @@ E exatamente a mesma ideia do famoso "Twitch Plays Pokemon", mas rodando localme
 Comparado ao projeto original, esta versao traz:
 
 - **Suporte a Twitch e YouTube simultaneamente.** Voce pode ativar uma ou as duas plataformas.
+- **SEGURAR TECLAS (hold)!** O chat pode mandar `hold cima`, `hold baixo 3`, `hold up 500ms` para manter uma tecla pressionada por um tempo (perfeito para andar/correr, nadar contra corredeira, etc).
+- **Soltar tudo com um comando.** `soltar` libera todas as teclas presas na hora.
 - **Configuracao via arquivo `.env`.** Nada mais de credenciais hardcoded no codigo.
 - **Cooldown anti-spam.** Cada usuario so pode enviar um comando a cada X segundos, evitando que um unico usuario domine o jogo.
 - **Cooldown global.** Limita a taxa total de comandos para nao sobrecarregar o emulador.
-- **Comandos em portugues e ingles.** `cima`/`up`, `baixo`/`down`, `esquerda`/`left`, `direita`/`right`, `seleciona`/`select`, etc.
+- **Comandos em portugues e ingles.** `cima`/`up`, `baixo`/`down`, `esquerda`/`left`, `direita`/`right`, `seleciona`/`select`, `segurar`/`hold` etc.
 - **Comandos `start` e `select`.** O original so tinha direcionais + A/B/L/R.
+- **`!comandos` COMPLETO e organizado.** Lista TODOS os comandos em mensagens formatadas com emojis e separadores — nada fica de fora.
+- **`!stats` e `!top`.** Estatisticas da live e ranking dos jogadores que mais mandaram comandos.
 - **Anuncio automatico dos comandos.** A cada X minutos (configuravel) o bot lembra o chat quais sao os comandos.
-- **Estatisticas de uso.** Conta quantas vezes cada comando foi executado, por plataforma e por usuario.
+- **Anti-flood de respostas.** Se 20 pessoas pedirem `!comandos` ao mesmo tempo, o bot responde uma vez so (protege o canal de spam e rate-limit).
+- **Estatisticas de uso.** Conta quantas vezes cada comando foi executado, por plataforma e por usuario (incluindo holds).
 - **Logs coloridos com niveis.** Facil de debugar, com arquivos de log por dia.
-- **Encerramento limpo com `Ctrl+C`.** Desconecta tudo de forma segura.
-- **Backend de teclado SEM compilar C++.** Usa PowerShell (Windows), xdotool (Linux) ou osascript (macOS) - zero build tools necessarios.
+- **Encerramento limpo com `Ctrl+C`.** Solta todas as teclas presas antes de desligar — o jogo nunca fica travado.
+- **Teclado 100% assincrono.** Fila de teclas nunca congela o bot, nem com o chat em chamas.
+- **Backend de teclado SEM compilar C++.** Usa PowerShell + keybd_event (Windows), xdotool (Linux) ou osascript (macOS) - zero build tools necessarias.
 - **Empacotavel em .exe.** A GitHub Action gera o `.exe` automaticamente quando voce cria uma tag.
 - **Setup interativo.** Para iniciantes que nunca mexeram em `.env`.
+- **Testes automatizados.** `npm test` roda 40+ testes offline com o node:test nativo (zero dependencias extras).
 - **Tratamento de erros robusto.** Reconexao automatica do tmi.js, retentativa no YouTube em caso de quota excedida.
 - **README, comentarios e mensagens 100% em portugues.**
 
@@ -138,6 +145,11 @@ ACTIVE_PLATFORMS=twitch
 COMMAND_COOLDOWN_MS=1500
 KEY_PRESS_DURATION_MS=230
 ANNOUNCE_INTERVAL_MIN=10
+
+# Novo na v2.2 - segurar teclas (hold)
+HOLD_DEFAULT_MS=1000     # tempo padrao do "hold cima" sem numero
+HOLD_MAX_MS=10000        # tempo maximo que uma tecla pode ficar presa
+CONFIRM_COMMANDS=true    # bot confirma no chat quem segurou/soltou teclas
 ```
 
 ### Twitch
@@ -229,29 +241,53 @@ ANNOUNCE_INTERVAL_MIN=10
 
 ## Comandos
 
-Qualquer mensagem no chat que contenha exatamente uma destas palavras (em minusculas) aciona o bot:
+Qualquer mensagem no chat que seja exatamente um destes comandos aciona o bot (sem prefixo):
 
-| Comando                 | Acao                     |
-|-------------------------|--------------------------|
-| `a`                     | Botao A                  |
-| `b`                     | Botao B                  |
-| `up` ou `cima`          | Seta para cima           |
-| `down` ou `baixo`       | Seta para baixo          |
-| `left` ou `esquerda`    | Seta para esquerda       |
-| `right` ou `direita`    | Seta para direita        |
-| `l`                     | Botao L (ombro esquerdo) |
-| `r`                     | Botao R (ombro direito)  |
-| `start`                 | Botao Start              |
-| `select` ou `seleciona` | Botao Select             |
+### Comandos de jogo
 
-### Comandos administrativos
+| Comando                          | Acao                                 |
+|----------------------------------|--------------------------------------|
+| `a`                              | Botao A                              |
+| `b`                              | Botao B                              |
+| `up`, `cima`, `sobe`, `subir`    | Seta para cima                       |
+| `down`, `baixo`, `desce`         | Seta para baixo                      |
+| `left`, `esquerda`, `esq`        | Seta para esquerda                   |
+| `right`, `direita`, `dir`        | Seta para direita                    |
+| `l`                              | Botao L (ombro esquerdo)             |
+| `r`                              | Botao R (ombro direito)              |
+| `start`                          | Botao Start                          |
+| `select`, `seleciona`            | Botao Select                         |
 
-| Comando       | Acao                              |
-|---------------|-----------------------------------|
-| `!comandos`   | Bot responde com a lista completa |
-| `!ajuda`      | Idem                              |
-| `!help`       | Idem                              |
-| `ola` / `ola` | Bot da boas-vindas ao usuario     |
+### Segurar teclas (hold) — novo na v2.2!
+
+| Comando                           | Acao                                        |
+|-----------------------------------|---------------------------------------------|
+| `hold cima` (ou `segurar cima`)   | Segura a tecla por 1 segundo (padrao)       |
+| `hold baixo 3`                    | Segura por 3 segundos                       |
+| `hold up 500ms`                   | Segura por meio segundo                     |
+| `hold left 2s`                    | Aceita sufixo `s` ou `ms`                   |
+| `holdcima`, `holda`               | Tambem funciona com o botao colado          |
+| `soltar` (ou `solta`/`release`)   | Solta TODAS as teclas presas na hora        |
+
+Regras de tempo (documentadas tambem no `!segurar` do chat):
+- Numero **sem sufixo e <= 30** = segundos (`hold cima 3` = 3s)
+- Numero **sem sufixo e > 30** = milissegundos (`hold cima 500` = meio segundo)
+- Sufixo explicito sempre vale: `500ms`, `2s`, `2seg`, `2segundos`
+- Tempo maximo: 10 segundos (`HOLD_MAX_MS`) — evita o chat travar o jogo de proposito
+- Quem segura recebe confirmacao no chat (ex: `🔒 @user segurou ⬆ CIMA por 3s`)
+
+### Comandos de informacao
+
+| Comando              | Acao                                               |
+|----------------------|----------------------------------------------------|
+| `!comandos`          | Lista COMPLETA de comandos (2 mensagens formatadas)|
+| `!ajuda` / `!help`   | Mesma lista completa                               |
+| `!segurar` / `!hold` | Ajuda detalhada so dos comandos de segurar         |
+| `!stats`             | Estatisticas da live (total, uptime, plataformas)  |
+| `!top` / `!ranking`  | Top 5 jogadores que mais mandaram comandos         |
+| `ola` / `oi`         | Boas-vindas com dica rapida dos comandos           |
+
+> Todas as respostas do bot sao formatadas com emojis, separadores e multi-linhas — muito mais legiveis no chat da Twitch. E tem anti-flood integrado: mesmo se 20 pessoas pedirem `!comandos` em 5 segundos, o bot responde so uma vez (sem risco de rate-limit).
 
 ---
 
@@ -274,14 +310,21 @@ Pokemon-Chat-Plays/
 └── src/
     ├── index.js             # Ponto de entrada principal
     ├── config.js            # Carrega e valida o .env
+    ├── commands.js          # Registro central de comandos + parser (hold, soltar...)
+    ├── messages.js          # Todas as mensagens do chat, formatadas e bonitas
+    ├── handlers.js          # Pipeline compartilhado Twitch/YouTube + anti-flood
     ├── controllers/
-    │   ├── twitch.js        # Cliente Twitch (tmi.js)
+    │   ├── twitch.js        # Cliente Twitch (tmi.js) com fila de envio
     │   ├── youtube.js       # Cliente YouTube (googleapis)
-    │   └── keyboard.js      # Mapeamento de comandos -> teclas (PowerShell/xdotool/osascript)
-    └── utils/
-        ├── logger.js        # Logger colorido com niveis
-        ├── cooldown.js      # Anti-spam por usuario + global
-        └── stats.js         # Estatisticas de uso
+    │   └── keyboard.js      # Teclado assincrono com hold (PowerShell/xdotool/osascript)
+    ├── utils/
+    │   ├── logger.js        # Logger colorido com niveis
+    │   ├── cooldown.js      # Anti-spam por usuario + global
+    │   └── stats.js         # Estatisticas de uso (com holds)
+    └── tests/               # Testes automatizados (npm test)
+        ├── commands.test.js
+        ├── messages.test.js
+        └── handlers.test.js
 ```
 
 ---
@@ -350,7 +393,26 @@ O `.exe` nao tem assinatura digital porque e um projeto gratuito. Clique em:
 
 ### O bot nao reconhece comandos em portugues
 
-- Os aliases (`cima`, `baixo`, `esquerda`, `direita`, `seleciona`) estao mapeados em `src/controllers/keyboard.js` no objeto `ALIASES_PT`. Edite a vontade.
+- Os aliases (`cima`, `baixo`, `esquerda`, `direita`, `seleciona`, `segurar`...) estao mapeados em `src/commands.js` no objeto `ALIASES`. Edite a vontade.
+
+### As teclas ficam presas / o personagem anda sozinho
+
+- Mande `soltar` no chat (solta todas as teclas na hora).
+- O bot tambem solta tudo sozinho ao ser fechado com `Ctrl+C`.
+- Se ainda assim uma tecla ficar presa (ex: processo morto no meio), clique na janela do jogo e aperte a tecla correspondente no teclado fisico.
+
+### O bot fala demais no chat
+
+- As confirmacoes de hold/soltar podem ser desativadas: `CONFIRM_COMMANDS=false` no `.env`.
+- O anti-flood ja limita respostas repetidas de `!comandos`, `!stats` etc (8s entre repeticoes).
+
+### Como rodar os testes
+
+```bash
+npm test
+```
+
+Roda 40+ testes automaticos (parser de comandos, mensagens e pipeline). Nao precisa de emulador nem credenciais — os testes rodam offline.
 
 ### PowerShell bloqueado por politica corporativa
 

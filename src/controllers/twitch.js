@@ -1,22 +1,73 @@
 /**
- * Cliente Twitch usando tmi.js.
- * Encapsula conexão, eventos e envio de mensagens.
+ * Cliente Twitch usando tmi.js — versão 2.2.
+ *
+ * Melhorias:
+ *  - Fila de envio com espaçamento mínimo entre mensagens (respeita o rate
+ *    limit da Twitch de ~20 msg / 30s e evita ban por spam).
+ *  - Prioridade: mensagens 'alta' (respostas de comandos) nunca são
+ *    descartadas; confirmações 'baixa' (hold/soltar) podem ser descartadas
+ *    se a fila encher em chats muito movimentados.
+ *  - Processamento de mensagens delegado ao pipeline central (src/handlers.js).
+ *  - Anúncio automático bonito e com anti-flood integrado.
  */
 
 const tmi = require('tmi.js');
 const logger = require('../utils/logger');
 const { config } = require('../config');
-const cooldown = require('../utils/cooldown');
-const stats = require('../utils/stats');
-const { executarBotao, normalizarComando, ehPedidoAjuda, gerarMensagemAjudaCurta } = require('./keyboard');
+const { processarMensagem, resetarCooldownResposta } = require('../handlers');
+const { msgAnuncio } = require('../messages');
 
 let cliente = null;
 let canal = '';
 let intervaloAnuncio = null;
 
+// ---------------------------------------------------------------------------
+// Fila de envio (anti rate-limit)
+// ---------------------------------------------------------------------------
+const filaEnvio = [];
+let enviando = false;
+const ESPACAMENTO_ENVIO_MS = 1500; // garante <= 20 msg / 30s com folga
+const FILA_ENVIO_MAX = 12;
+
+/**
+ * Envia (ou enfileira) uma mensagem para o canal.
+ * @param {string} texto - Mensagem pronta para enviar
+ * @param {'alta'|'baixa'} [prioridade='alta']
+ */
+function responder(texto, prioridade = 'alta') {
+  if (!cliente || !canal) return;
+  if (filaEnvio.length >= FILA_ENVIO_MAX) {
+    if (prioridade === 'baixa') {
+      // confirmações descartáveis: joga fora para não atrasar respostas úteis
+      return;
+    }
+    filaEnvio.shift(); // mantém as mais novas (mais relevantes agora)
+  }
+  filaEnvio.push(texto);
+  processarFilaEnvio();
+}
+
+function processarFilaEnvio() {
+  if (enviando || filaEnvio.length === 0) return;
+  enviando = true;
+  const texto = filaEnvio.shift();
+  const promessa = cliente.say(canal, texto);
+  if (promessa && typeof promessa.catch === 'function') {
+    promessa.catch((err) => logger.erro(`[Twitch] Falha ao enviar mensagem: ${err.message}`));
+  }
+  setTimeout(() => {
+    enviando = false;
+    processarFilaEnvio();
+  }, ESPACAMENTO_ENVIO_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Ciclo de vida
+// ---------------------------------------------------------------------------
+
 /**
  * Cria e conecta o cliente Twitch.
- * @returns {Promise<object>} - Cliente tmi.js conectado
+ * @returns {Promise<object|null>} Cliente tmi.js conectado
  */
 async function iniciar() {
   if (!config.twitch.username || !config.twitch.oauthToken || !config.twitch.channel) {
@@ -26,26 +77,19 @@ async function iniciar() {
 
   canal = config.twitch.channel;
 
-  // Normaliza o token OAuth: o tmi.js aceita com ou sem o prefixo "oauth:",
-  // mas para evitar ambiguidade, garantimos o prefixo.
-  // O twitchtokengenerator.com retorna o Access Token SEM o prefixo.
+  // Normaliza o token OAuth: aceita com ou sem o prefixo "oauth:".
   let token = config.twitch.oauthToken.trim();
   if (!token.startsWith('oauth:')) {
     token = `oauth:${token}`;
-    logger.info('[Twitch] Token OAuth detectado sem prefixo "oauth:" - prefixo adicionado automaticamente.');
+    logger.info('[Twitch] Token OAuth sem prefixo "oauth:" — prefixo adicionado automaticamente.');
   }
-  // Log seguro: mostra só os primeiros 10 chars + "..."
+  // Log seguro: só os primeiros caracteres
   const preview = token.length > 14 ? `${token.substring(0, 10)}...(${token.length} chars)` : '(muito curto)';
   logger.info(`[Twitch] Token carregado: ${preview}`);
 
   cliente = new tmi.Client({
-    options: {
-      debug: config.geral.debug,
-    },
-    connection: {
-      secure: true,
-      reconnect: true,
-    },
+    options: { debug: config.geral.debug },
+    connection: { secure: true, reconnect: true, maxReconnectAttempts: Infinity },
     identity: {
       username: config.twitch.username,
       password: token,
@@ -68,10 +112,13 @@ async function iniciar() {
   });
 
   cliente.on('message', (canalAlvo, tags, mensagem, self) => {
-    // Ignora as próprias mensagens do bot para evitar loop
-    if (self) return;
-
-    processarMensagem(canalAlvo, tags, mensagem);
+    if (self) return; // ignora as próprias mensagens do bot
+    processarMensagem({
+      plataforma: 'twitch',
+      usuario: tags.username || 'desconhecido',
+      texto: mensagem,
+      responder,
+    });
   });
 
   try {
@@ -80,49 +127,6 @@ async function iniciar() {
   } catch (err) {
     logger.erro(`[Twitch] Falha ao conectar: ${err.message}`);
     return null;
-  }
-}
-
-/**
- * Processa uma mensagem recebida do chat da Twitch.
- * @param {string} canalAlvo - Nome do canal
- * @param {object} tags - Tags do tmi.js (username, mod, subscriber, etc.)
- * @param {string} mensagem - Mensagem bruta
- */
-function processarMensagem(canalAlvo, tags, mensagem) {
-  const usuario = tags.username || 'desconhecido';
-
-  // Pedido de ajuda / comandos
-  if (ehPedidoAjuda(mensagem)) {
-    logger.twitch(`Ajuda solicitada por @${usuario}`);
-    cliente.say(canalAlvo, gerarMensagemAjudaCurta());
-    return;
-  }
-
-  // Cumprimento simples (mantemos a feature original)
-  if (mensagem.trim().toLowerCase() === 'ola' || mensagem.trim().toLowerCase() === 'olá') {
-    cliente.say(canalAlvo, `Bem-vindo ao canal, @${usuario}! Para ver os comandos digite: !comandos`);
-    return;
-  }
-
-  // Tenta interpretar como comando de jogo
-  const botao = normalizarComando(mensagem);
-  if (!botao) return;
-
-  // Verifica cooldown
-  const verificacao = cooldown.podeExecutar(usuario);
-  if (!verificacao.permitido) {
-    if (config.geral.debug) {
-      logger.debug(`[Twitch] @${usuario} bloqueado: ${verificacao.motivo}`);
-    }
-    return;
-  }
-
-  // Executa o botão
-  const ok = executarBotao(botao);
-  if (ok) {
-    cooldown.registrarExecucao(usuario);
-    stats.registrar(botao, 'twitch', usuario);
   }
 }
 
@@ -136,7 +140,9 @@ function iniciarAnunciosAutomaticos() {
   intervaloAnuncio = setInterval(() => {
     if (!cliente || !canal) return;
     logger.twitch('Enviando anúncio automático dos comandos...');
-    cliente.say(canal, gerarMensagemAjudaCurta());
+    // reseta o anti-flood para que "!comandos" logo após o anúncio não fique mudo
+    resetarCooldownResposta('comandos');
+    responder(msgAnuncio(), 'alta');
   }, intervaloMs);
   logger.twitch(`Anúncios automáticos ativados (a cada ${config.geral.intervaloAnuncioMin} min)`);
 }
@@ -152,15 +158,15 @@ function pararAnunciosAutomaticos() {
 }
 
 /**
- * Envia uma mensagem para o canal Twitch.
- * @param {string} mensagem - Mensagem a enviar
+ * Envia uma mensagem direta (bypassa o pipeline, mas usa a fila).
+ * @param {string} mensagem
  */
 function enviarMensagem(mensagem) {
   if (!cliente || !canal) {
     logger.aviso('[Twitch] Cliente não conectado, não foi possível enviar mensagem.');
     return;
   }
-  cliente.say(canal, mensagem);
+  responder(mensagem, 'alta');
 }
 
 /**
