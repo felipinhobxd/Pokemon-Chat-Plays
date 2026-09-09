@@ -1,78 +1,89 @@
 # Pokemon Chat Plays - SindromeGames Edition
 
-> Bot que permite que o chat da **Twitch** e do **YouTube** jogue Pokémon (ou qualquer outro jogo de GameBoy/GBA) enviando comandos no chat.
+> Bot que permite que o chat da **Twitch** e do **YouTube** jogue Pokemon (ou qualquer outro jogo de GameBoy/GBA) enviando comandos no chat.
 
-Versão brasileira, melhorada e bilingue do projeto [twitch-chat-plays-pokemon](https://github.com/William-Droin/twitch-chat-plays-pokemon), criada para o canal **[SindromeGames](https://www.twitch.tv/sindromegames)** no Twitch e no YouTube **[@SindromeGames](https://www.youtube.com/@SindromeGames)**.
+Versao brasileira, melhorada e bilingue do projeto [twitch-chat-plays-pokemon](https://github.com/William-Droin/twitch-chat-plays-pokemon), criada para o canal **[SindromeGames](https://www.twitch.tv/sindromegames)** no Twitch e no YouTube **[@SindromeGames](https://www.youtube.com/@SindromeGames)**.
 
 ---
 
-## Sumário
+## Sumario
 
-- [O que é](#o-que-é)
+- [Modo Plug-and-Play (sem programar)](#modo-plug-and-play-sem-programar)
+- [O que e](#o-que-e)
 - [Funcionalidades](#funcionalidades)
-- [Pré-requisitos](#pré-requisitos)
-- [Instalação](#instalação)
-- [Configuração](#configuração)
-  - [Twitch](#twitch)
-  - [YouTube](#youtube)
+- [Modo Desenvolvedor (Node.js)](#modo-desenvolvedor-nodejs)
+- [Configuracao](#configuracao)
 - [Uso](#uso)
 - [Comandos](#comandos)
-- [Personalização](#personalização)
 - [Estrutura do projeto](#estrutura-do-projeto)
-- [Solução de problemas](#solução-de-problemas)
-- [Créditos](#créditos)
-- [Licença](#licença)
+- [Como gerar o .exe](#como-gerar-o-exe)
+- [Solucao de problemas](#solucao-de-problemas)
+- [Creditos](#creditos)
+- [Licenca](#licenca)
 
 ---
 
-## O que é
+## Modo Plug-and-Play (sem programar)
 
-Este projeto é um bot Node.js que:
+Se voce so quer USAR o bot (sem programar nada):
+
+1. Baixe o arquivo `.zip` da release mais recente em:
+   **https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases**
+2. Descompacte o `.zip` em qualquer pasta (ex: `Meus Documents\Chat Joga\`).
+3. Abra o arquivo `.env` com o Bloco de Notas e preencha:
+   - `TWITCH_BOT_USERNAME` = nome do seu bot
+   - `TWITCH_OAUTH_TOKEN` = token gerado em https://twitchapps.com/tmi/
+   - `TWITCH_CHANNEL` = `sindromegames` (ou seu canal)
+   - *(opcional)* `YOUTUBE_ENABLED`, `YOUTUBE_API_KEY`, `YOUTUBE_VIDEO_ID` para YouTube
+4. Salve e feche o `.env`.
+5. Abra o emulador (VisualBoyAdvance-M) e deixe em foco (clique na janela dele).
+6. De um duplo-clique em **`iniciar.bat`**.
+7. Pronto! O chat da sua live ja controla o jogo. 🎮
+
+> **Importante:** o bot so funciona com o emulador em foco. Se voce clicar em outra janela, os comandos vao para o programa errado.
+
+> **Windows pode exibir "Windows protegeu seu PC"** ao rodar o `.exe` pela primeira vez. Clique em **Mais informacoes > Executar mesmo assim**. O arquivo e seguro e nao tem assinatura digital porque e um projeto gratuito.
+
+---
+
+## O que e
+
+Este projeto e um bot Node.js que:
 
 1. Conecta-se ao chat da sua live na **Twitch** (e opcionalmente no **YouTube**).
-2. Fica monitorando cada mensagem enviada pelo público.
-3. Quando alguém digita um comando como `a`, `b`, `up`, `down`, etc., o bot simula a tecla correspondente no seu teclado.
-4. Com um emulador (como o VisualBoyAdvance) em foco, o jogo responde como se fosse você jogando — mas quem está no controle é o chat!
+2. Fica monitorando cada mensagem enviada pelo publico.
+3. Quando alguem digita um comando como `a`, `b`, `up`, `down`, etc., o bot simula a tecla correspondente no seu teclado.
+4. Com um emulador (como o VisualBoyAdvance) em foco, o jogo responde como se fosse voce jogando - mas quem esta no controle e o chat!
 
-É exatamente a mesma ideia do famoso "Twitch Plays Pokémon", mas rodando localmente na sua máquina e na sua própria live.
+E exatamente a mesma ideia do famoso "Twitch Plays Pokemon", mas rodando localmente na sua maquina e na sua propria live.
 
 ---
 
 ## Funcionalidades
 
-Comparado ao projeto original, esta versão traz:
+Comparado ao projeto original, esta versao traz:
 
-- **Suporte a Twitch e YouTube simultaneamente.** Você pode ativar uma ou as duas plataformas.
-- **Configuração via arquivo `.env`.** Nada mais de credenciais hardcoded no código.
-- **Cooldown anti-spam.** Cada usuário só pode enviar um comando a cada X segundos, evitando que um único usuário domine o jogo.
-- **Cooldown global.** Limita a taxa total de comandos para não sobrecarregar o emulador.
-- **Comandos em português e inglês.** `cima`/`up`, `baixo`/`down`, `esquerda`/`left`, `direita`/`right`, `seleciona`/`select`, etc.
-- **Comandos `start` e `select`.** O original só tinha direcionais + A/B/L/R.
-- **Anúncio automático dos comandos.** A cada X minutos (configurável) o bot lembra o chat quais são os comandos.
-- **Estatísticas de uso.** Conta quantas vezes cada comando foi executado, por plataforma e por usuário.
-- **Logs coloridos com níveis.** Fácil de debugar, com arquivos de log por dia.
+- **Suporte a Twitch e YouTube simultaneamente.** Voce pode ativar uma ou as duas plataformas.
+- **Configuracao via arquivo `.env`.** Nada mais de credenciais hardcoded no codigo.
+- **Cooldown anti-spam.** Cada usuario so pode enviar um comando a cada X segundos, evitando que um unico usuario domine o jogo.
+- **Cooldown global.** Limita a taxa total de comandos para nao sobrecarregar o emulador.
+- **Comandos em portugues e ingles.** `cima`/`up`, `baixo`/`down`, `esquerda`/`left`, `direita`/`right`, `seleciona`/`select`, etc.
+- **Comandos `start` e `select`.** O original so tinha direcionais + A/B/L/R.
+- **Anuncio automatico dos comandos.** A cada X minutos (configuravel) o bot lembra o chat quais sao os comandos.
+- **Estatisticas de uso.** Conta quantas vezes cada comando foi executado, por plataforma e por usuario.
+- **Logs coloridos com niveis.** Facil de debugar, com arquivos de log por dia.
 - **Encerramento limpo com `Ctrl+C`.** Desconecta tudo de forma segura.
-- **Script de setup interativo.** Para iniciantes que nunca mexeram em `.env`.
-- **Tratamento de erros robusto.** Reconexão automática do tmi.js, retentativa no YouTube em caso de quota excedida.
-- **README, comentários e mensagens 100% em português.**
+- **Backend de teclado SEM compilar C++.** Usa PowerShell (Windows), xdotool (Linux) ou osascript (macOS) - zero build tools necessarios.
+- **Empacotavel em .exe.** A GitHub Action gera o `.exe` automaticamente quando voce cria uma tag.
+- **Setup interativo.** Para iniciantes que nunca mexeram em `.env`.
+- **Tratamento de erros robusto.** Reconexao automatica do tmi.js, retentativa no YouTube em caso de quota excedida.
+- **README, comentarios e mensagens 100% em portugues.**
 
 ---
 
-## Pré-requisitos
+## Modo Desenvolvedor (Node.js)
 
-Antes de começar, você precisa de:
-
-1. **Node.js 18+** instalado. Baixe em https://nodejs.org/
-2. **Um emulador de GameBoy Advance** (recomendado: [VisualBoyAdvance-M](https://vba-m.com/)).
-3. **Uma ROM de Pokémon** (Fire Red foi o jogo testado, mas funciona com qualquer GBA).
-   > ⚠️ Por questões de direitos autorais, **não** incluímos ROMs no projeto. Você precisa obter a sua própria.
-4. **Uma conta bot na Twitch** (recomendado: crie uma segunda conta só para o bot, em vez de usar sua conta principal).
-5. **Token OAuth da Twitch** — gere em https://twitchapps.com/tmi/
-6. *(Opcional)* **Chave de API do YouTube** — crie em https://console.cloud.google.com/ habilitando a "YouTube Data API v3".
-
----
-
-## Instalação
+Se voce quer rodar via Node.js (para desenvolvimento ou em Linux/macOS):
 
 ```bash
 # 1. Clone o repositorio
@@ -81,34 +92,28 @@ cd Pokemon-Chat-Plays
 
 # 2. Instale as dependencias
 npm install
-```
 
-> **Aviso sobre `robotjs`:** este módulo é nativo (C++) e pode exigir build tools no seu sistema.
-> - **Windows:** instale o [windows-build-tools](https://github.com/felixrieseberg/windows-build-tools) ou Visual Studio com "Desktop development with C++".
-> - **macOS:** `xcode-select --install`
-> - **Linux:** `sudo apt-get install build-essential libxtst-dev libpng-dev`
-
----
-
-## Configuração
-
-### Passo único: copiar `.env.example` para `.env`
-
-```bash
-# Linux / macOS
+# 3. Copie o .env.example para .env e preencha suas credenciais
 cp .env.example .env
+# (Windows) copy .env.example .env
 
-# Windows (PowerShell)
-Copy-Item .env.example .env
+# 4. Inicie o bot
+npm start
 ```
 
-Ou rode o setup interativo:
+> **Nota:** A partir da versao 2.1.0, removemos a dependencia `robotjs` (que exigia Visual Studio Build Tools no Windows). O teclado agora e controlado via PowerShell (Windows), xdotool (Linux) ou osascript (macOS). Resultado: `npm install` roda em qualquer maquina sem precisar de build tools.
+
+### Setup interativo (opcional)
 
 ```bash
 npm run setup
 ```
 
-Edite o arquivo `.env` com suas credenciais:
+---
+
+## Configuracao
+
+Edite o arquivo `.env`:
 
 ```bash
 TWITCH_BOT_USERNAME=nome_do_seu_bot
@@ -127,37 +132,37 @@ ANNOUNCE_INTERVAL_MIN=10
 
 ### Twitch
 
-1. Crie uma conta no Twitch para o seu bot (ou reutilize uma conta secundária).
+1. Crie uma conta no Twitch para o seu bot (ou reutilize uma conta secundaria).
 2. Acesse https://twitchapps.com/tmi/ estando logado com a conta do bot e clique em "Connect".
 3. Copie o token gerado (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`.
 4. Preencha `TWITCH_BOT_USERNAME` com o nome do bot e `TWITCH_CHANNEL` com o nome do seu canal (`sindromegames`).
 
 ### YouTube
 
-> ⚠️ O YouTube exige uma chave de API. Não existe alternativa simples sem OAuth2.
+> O YouTube exige uma chave de API. Nao existe alternativa simples sem OAuth2.
 
 1. Acesse o [Google Cloud Console](https://console.cloud.google.com/).
 2. Crie um projeto (ou use um existente).
-3. No menu, vá em **APIs & Services → Library** e ative a **YouTube Data API v3**.
-4. Em **APIs & Services → Credentials**, crie uma **API Key**.
+3. No menu, va em **APIs & Services > Library** e ative a **YouTube Data API v3**.
+4. Em **APIs & Services > Credentials**, crie uma **API Key**.
 5. Restrinja a chave para "YouTube Data API v3" (recomendado).
 6. Copie a chave para `YOUTUBE_API_KEY` no `.env`.
-7. Quando você estiver com a live aberta no YouTube, copie o ID do vídeo da URL:
+7. Quando voce estiver com a live aberta no YouTube, copie o ID do video da URL:
    - URL: `https://www.youtube.com/watch?v=ABC123DEF`
    - ID: `ABC123DEF`
 8. Coloque em `YOUTUBE_VIDEO_ID`.
 9. Defina `YOUTUBE_ENABLED=true` e `ACTIVE_PLATFORMS=twitch,youtube`.
 
-> **Limitação importante:** com apenas uma **API Key** (sem OAuth2), o bot consegue *ler* mensagens do chat da live, mas **não consegue enviar** mensagens. Para enviar mensagens via bot no YouTube seria necessário OAuth2 com credenciais de aplicativo, o que é mais complexo. Para o uso deste projeto (lê comandos e executa no teclado), API Key é suficiente.
+> **Limitacao importante:** com apenas uma **API Key** (sem OAuth2), o bot consegue *ler* mensagens do chat da live, mas **nao consegue enviar** mensagens. Para o uso deste projeto (le comandos e executa no teclado), API Key e suficiente.
 
 ---
 
 ## Uso
 
 1. **Abra o emulador** (VisualBoyAdvance-M) e carregue a ROM do jogo.
-2. **Configure os controles no emulador** de acordo com o mapeamento padrão:
+2. **Configure os controles no emulador** de acordo com o mapeamento padrao:
 
-   | Botão GBA     | Tecla        |
+   | Botao GBA     | Tecla        |
    |---------------|--------------|
    | Seta Cima     | `↑` (up)     |
    | Seta Baixo    | `↓` (down)   |
@@ -170,68 +175,43 @@ ANNOUNCE_INTERVAL_MIN=10
    | Start         | `Enter`      |
    | Select        | `Backspace`  |
 
-   > Você pode mudar o mapeamento editando `MAPEAMENTO_PADRAO` no arquivo `src/controllers/keyboard.js`.
+   > Voce pode mudar o mapeamento editando `MAPEAMENTO_PADRAO` no arquivo `src/controllers/keyboard.js`.
 
 3. **Deixe o emulador em foco** (clique na janela dele uma vez).
 4. **Inicie o bot**:
+   - Modo plug-and-play: duplo-clique em `iniciar.bat`.
+   - Modo desenvolvedor: `npm start`.
+5. **Va para sua live** e peca para o chat digitar os comandos. Pronto! 🎮
 
-   ```bash
-   npm start
-   ```
-
-5. **Vá para sua live** e peça para o chat digitar os comandos. Pronto! 🎮
-
-> 💡 **Dica:** Use modo janela no emulador para alternar entre emulador e terminal do bot. Não precisa ficar com o emulador sempre em foco — apenas quando os comandos devem ser executados nele.
+> Dica: Use modo janela no emulador para alternar entre emulador e terminal do bot. Nao precisa ficar com o emulador sempre em foco - apenas quando os comandos devem ser executados nele.
 
 ---
 
 ## Comandos
 
-Qualquer mensagem no chat que contenha exatamente uma destas palavras (em minúsculas) aciona o bot:
+Qualquer mensagem no chat que contenha exatamente uma destas palavras (em minusculas) aciona o bot:
 
-| Comando              | Ação                     |
-|----------------------|--------------------------|
-| `a`                  | Botão A                  |
-| `b`                  | Botão B                  |
-| `up` ou `cima`       | Seta para cima           |
-| `down` ou `baixo`    | Seta para baixo          |
-| `left` ou `esquerda` | Seta para esquerda       |
-| `right` ou `direita` | Seta para direita        |
-| `l`                  | Botão L (ombro esquerdo) |
-| `r`                  | Botão R (ombro direito)  |
-| `start`              | Botão Start              |
-| `select` ou `seleciona` | Botão Select          |
+| Comando                 | Acao                     |
+|-------------------------|--------------------------|
+| `a`                     | Botao A                  |
+| `b`                     | Botao B                  |
+| `up` ou `cima`          | Seta para cima           |
+| `down` ou `baixo`       | Seta para baixo          |
+| `left` ou `esquerda`    | Seta para esquerda       |
+| `right` ou `direita`    | Seta para direita        |
+| `l`                     | Botao L (ombro esquerdo) |
+| `r`                     | Botao R (ombro direito)  |
+| `start`                 | Botao Start              |
+| `select` ou `seleciona` | Botao Select             |
 
 ### Comandos administrativos
 
-| Comando       | Ação                              |
+| Comando       | Acao                              |
 |---------------|-----------------------------------|
 | `!comandos`   | Bot responde com a lista completa |
 | `!ajuda`      | Idem                              |
 | `!help`       | Idem                              |
-| `ola` / `olá` | Bot dá boas-vindas ao usuário     |
-
----
-
-## Personalização
-
-Todas as opções ficam no arquivo `.env`:
-
-| Variável                  | Padrão     | Descrição                                            |
-|---------------------------|------------|------------------------------------------------------|
-| `TWITCH_BOT_USERNAME`     | —          | Nome do bot na Twitch                                |
-| `TWITCH_OAUTH_TOKEN`      | —          | Token OAuth (gerar em twitchapps.com/tmi)            |
-| `TWITCH_CHANNEL`          | sindromegames | Canal a monitorar                                  |
-| `YOUTUBE_ENABLED`         | false      | Liga/desliga o cliente YouTube                       |
-| `YOUTUBE_API_KEY`         | —          | Chave de API do YouTube                              |
-| `YOUTUBE_VIDEO_ID`        | —          | ID do vídeo da live                                  |
-| `ACTIVE_PLATFORMS`        | twitch     | Plataformas ativas, separadas por vírgula            |
-| `COMMAND_COOLDOWN_MS`     | 1500       | Cooldown por usuário (ms)                            |
-| `KEY_PRESS_DURATION_MS`   | 230        | Tempo que cada tecla fica pressionada (ms)          |
-| `ANNOUNCE_INTERVAL_MIN`   | 10         | Intervalo do anúncio automático (min, 0 = desligado) |
-| `ENABLE_STATS`            | true       | Ativa estatísticas de uso                            |
-| `DEBUG`                   | false      | Liga logs de debug                                   |
-| `ADMIN_PREFIX`             | !          | Prefixo para comandos administrativos                |
+| `ola` / `ola` | Bot da boas-vindas ao usuario     |
 
 ---
 
@@ -241,10 +221,15 @@ Todas as opções ficam no arquivo `.env`:
 Pokemon-Chat-Plays/
 ├── .env.example              # Template de configuracao (copie para .env)
 ├── .gitignore
+├── .github/
+│   └── workflows/
+│       └── build-release.yml # CI: gera .exe automaticamente
 ├── LICENSE
-├── package.json
 ├── README.md
+├── iniciar.bat                # Duplo-clique para iniciar no Windows
+├── package.json
 ├── scripts/
+│   ├── build.js              # Build local do .exe (via pkg)
 │   └── setup.js              # Setup interativo (npm run setup)
 └── src/
     ├── index.js             # Ponto de entrada principal
@@ -252,32 +237,68 @@ Pokemon-Chat-Plays/
     ├── controllers/
     │   ├── twitch.js        # Cliente Twitch (tmi.js)
     │   ├── youtube.js       # Cliente YouTube (googleapis)
-    │   └── keyboard.js      # Mapeamento de comandos -> teclas (robotjs)
+    │   └── keyboard.js      # Mapeamento de comandos -> teclas (PowerShell/xdotool/osascript)
     └── utils/
-        ├── logger.js        # Logger colorido com níveis
-        ├── cooldown.js      # Anti-spam por usuário + global
-        └── stats.js        # Estatísticas de uso
+        ├── logger.js        # Logger colorido com niveis
+        ├── cooldown.js      # Anti-spam por usuario + global
+        └── stats.js         # Estatisticas de uso
 ```
 
 ---
 
-## Solução de problemas
+## Como gerar o .exe
 
-### `Error: Cannot find module 'robotjs'`
+### Metodo 1: Automático (recomendado)
 
-Você não rodou `npm install`, ou o robotjs falhou ao compilar. Veja os pré-requisitos.
+Crie uma tag git e empurre:
 
-### O bot conecta, mas os comandos não fazem nada
+```bash
+git tag v2.1.0
+git push origin v2.1.0
+```
 
-- Verifique se o **emulador está em foco**. Clique na janela do emulador uma vez.
+A GitHub Action em `.github/workflows/build-release.yml` vai automaticamente:
+1. Compilar o projeto em `windows-latest`
+2. Gerar `PokemonChatPlays.exe`
+3. Empacotar junto com `.env.example`, `README.md`, `iniciar.bat`, `LICENSE`
+4. Criar uma Release no GitHub com o `.zip` anexado
+
+### Metodo 2: Local (Windows)
+
+```bash
+npm install -g pkg
+node scripts/build.js
+```
+
+O `.exe` e os arquivos auxiliares ficam na pasta `dist/`.
+
+### Metodo 3: Manual
+
+```bash
+npm install
+pkg . --targets node18-win-x64 --output PokemonChatPlays.exe --compress GZip
+```
+
+---
+
+## Solucao de problemas
+
+### "Windows protegeu seu PC" ao rodar o .exe
+
+O `.exe` nao tem assinatura digital porque e um projeto gratuito. Clique em:
+**Mais informacoes > Executar mesmo assim**.
+
+### Os comandos nao fazem nada
+
+- Verifique se o **emulador esta em foco**. Clique na janela do emulador uma vez.
 - Verifique se o **mapeamento de teclas no emulador** corresponde ao mapeamento do arquivo `keyboard.js`.
 - Ative `DEBUG=true` no `.env` para ver logs detalhados.
 
 ### `Permission denied` ou `403` no YouTube
 
-- Sua chave de API pode estar inválida ou você atingiu a quota diária.
-- Verifique se a **YouTube Data API v3** está ativada no projeto.
-- A quota padrão é 10.000 unidades/dia. Cada `liveChatMessages.list` custa ~5 unidades.
+- Sua chave de API pode estar invalida ou voce atingiu a quota diaria.
+- Verifique se a **YouTube Data API v3** esta ativada no projeto.
+- A quota padrao e 10.000 unidades/dia. Cada `liveChatMessages.list` custa ~5 unidades.
 
 ### O bot envia mensagens repetidas
 
@@ -287,28 +308,32 @@ Você não rodou `npm install`, ou o robotjs falhou ao compilar. Veja os pré-re
 
 - Outro processo Node pode estar rodando. Mate todos com `pkill -f node` (Linux/macOS) ou feche no Gerenciador de Tarefas (Windows).
 
-### O bot não reconhece comandos em português
+### O bot nao reconhece comandos em portugues
 
-- Os aliases (`cima`, `baixo`, `esquerda`, `direita`, `seleciona`) estão mapeados em `src/controllers/keyboard.js` no objeto `ALIASES_PT`. Edite à vontade.
+- Os aliases (`cima`, `baixo`, `esquerda`, `direita`, `seleciona`) estao mapeados em `src/controllers/keyboard.js` no objeto `ALIASES_PT`. Edite a vontade.
+
+### PowerShell bloqueado por politica corporativa
+
+Se o PowerShell estiver bloqueado (raro em maquinas domésticas), o teclado nao vai funcionar. Solucao: rodar como Administrador ou desbloquear via `Set-ExecutionPolicy RemoteSigned`.
 
 ---
 
-## Créditos
+## Creditos
 
 - Projeto original: [William-Droin/twitch-chat-plays-pokemon](https://github.com/William-Droin/twitch-chat-plays-pokemon)
-- Versão melhorada e traduzida por **SindromeGames** ([Twitch](https://www.twitch.tv/sindromegames) / [YouTube](https://www.youtube.com/@SindromeGames))
+- Versao melhorada e traduzida por **SindromeGames** ([Twitch](https://www.twitch.tv/sindromegames) / [YouTube](https://www.youtube.com/@SindromeGames))
 - Bibliotecas usadas:
-  - [tmi.js](https://github.com/tmijs/tmi.js) — cliente IRC da Twitch
-  - [robotjs](https://github.com/octalmage/robotjs) — automação de teclado/mouse
-  - [googleapis](https://github.com/googleapis/google-api-nodejs-client) — YouTube Data API
-  - [dotenv](https://github.com/motdotla/dotenv) — variáveis de ambiente
+  - [tmi.js](https://github.com/tmijs/tmi.js) - cliente IRC da Twitch
+  - [googleapis](https://github.com/googleapis/google-api-nodejs-client) - YouTube Data API
+  - [dotenv](https://github.com/motdotla/dotenv) - variaveis de ambiente
+  - [pkg](https://github.com/vercel/pkg) - empacotamento em .exe
 
 ---
 
-## Licença
+## Licenca
 
-MIT — veja o arquivo [LICENSE](./LICENSE).
+MIT - veja o arquivo [LICENSE](./LICENSE).
 
 ---
 
-> ⚠️ **Aviso legal:** Este projeto não é afiliado à Nintendo, Game Freak, The Pokémon Company, Twitch ou YouTube/Google. "Pokémon" é marca registrada da Nintendo. Use apenas ROMs que você possui legalmente.
+> Aviso legal: Este projeto nao e afiliado a Nintendo, Game Freak, The Pokemon Company, Twitch ou YouTube/Google. "Pokemon" e marca registrada da Nintendo. Use apenas ROMs que voce possui legalmente.

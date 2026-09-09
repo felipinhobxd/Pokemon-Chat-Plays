@@ -27,16 +27,32 @@ const NIVEL_COR = {
   comando: CORES.ciano,
 };
 
-const LOG_DIR = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(LOG_DIR)) {
-  try {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
-  } catch {
-    // Ignora se não conseguir criar o diretório
+// Tenta varios diretorios para o log: cwd, dir do executavel, dir do __dirname
+function encontrarLogDir() {
+  const candidatos = [
+    path.join(process.cwd(), 'logs'),
+    path.join(path.dirname(process.execPath), 'logs'),
+    path.join(__dirname, '..', '..', 'logs'),
+  ];
+  for (const dir of candidatos) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // Testa se tem permissao de escrita
+      const testFile = path.join(dir, '.write_test');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      return dir;
+    } catch {
+      // tenta proximo
+    }
   }
+  return null;
 }
 
-const LOG_FILE = path.join(LOG_DIR, `bot_${new Date().toISOString().slice(0, 10)}.log`);
+const LOG_DIR = encontrarLogDir();
+const LOG_FILE = LOG_DIR
+  ? path.join(LOG_DIR, `bot_${new Date().toISOString().slice(0, 10)}.log`)
+  : null;
 
 /**
  * Formata timestamp para exibição.
@@ -61,11 +77,13 @@ function log(nivel, mensagem, extra) {
   console.log(`${cor}${linha}${CORES.reset}`);
 
   // Linha sem cor no arquivo (com timestamp)
-  const linhaArquivo = `[${timestamp()}] ${linha}\n`;
-  try {
-    fs.appendFileSync(LOG_FILE, linhaArquivo);
-  } catch {
-    // Ignora erros de escrita em arquivo
+  if (LOG_FILE) {
+    const linhaArquivo = `[${timestamp()}] ${linha}\n`;
+    try {
+      fs.appendFileSync(LOG_FILE, linhaArquivo);
+    } catch {
+      // Ignora erros de escrita em arquivo
+    }
   }
 
   // Dados extras

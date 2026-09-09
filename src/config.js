@@ -6,9 +6,40 @@
 const path = require('path');
 const fs = require('fs');
 
+/**
+ * Encontra o caminho do arquivo .env.
+ * Procura em:
+ *  1. Diretorio atual (cwd)
+ *  2. Diretorio do executavel (process.execPath, para o .exe empacotado)
+ *  3. Diretorio do __dirname (para node src/index.js)
+ * @returns {string|null}
+ */
+function encontrarEnv() {
+  const candidatos = [
+    path.join(process.cwd(), '.env'),
+    path.join(path.dirname(process.execPath), '.env'),
+    path.join(__dirname, '..', '.env'),
+  ];
+  for (const c of candidatos) {
+    try {
+      if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
+    } catch {
+      // ignora erros de permissão
+    }
+  }
+  return null;
+}
+
+const envEncontrado = encontrarEnv();
+
 // Carrega o arquivo .env se existir
 try {
-  require('dotenv').config();
+  const dotenv = require('dotenv');
+  if (envEncontrado) {
+    dotenv.config({ path: envEncontrado });
+  } else {
+    dotenv.config(); // fallback: procura no cwd
+  }
 } catch (err) {
   // dotenv é opcional caso as variáveis já estejam no ambiente
   if (err.code !== 'MODULE_NOT_FOUND') {
@@ -51,10 +82,13 @@ function getEnvInt(key, defaultValue) {
 }
 
 // Verifica se o arquivo .env existe; se não, avisa o usuário
-const envPath = path.join(process.cwd(), '.env');
-if (!fs.existsSync(envPath)) {
-  console.warn('[AVISO] Arquivo .env não encontrado.');
+if (!envEncontrado) {
+  console.warn('[AVISO] Arquivo .env nao encontrado.');
   console.warn('[AVISO] Copie o arquivo .env.example para .env e preencha suas credenciais.');
+  console.warn('[AVISO] Procurei em:');
+  console.warn('[AVISO]   - ' + path.join(process.cwd(), '.env'));
+  console.warn('[AVISO]   - ' + path.join(path.dirname(process.execPath), '.env'));
+  console.warn('[AVISO]   - ' + path.join(__dirname, '..', '.env'));
 }
 
 const config = {

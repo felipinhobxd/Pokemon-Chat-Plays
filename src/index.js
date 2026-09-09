@@ -14,6 +14,7 @@ const { config, validarConfig } = require('./config');
 const twitch = require('./controllers/twitch');
 const youtube = require('./controllers/youtube');
 const stats = require('./utils/stats');
+const { verificarSistema } = require('./controllers/keyboard');
 
 // Trata Ctrl+C e encerramento limpo
 let encerrando = false;
@@ -44,6 +45,12 @@ async function main() {
 
   if (!validarConfig()) {
     process.exit(1);
+  }
+
+  // Verifica dependencias de sistema (PowerShell/xdotool/osascript)
+  const sistemaOk = await verificarSistema();
+  if (!sistemaOk) {
+    logger.aviso('[Main] Continuando mesmo assim - o teclado pode nao funcionar.');
   }
 
   const plataformas = config.geral.plataformasAtivas;

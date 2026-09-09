@@ -1,13 +1,26 @@
 {
   "name": "pokemon-chat-plays",
-  "version": "2.0.0",
-  "description": "Bot que permite que o chat da Twitch e do YouTube jogue Pokémon (ou outros jogos) enviando comandos no chat. Versão brasileira melhorada do projeto twitch-chat-plays-pokemon.",
+  "version": "2.1.0",
+  "description": "Bot que permite que o chat da Twitch e do YouTube jogue Pokemon (ou outros jogos) enviando comandos no chat. Versao brasileira melhorada do projeto twitch-chat-plays-pokemon, criada para o canal SindromeGames.",
   "main": "src/index.js",
+  "bin": {
+    "pokemon-chat-plays": "src/index.js"
+  },
+  "pkg": {
+    "assets": [
+      ".env.example",
+      "README.md"
+    ],
+    "outputPath": "dist"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "echo \"Erro: nenhum teste definido\" && exit 1",
-    "setup": "node scripts/setup.js"
+    "setup": "node scripts/setup.js",
+    "build": "node scripts/build.js",
+    "build:exe": "nexe --build --output dist/PokemonChatPlays.exe --target x86_64-pc-windows-msvc --input src/index.js --resource .env.example --resource README.md",
+    "package": "node scripts/package.js"
   },
   "keywords": [
     "pokemon",
@@ -26,7 +39,6 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "googleapis": "^144.0.0",
-    "robotjs": "^0.6.0",
     "tmi.js": "^1.8.5"
   },
   "engines": {

@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const cooldown = require('../utils/cooldown');
 const stats = require('../utils/stats');
-const { executarBotao, normalizarComando, ehPedidoAjuda, gerarMensagemAjuda } = require('./keyboard');
+const { executarBotao, normalizarComando, ehPedidoAjuda, gerarMensagemAjudaCurta } = require('./keyboard');
 
 let cliente = null;
 let canal = '';
@@ -83,7 +83,7 @@ function processarMensagem(canalAlvo, tags, mensagem) {
   // Pedido de ajuda / comandos
   if (ehPedidoAjuda(mensagem)) {
     logger.twitch(`Ajuda solicitada por @${usuario}`);
-    cliente.say(canalAlvo, gerarMensagemAjuda());
+    cliente.say(canalAlvo, gerarMensagemAjudaCurta());
     return;
   }
 
@@ -124,7 +124,7 @@ function iniciarAnunciosAutomaticos() {
   intervaloAnuncio = setInterval(() => {
     if (!cliente || !canal) return;
     logger.twitch('Enviando anúncio automático dos comandos...');
-    cliente.say(canal, gerarMensagemAjuda());
+    cliente.say(canal, gerarMensagemAjudaCurta());
   }, intervaloMs);
   logger.twitch(`Anúncios automáticos ativados (a cada ${config.geral.intervaloAnuncioMin} min)`);
 }

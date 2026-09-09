@@ -22,7 +22,7 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const cooldown = require('../utils/cooldown');
 const stats = require('../utils/stats');
-const { executarBotao, normalizarComando, ehPedidoAjuda, gerarMensagemAjuda } = require('./keyboard');
+const { executarBotao, normalizarComando, ehPedidoAjuda } = require('./keyboard');
 
 const INTERVALO_POLLING_MS = 10000; // 10s
 const INTERVALO_RECONNECT_MS = 30000; // 30s
@@ -150,8 +150,7 @@ async function buscarMensagens() {
 function processarMensagem(mensagem, autor) {
   if (ehPedidoAjuda(mensagem)) {
     logger.youtube(`Ajuda solicitada por ${autor}`);
-    // Não temos permissão para postar via API key; apenas registramos.
-    if (postarComo) postarComo(gerarMensagemAjuda());
+    // API key nao permite postar no chat - apenas registramos no log.
     return;
   }
 
