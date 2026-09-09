@@ -1,0 +1,39 @@
+# Dependências
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivo de configuração com segredos (NUNCA commitar)
+.env
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Pastas de build
+dist/
+build/
+
+# ROMs de jogos (não incluímos ROMs por questões de copyright)
+*.gba
+*.gbc
+*.nds
+*.zip
+*.7z
+
+# Variáveis locais de ambiente
+.env.local
+.env.*.local

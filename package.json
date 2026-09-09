@@ -1,0 +1,35 @@
+{
+  "name": "pokemon-chat-plays",
+  "version": "2.0.0",
+  "description": "Bot que permite que o chat da Twitch e do YouTube jogue Pokémon (ou outros jogos) enviando comandos no chat. Versão brasileira melhorada do projeto twitch-chat-plays-pokemon.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "echo \"Erro: nenhum teste definido\" && exit 1",
+    "setup": "node scripts/setup.js"
+  },
+  "keywords": [
+    "pokemon",
+    "twitch",
+    "youtube",
+    "chat-plays",
+    "tpp",
+    "bot",
+    "gameboy",
+    "gba",
+    "emulador",
+    "nodejs"
+  ],
+  "author": "SindromeGames",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "robotjs": "^0.6.0",
+    "tmi.js": "^1.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
