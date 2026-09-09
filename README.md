@@ -32,13 +32,21 @@ Se voce so quer USAR o bot (sem programar nada):
 2. Descompacte o `.zip` em qualquer pasta (ex: `Meus Documents\Chat Joga\`).
 3. Abra o arquivo `.env` com o Bloco de Notas e preencha:
    - `TWITCH_BOT_USERNAME` = nome do seu bot
-   - `TWITCH_OAUTH_TOKEN` = token gerado em https://twitchapps.com/tmi/
+   - `TWITCH_OAUTH_TOKEN` = token gerado em https://twitchtokengenerator.com/ (marque "Chat Token")
    - `TWITCH_CHANNEL` = `sindromegames` (ou seu canal)
    - *(opcional)* `YOUTUBE_ENABLED`, `YOUTUBE_API_KEY`, `YOUTUBE_VIDEO_ID` para YouTube
 4. Salve e feche o `.env`.
 5. Abra o emulador (VisualBoyAdvance-M) e deixe em foco (clique na janela dele).
 6. De um duplo-clique em **`iniciar.bat`**.
 7. Pronto! O chat da sua live ja controla o jogo. 🎮
+
+> **Como obter o token da Twitch (passo a passo):**
+> 1. Acesse https://twitchtokengenerator.com/ (logado com a conta do seu bot)
+> 2. Marque a opcao **"Chat Token"**
+> 3. Clique em **"Generate Token!"** e autorize
+> 4. Copie o token (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`
+>
+> *(O site antigo twitchapps.com/tmi/ foi descontinuado em 2024 e nao funciona mais.)*
 
 > **Importante:** o bot so funciona com o emulador em foco. Se voce clicar em outra janela, os comandos vao para o programa errado.
 
@@ -132,10 +140,33 @@ ANNOUNCE_INTERVAL_MIN=10
 
 ### Twitch
 
+> IMPORTANTE: O gerador antigo `twitchapps.com/tmi/` foi descontinuado em 2024.
+> Use o https://twitchtokengenerator.com/ (servico de swiftyspiffy, recomendado pelo proprio twitchapps).
+
+#### Opcao 1 - Rapida (recomendada para usuarios finais)
+
 1. Crie uma conta no Twitch para o seu bot (ou reutilize uma conta secundaria).
-2. Acesse https://twitchapps.com/tmi/ estando logado com a conta do bot e clique em "Connect".
-3. Copie o token gerado (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`.
-4. Preencha `TWITCH_BOT_USERNAME` com o nome do bot e `TWITCH_CHANNEL` com o nome do seu canal (`sindromegames`).
+2. Acesse https://twitchtokengenerator.com/ estando logado com a conta do bot.
+3. Marque a opcao **"Chat Token"** (isso inclui os escopos `chat:read` e `chat:edit`).
+4. Clique em **Generate Token!** e autorize a aplicacao.
+5. Copie o token gerado (formato `oauth:abcd1234...`) e cole em `TWITCH_OAUTH_TOKEN`.
+6. Preencha `TWITCH_BOT_USERNAME` com o nome do bot e `TWITCH_CHANNEL` com o nome do seu canal (`sindromegames`).
+
+> Aviso: o twitchtokengenerator.com e um servico terceiro. Para maxima seguranca, voce pode usar a Opcao 2 abaixo.
+
+#### Opcao 2 - Oficial (recomendada para desenvolvedores)
+
+1. Acesse https://dev.twitch.tv/console e faca login com a conta do bot.
+2. Clique em **Register Your Application**.
+3. Preencha:
+   - **Name**: Pokemon Chat Plays
+   - **OAuth Redirect URLs**: `http://localhost:3000` (nao usado de fato, mas obrigatorio)
+   - **Category**: Chat Bot
+4. Salve e copie o **Client ID**.
+5. Va em **Manage** > gere um **Client Secret**.
+6. Use o fluxo OAuth Authorization Code com os escopos `chat:read` e `chat:edit`.
+   Documentacao oficial: https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/
+7. O token final sera no formato `oauth:xxxx` e pode ser usado em `TWITCH_OAUTH_TOKEN`.
 
 ### YouTube
 

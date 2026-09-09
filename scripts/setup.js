@@ -53,7 +53,12 @@ async function main() {
   console.log('\nPreencha os valores (deixe em branco para manter o padrao):\n');
 
   const botUser = await perguntar('Nome de usuario do bot Twitch', 'seu_bot_aqui');
-  const oauth = await perguntar('Token OAuth do bot (gerar em twitchapps.com/tmi)');
+  console.log('\n  [Para gerar o token OAuth abaixo]');
+  console.log('  1. Acesse: https://twitchtokengenerator.com/');
+  console.log('  2. Marque a opcao "Chat Token"');
+  console.log('  3. Clique em "Generate Token!" e autorize.');
+  console.log('  4. Copie o token no formato oauth:xxxx...\n');
+  const oauth = await perguntar('Token OAuth do bot (gerar em twitchtokengenerator.com)');
   const canal = await perguntar('Canal Twitch a monitorar', 'sindromegames');
 
   console.log('\n--- YouTube (opcional) ---');
