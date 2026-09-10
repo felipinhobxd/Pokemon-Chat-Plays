@@ -3,12 +3,12 @@
 > **Your Twitch/YouTube chat plays the game.** A bot that turns live chat messages into real key presses on a Game Boy emulator — the classic Twitch Plays Pokémon experience, running on your own stream.
 
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
-[![Licença](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
+[![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/tests-137%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
-[![Chat Twitch](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
-[![Chat YouTube](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
+[![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
+[![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
 
 ## Highlights
 
@@ -146,7 +146,7 @@ src/
 │   ├── keyboard.js       # key injection (worker, PostMessage, combos)
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
-└── utils/                # logger, stats, cooldown, pause, votes, update check
+├── utils/                # logger, stats, cooldown, pause, votes, update check
 └── tests/                # 137 tests (node:test)
 ```
 
