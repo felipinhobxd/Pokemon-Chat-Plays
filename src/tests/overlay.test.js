@@ -100,3 +100,19 @@ test('servidor HTTP serve a página e a API de estado', async () => {
   assert.ok(Number.isInteger(porta2) && porta2 > 0);
   await overlay.parar();
 });
+
+// ---------------------------------------------------------------------------
+// Regressão v2.5.1: ícones da votação astral (🅰 💾 🔵...) não podem quebrar
+// ---------------------------------------------------------------------------
+
+test('overlay: ícone do candidato usa code point (não charAt, que quebra emojis astrais)', () => {
+  // charAt(0) num surrogate pair devolve MEIO emoji (🅰 -> "\uD83C")
+  const iconeA = Array.from('🅰 A')[0];
+  assert.strictEqual(iconeA, '🅰');
+  assert.notStrictEqual('🅰 A'.charAt(0), '🅰', 'sanidade: charAt realmente quebra');
+  // a página embarcada usa a forma correta
+  assert.ok(overlay.PAGINA.includes('Array.from(ICONES_BOTAO'), 'página extrai ícone por code point');
+  assert.ok(!overlay.PAGINA.includes('.charAt(0)'), 'charAt(0) removido da página');
+  // o rótulo também é code-point safe (split por espaço, não slice(2))
+  assert.ok(overlay.PAGINA.includes('.split(/\\s+/).slice(1)'), 'rótulo do candidato divide no espaço');
+});

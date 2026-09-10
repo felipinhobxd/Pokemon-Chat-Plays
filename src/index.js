@@ -253,6 +253,13 @@ function configurarVotacao() {
 
   // O que acontece quando uma janela fecha e há um vencedor
   votacao.configurarExecutor(({ botao, votos, eleitores }) => {
+    // A pausa do streamer (F9) bloqueia TODOS os comandos de jogo no
+    // pipeline (handlers.js) — o vencedor da votação não pode ser exceção:
+    // senão o jogo continuaria recebendo teclas com o chat "pausado".
+    if (pausa.estaPausado()) {
+      logger.aviso(`[Votação] Vencedor ${botao} (${votos} voto(s)) IGNORADO — o chat está pausado.`);
+      return;
+    }
     const ok = teclado.executarBotao(botao);
     if (!ok) return;
     stats.registrar(botao, 'democracia', `chat(${eleitores})`);

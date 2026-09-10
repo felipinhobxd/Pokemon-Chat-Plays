@@ -208,3 +208,34 @@ test('janela curta: 2 janelas seguidas executam 2 vencedores', async () => {
   await esperar(120); // janela 2
   assert.deepStrictEqual(vencedores, ['left', 'right']);
 });
+
+// ---------------------------------------------------------------------------
+// Regressão v2.5.1: o vencedor da votação NÃO executa com o chat pausado
+// (o mesmo guarda-corpo que o index.js instala no executor de verdade)
+// ---------------------------------------------------------------------------
+
+const pausa = require('../utils/pausa');
+
+test('regressão pausa: vencedor da democracia é IGNORADO com o chat pausado', async () => {
+  preparar();
+  pausa.resetar();
+  const executados = [];
+  // executor com o MESMO guarda-corpo do index.js (configurarVotacao)
+  votacao.configurarExecutor((v) => {
+    if (pausa.estaPausado()) return; // chat pausado: não toca no jogo
+    executados.push(v.botao);
+  });
+
+  pausa.definir(true, 'teste'); // streamer pausou (F9)
+  votacao.definirModo('democracia', 'api');
+  votacao.votar('up', 'alguem');
+  await esperar(120); // janela fechou com o chat pausado
+  assert.strictEqual(executados.length, 0, 'vencedor NÃO pode executar pausado');
+
+  pausa.definir(false, 'teste'); // streamer liberou
+  votacao.votar('down', 'alguem');
+  votacao.votar('down', 'outra');
+  await esperar(120); // próxima janela, chat liberado
+  assert.deepStrictEqual(executados, ['down'], 'com o chat livre o vencedor executa');
+  pausa.resetar();
+});

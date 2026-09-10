@@ -540,8 +540,12 @@ const PAGINA = [
   '    var htmlC = "";',
   '    for (var m = 0; m < cands.length; m++) {',
   '      var cc = cands[m];',
-  '      htmlC += \'<div class="cand"><div class="c-icone">\' + (ICONES_BOTAO[cc.botao] || "🎮").charAt(0) +',
-  '        \'</div><div class="c-nome">\' + esc(ICONES_BOTAO[cc.botao] ? ICONES_BOTAO[cc.botao].slice(2) : cc.botao) +',
+  // icones astrais (🅰 💾 🔵...) são SURROGATE PAIRS: charAt(0) devolve
+  // metade do par e quebra o emoji — Array.from() divide por CODE POINT
+  '      var iconeCand = Array.from(ICONES_BOTAO[cc.botao] || "🎮")[0];',
+  '      var rotCand = ICONES_BOTAO[cc.botao] ? ICONES_BOTAO[cc.botao].split(/\\s+/).slice(1).join(" ") : cc.botao;',
+  '      htmlC += \'<div class="cand"><div class="c-icone">\' + iconeCand +',
+  '        \'</div><div class="c-nome">\' + esc(rotCand) +',
   '        \'</div><div class="c-barra"><i style="width:\' + Math.max(8, Math.round(100 * cc.votos / maxv)) + \'%"></i></div>\' +',
   '        \'<div class="c-votos">\' + cc.votos + \'</div></div>\';',
   '    }',

@@ -71,6 +71,7 @@ let watcher = {
   tentativas: 0,
   desistido: false,
   timer: null,
+  nascidoEm: 0,
 };
 
 /**
@@ -250,6 +251,7 @@ function iniciarWatcherF9() {
   }
 
   watcher.proc = proc;
+  watcher.nascidoEm = Date.now();
   let buffer = '';
   proc.stdout.setEncoding('utf8');
   proc.stdout.on('data', (chunk) => {
@@ -279,6 +281,9 @@ function iniciarWatcherF9() {
   proc.on('exit', () => {
     if (watcher.proc !== proc) return; // substituído/parado de propósito
     watcher.proc = null;
+    // viveu bastante? a morte foi ACIDENTAL (não um Windows quebrado):
+    // zera o contador para não desistir de vez numa live longa
+    if (Date.now() - watcher.nascidoEm > 60000) watcher.tentativas = 0;
     watcher.tentativas += 1;
     // watcher deve viver para sempre; se morrer rápido 3x, desiste
     if (watcher.tentativas >= 3) {
