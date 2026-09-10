@@ -197,11 +197,33 @@ function pararAnunciosAutomaticos() {
 
 /**
  * Envia uma mensagem direta (bypassa o pipeline, mas usa a fila).
+ *
+ * v2.5.2: mensagens do SISTEMA (vencedor da votação, aviso de pausa,
+ * troca de modo...) chegam aqui mesmo quando a Twitch não está ativa —
+ * num setup só-YouTube com democracia isso aconteceria a cada janela
+ * de 10s e virava spam de terminal. Regras:
+ *  - Twitch fora das plataformas ativas: silêncio (logger.debug);
+ *  - ativa mas desconectada: 1 aviso a cada 60s (o tmi reconecta sozinho
+ *    — repetir o aviso não recupera a mensagem perdida).
  * @param {string} mensagem
  */
+const AVISO_DESCONECTADO_MS = 60000;
+let ultimoAvisoDesconectado = 0;
+
 function enviarMensagem(mensagem) {
+  const twitchAtiva = config.geral.plataformasAtivas.includes('twitch');
+  if (!twitchAtiva) {
+    logger.debug(`[Twitch] (plataforma inativa, msg não enviada) ${mensagem}`);
+    return;
+  }
   if (!cliente || !canal) {
-    logger.aviso('[Twitch] Cliente não conectado, não foi possível enviar mensagem.');
+    const agora = Date.now();
+    if (agora - ultimoAvisoDesconectado > AVISO_DESCONECTADO_MS) {
+      ultimoAvisoDesconectado = agora;
+      logger.aviso('[Twitch] Cliente não conectado, não foi possível enviar mensagem.');
+    } else {
+      logger.debug('[Twitch] Cliente não conectado (aviso já dado há pouco).');
+    }
     return;
   }
   responder(mensagem, 'alta');
@@ -231,4 +253,6 @@ module.exports = {
   iniciar,
   parar,
   enviarMensagem,
+  // v2.5.2: exposto APENAS para os testes de regressão do throttle
+  __resetTeste: () => { ultimoAvisoDesconectado = 0; },
 };

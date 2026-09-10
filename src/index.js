@@ -198,7 +198,7 @@ function aplicarMapeamentoTeclas() {
   let invalidas = 0;
   for (const [botao, tecla] of Object.entries(mapa)) {
     if (!teclado.teclaSuportada(tecla)) {
-      logger.erro(`[Teclado] TECLA para "${botao}" inválida: "${tecla}" — valores aceitos: setas, enter, backspace, space, tab, esc, shift, a-z, 0-9`);
+      logger.erro(`[Teclado] TECLA para "${botao}" inválida: "${tecla}" — valores aceitos: setas, enter, backspace, space, tab, esc, shift, ctrl, alt, f1-f12, a-z, 0-9 e combos como shift+f5`);
       invalidas++;
     }
   }
