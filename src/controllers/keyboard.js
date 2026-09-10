@@ -45,6 +45,13 @@
  *   ⬅ left -> seta esq    ➡ right -> seta dir
  *   🅰 A -> X   🅱 B -> Z   🔵 L -> A   🔴 R -> S
  *   ▶ Start -> Enter   ▦ Select -> Backspace
+ *
+ * Novidade da v2.5 (SAVES NO CHAT + COMBOS):
+ *  - Teclas de função F1-F12 nos três backends — savestates dos emuladores
+ *    (VBA-M/mGBA/DeSmuME usam F1-F10; F5 carrega o slot 5, Shift+F5 salva).
+ *  - Mapeamentos podem ser COMBOS: TECLA_SALVAR=shift+f5 pressiona
+ *    shift+F5 numa única ação (mods down -> tecla down -> sleep -> tecla up
+ *    -> mods up). Tudo em UMA linha do worker: a ordem nunca se inverte.
  */
 
 const { spawn, execFileSync } = require('child_process');
@@ -65,6 +72,9 @@ const MAPEAMENTO_PADRAO = {
   r: 's',
   start: 'enter',
   select: 'backspace',
+  // v2.5: savestates (layout padrão do VBA-M: F5 carrega, Shift+F5 salva)
+  salvar: 'shift+f5',
+  carregar: 'f5',
 };
 
 let mapeamentoAtual = { ...MAPEAMENTO_PADRAO };
@@ -152,6 +162,9 @@ const VK_WINDOWS = {
   shift: 0x10,
   ctrl: 0x11,
   alt: 0x12,
+  // v2.5: teclas de função — savestates dos emuladores
+  f1: 0x70, f2: 0x71, f3: 0x72, f4: 0x73, f5: 0x74, f6: 0x75,
+  f7: 0x76, f8: 0x77, f9: 0x78, f10: 0x79, f11: 0x7a, f12: 0x7b,
 };
 
 /**
@@ -221,6 +234,9 @@ const KEYCODES_MAC = {
   up: 126, down: 125, left: 123, right: 124,
   enter: 36, return: 36, backspace: 51, space: 49, tab: 48, esc: 53, escape: 53,
   shift: 56, ctrl: 59, alt: 58,
+  // v2.5: teclas de função do macOS
+  f1: 122, f2: 120, f3: 99, f4: 118, f5: 96, f6: 97, f7: 98, f8: 100,
+  f9: 101, f10: 109, f11: 103, f12: 111,
 };
 
 /**
@@ -248,6 +264,9 @@ const TECLAS_XDOTOOL = {
   shift: 'Shift_L',
   ctrl: 'Control_L',
   alt: 'Alt_L',
+  // v2.5: teclas de função
+  f1: 'F1', f2: 'F2', f3: 'F3', f4: 'F4', f5: 'F5', f6: 'F6',
+  f7: 'F7', f8: 'F8', f9: 'F9', f10: 'F10', f11: 'F11', f12: 'F12',
 };
 
 /**
@@ -258,6 +277,44 @@ const TECLAS_XDOTOOL = {
 function nomeXdotool(tecla) {
   const t = tecla.toLowerCase();
   return TECLAS_XDOTOOL[t] ?? (/^[a-z0-9]$/.test(t) ? t : null);
+}
+
+/**
+ * v2.5: Modificadores aceitos em combos (TECLA_SALVAR=shift+f5 etc.).
+ */
+const MODIFICADORES = ['shift', 'ctrl', 'alt'];
+
+/**
+ * v2.5: Resolve uma especificação de tecla (simples OU combo "shift+f5")
+ * validando cada parte nos TRÊS backends.
+ * @param {string} espec - 'f5' | 'shift+f5' | 'ctrl+alt+f2'...
+ * @returns {{modificadores: string[], tecla: string}|null}
+ */
+function resolverTecla(espec) {
+  const partes = String(espec || '')
+    .toLowerCase()
+    .split('+')
+    .map((p) => p.trim());
+  // "+f5", "shift+", "a++b" — parte vazia = especificação malformada
+  if (partes.some((p) => p === '')) return null;
+
+  const tecla = partes[partes.length - 1];
+  const modificadores = partes.slice(0, -1);
+
+  // a tecla principal nunca pode ser um modificador — EXCETO se ela for
+  // a ÚNICA parte: "shift" sozinho é uma tecla legítima (Select do
+  // DeSmuME/RetroArch); "shift+shift" é que não faz sentido
+  if (partes.length > 1 && MODIFICADORES.includes(tecla)) return null;
+  // os modificadores têm que ser exatamente os conhecidos
+  if (modificadores.some((m) => !MODIFICADORES.includes(m))) return null;
+
+  // cada parte precisa existir nos três backends
+  for (const p of partes) {
+    if (vkWindows(p) === null || keycodeMac(p) === null || nomeXdotool(p) === null) {
+      return null;
+    }
+  }
+  return { modificadores, tecla };
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +675,42 @@ function linhaKeyJanela(vk, down) {
 /** Toque completo NA JANELA DO EMULADOR: down + sleep + up. */
 function linhaTapJanela(vk, ms) {
   return `${linhaKeyJanela(vk, true)};[System.Threading.Thread]::Sleep(${Math.round(ms)});${linhaKeyJanela(vk, false)}`;
+}
+
+/**
+ * v2.5: sequência de eventos em UMA linha do worker (combos).
+ * O sleep entra DEPOIS DO ÚLTIMO keydown (o da tecla principal) — mods já
+ * pressionados, principal pressionada, espera, solta principal, solta mods.
+ * Uma linha = um OK do worker = a ordem nunca se inverte.
+ * @param {Array<{vk: number, down: boolean}>} eventos - em ordem de execução
+ * @param {number} esperaMs - duração da tecla principal
+ * @param {(vk: number, down: boolean) => string} emit - gerador de fragmento
+ * @returns {string}
+ */
+function linhaSequencia(eventos, esperaMs, emit) {
+  const totalDown = eventos.filter((e) => e.down).length;
+  let vistosDown = 0;
+  const partes = [];
+  for (const ev of eventos) {
+    partes.push(emit(ev.vk, ev.down));
+    if (ev.down) {
+      vistosDown++;
+      if (vistosDown === totalDown && esperaMs > 0) {
+        partes.push(`[System.Threading.Thread]::Sleep(${Math.round(esperaMs)})`);
+      }
+    }
+  }
+  return partes.join(';');
+}
+
+/** Sequência no MODO JANELA ([PCP]::Env — PostMessage no emulador). */
+function linhaSequenciaJanela(eventos, esperaMs) {
+  return linhaSequencia(eventos, esperaMs, linhaKeyJanela);
+}
+
+/** Sequência no modo GLOBAL ([KB]::keybd_event com flags certas). */
+function linhaSequenciaGlobal(eventos, esperaMs) {
+  return linhaSequencia(eventos, esperaMs, linhaKey);
 }
 
 /**
@@ -988,6 +1081,70 @@ function tocarTecla(tecla, durMs) {
   });
 }
 
+/**
+ * Envia um toque COM MODIFICADORES (v2.5): shift+F5, ctrl+F2...
+ * Pressiona os mods, toca a tecla principal e solta tudo — em UMA ação
+ * da fila (ordem garantida) e UMA linha do worker.
+ * @param {string[]} modificadores - ['shift'] etc.
+ * @param {string} tecla - tecla principal (genérica)
+ * @param {number} [durMs] - duração da tecla principal
+ */
+function tocarCombinacao(modificadores, tecla, durMs) {
+  const duracao = durMs ?? duracaoPadraoMs();
+  const plat = process.platform;
+  enfileirar((concluir) => {
+    if (plat === 'win32') {
+      const vk = vkWindows(tecla);
+      const vksMods = modificadores.map(vkWindows).filter((v) => v !== null);
+      if (vk === null) { concluir(); return; }
+      // ordem: mods down -> principal down -> principal up -> mods up (inverso)
+      const eventos = [
+        ...vksMods.map((vm) => ({ vk: vm, down: true })),
+        { vk, down: true },
+        { vk, down: false },
+        ...vksMods.slice().reverse().map((vm) => ({ vk: vm, down: false })),
+      ];
+      const desc = `toque ${modificadores.join('+')}+${tecla}`;
+      if (worker.legacy) {
+        // modo compatível: script avulso (o sleep entra após cada down;
+        // o lead do modificador sozinho é inofensivo)
+        const script = modoJanela()
+          ? scriptWindowsJanela(eventos, duracao, alvoExe)
+          : scriptWindows(eventos, duracao);
+        rodarPowerShell(script, duracao + 5000, concluir);
+      } else {
+        const linha = modoJanela()
+          ? linhaSequenciaJanela(eventos, duracao)
+          : linhaSequenciaGlobal(eventos, duracao);
+        executarNoWorker(linha, duracao + 4000, concluir, desc);
+      }
+    } else if (plat === 'linux') {
+      const nome = nomeXdotool(tecla);
+      const nomesMods = modificadores.map(nomeXdotool).filter(Boolean);
+      if (!nome) { concluir(); return; }
+      const segs = (duracao / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+      const args = [];
+      for (const m of nomesMods) args.push('keydown', m);
+      args.push('keydown', nome, 'sleep', segs || '0.2', 'keyup', nome);
+      for (const m of nomesMods.slice().reverse()) args.push('keyup', m);
+      rodarProcesso('xdotool', args, duracao + 2000, concluir);
+    } else if (plat === 'darwin') {
+      const kc = keycodeMac(tecla);
+      const kcsMods = modificadores.map(keycodeMac).filter((k) => k !== null);
+      if (kc === null) { concluir(); return; }
+      const segs = (duracao / 1000).toFixed(3);
+      const args = ['-e', 'tell application "System Events"'];
+      for (const k of kcsMods) args.push('-e', `key down (key code ${k})`);
+      args.push('-e', `key down (key code ${kc})`, '-e', `delay ${segs}`, '-e', `key up (key code ${kc})`);
+      for (const k of kcsMods.slice().reverse()) args.push('-e', `key up (key code ${k})`);
+      args.push('-e', 'end tell');
+      rodarProcesso('osascript', args, duracao + 2000, concluir);
+    } else {
+      concluir();
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Estado das teclas seguradas (hold)
 // ---------------------------------------------------------------------------
@@ -1007,6 +1164,12 @@ function segurar(botao, duracaoMs, dono = null) {
   const tecla = mapeamentoAtual[botao];
   if (!tecla) {
     logger.aviso(`[Teclado] Botão desconhecido para segurar: "${botao}"`);
+    return false;
+  }
+  // combos não podem ser segurados (o parser já converte "hold salvar" em
+  // toque, mas um mapeamento custom com + cairia aqui)
+  if (String(tecla).includes('+')) {
+    logger.aviso(`[Teclado] "${botao}" mapeado para combo (${tecla}) não pode ser segurado — use uma tecla simples.`);
     return false;
   }
 
@@ -1127,14 +1290,13 @@ function listarSeguradas() {
 }
 
 /**
- * Verifica se uma tecla genérica é conhecida nos TRÊS backends
+ * Verifica se uma tecla (ou COMBO, v2.5) é conhecida nos TRÊS backends
  * (Windows/Linux/macOS) — usada para validar TECLA_* do .env no startup.
- * @param {string} tecla
+ * @param {string} tecla - 'x', 'f5', 'shift+f5'...
  * @returns {boolean}
  */
 function teclaSuportada(tecla) {
-  const t = String(tecla || '').toLowerCase();
-  return vkWindows(t) !== null && keycodeMac(t) !== null && nomeXdotool(t) !== null;
+  return resolverTecla(tecla) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1143,17 +1305,28 @@ function teclaSuportada(tecla) {
 
 /**
  * Executa um toque simples num botão do controle.
+ * Aceita mapeamento simples ('x') ou combo ('shift+f5') — v2.5.
  * @param {string} botao - Botão canônico
  * @returns {boolean} true se o botão existe e foi enfileirado
  */
 function executarBotao(botao) {
-  const tecla = mapeamentoAtual[botao];
-  if (!tecla) {
+  const espec = mapeamentoAtual[botao];
+  if (!espec) {
     logger.aviso(`[Teclado] Botão desconhecido: "${botao}"`);
     return false;
   }
-  logger.comando(`[Teclado] Toque: ${botao} -> tecla "${tecla}"`);
-  tocarTecla(tecla);
+  if (String(espec).includes('+')) {
+    const combo = resolverTecla(espec);
+    if (!combo) {
+      logger.aviso(`[Teclado] Combo inválido para "${botao}": "${espec}" — use ex.: shift+f5`);
+      return false;
+    }
+    logger.comando(`[Teclado] Toque: ${botao} -> combo "${espec}"`);
+    tocarCombinacao(combo.modificadores, combo.tecla);
+    return true;
+  }
+  logger.comando(`[Teclado] Toque: ${botao} -> tecla "${espec}"`);
+  tocarTecla(espec);
   return true;
 }
 
@@ -1252,5 +1425,9 @@ module.exports = {
     montarBootPS,
     normalizarCaminhoAlvo,
     fontePCP: CS_PCP.join('\n'),
+    // --- v2.5: combos + teclas de função ---
+    resolverTecla,
+    linhaSequenciaJanela,
+    linhaSequenciaGlobal,
   },
 };

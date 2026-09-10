@@ -114,14 +114,15 @@ test('"soltar" chama soltarTodas e confirma', () => {
   assert.ok(confirmacao, 'deveria confirmar as teclas soltas');
 });
 
-test('"!comandos" responde com a lista completa em 2 mensagens', () => {
+test('"!comandos" responde com a lista completa em 3 mensagens', () => {
   resetarAntiFlood();
   const { respostas, responder } = criarResponderEspiao();
   processarMensagem({ plataforma: 'twitch', usuario: 'curioso', texto: '!comandos', responder });
   const partes = respostas.map((r) => r.texto);
-  assert.strictEqual(partes.length, 2, '!comandos deve mandar 2 mensagens');
+  assert.strictEqual(partes.length, 3, '!comandos deve mandar 3 mensagens');
   assert.ok(partes[0].includes('COMANDOS DO JOGO'));
   assert.ok(partes[1].includes('SEGURAR'));
+  assert.ok(partes[2].includes('OUTROS COMANDOS'));
 });
 
 test('anti-flood: "!comandos" em rajada responde só uma vez', () => {
@@ -130,8 +131,8 @@ test('anti-flood: "!comandos" em rajada responde só uma vez', () => {
   for (let i = 0; i < 5; i++) {
     processarMensagem({ plataforma: 'twitch', usuario: `spammer${i}`, texto: '!comandos', responder });
   }
-  // 5 pedidos em < 8s -> só 2 mensagens (uma resposta completa)
-  assert.strictEqual(respostas.length, 2);
+  // 5 pedidos em < 8s -> só 3 mensagens (uma resposta completa)
+  assert.strictEqual(respostas.length, 3);
 });
 
 test('"!top" responde com ranking', () => {

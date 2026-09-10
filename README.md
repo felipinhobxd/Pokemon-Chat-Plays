@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
 [![Licença](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Testes](https://img.shields.io/badge/testes-40%20%E2%9C%94-brightgreen)](#testes)
+[![Testes](https://img.shields.io/badge/testes-135%20%E2%9C%94-brightgreen)](#testes)
 [![Plataformas](https://img.shields.io/badge/plataforma-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#modo-desenvolvedor-nodejs)
 [![Chat Twitch](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![Chat YouTube](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
@@ -69,8 +69,9 @@ O diferencial desta versão:
 1. **Plug-and-play de verdade** — baixe o `.zip`, preencha o `.env`, dê dois cliques no `iniciar.bat`. Zero programação, zero compilação, zero build tools.
 2. **Hold real** — keydown e keyup separados: o chat consegue *segurar* uma tecla por segundos e *soltar* depois.
 3. **Feito para o Brasil** — comandos em português e inglês, mensagens formatadas com emojis, README 100% em PT-BR.
-4. **Robusto** — 112 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
-5. **Kit completo do streamer** — tecla **F9** pausa o chat na hora, **overlay ao vivo pro OBS**, ranking **persistente** entre lives e aviso automático de versão nova.
+4. **Robusto** — 135 testes automatizados, fila de teclas assíncrona, anti-spam, anti-flood, reconexão automática e encerramento limpo com `Ctrl+C` (nunca deixa tecla presa).
+5. **Kit completo do streamer** — tecla **F9** pausa o chat na hora, **F8 alterna anarquia/democracia**, **overlay ao vivo pro OBS**, ranking **persistente** entre lives e aviso automático de versão nova.
+6. **Modo democracia** — o clássico do Twitch Plays: o chat **vota** no próximo passo e só o mais votado executa — e o chat decide quando trocar (`!democracia` / `!anarquia`).
 
 ---
 
@@ -142,6 +143,8 @@ O bot conecta no seu canal e anuncia os comandos no chat. Manda um `up` aí de t
 > 💡 **Dicas de streamer:** aperte **F9** a qualquer momento para pausar o chat (aperte de novo para liberar) e coloque o **overlay ao vivo** no OBS (`http://localhost:8899` como fonte de navegador) para o chat ver as ações e o ranking em cima da gameplay. Veja [Ferramentas do streamer](#ferramentas-do-streamer-f9-overlay-e-mais).
 
 > ✅ **v2.4 (modo janela):** o emulador NÃO precisa mais estar em foco — as teclas do chat vão direto para a janela dele, mesmo com você mexendo no OBS. É só responder o prompt do `.exe` no boot (ou configurar `EMULADOR_EXE` no `.env`). Se preferir o comportamento antigo, responda `global` no prompt ou use `MODO_TECLADO=global`.
+>
+> 🗳️ **v2.5 (democracia + saves):** o chat pode **votar no próximo passo** (`!democracia`) em vez de todo mundo apertar ao mesmo tempo (`!anarquia`) — e ganhou os comandos `salvar` / `carregar` para voltar no tempo com os savestates do emulador.
 >
 > 🛡️ **O Windows mostrou "Protegeu seu PC"?** É normal — o `.exe` não tem assinatura digital porque é um projeto gratuito. Clique em **Mais informações → Executar mesmo assim**.
 >
@@ -285,6 +288,15 @@ Não tem prefixo: qualquer mensagem do chat que seja **exatamente** um dos coman
 | `start` | ▶ Botão Start (menu) |
 | `select` · `seleciona` · `selecionar` | ▦ Botão Select |
 
+### Voltar no tempo (savestates) — novo na v2.5 💾
+
+| Comando | Ação |
+|---|---|
+| `salvar` · `salva` · `save` | 💾 O **chat salva o ponto do jogo** (savestate do emulador) |
+| `carregar` · `carrega` · `load` | 📂 Volta ao **último ponto salvo pelo chat** |
+
+Os presets já mapeiam para o layout padrão dos emuladores (VBA-M/mGBA/DeSmuME: **Shift+F5 salva, F5 carrega** o slot 5; RetroArch: F2/F4). Dá pra ajustar com `TECLA_SALVAR` / `TECLA_CARREGAR` — inclusive **combos** como `shift+f1`.
+
 ### Segurar teclas (hold) — o pulo do gato da v2.2 🏆
 
 O chat pode **segurar** uma tecla por um tempo, em vez de só dar um toque — perfeito para correr longas distâncias, nadar contra corredeira, escapar de pokémon selvagem sem parar...
@@ -307,15 +319,33 @@ O chat pode **segurar** uma tecla por um tempo, em vez de só dar um toque — p
 - Máximo de **10 segundos** (`HOLD_MAX_MS`) — o chat não pode travar o jogo de propósito;
 - Quem segurou recebe confirmação no chat: `🔒 @user segurou ⬆ CIMA por 3s`.
 
+### 🗳️ Democracia × Anarquia — novo na v2.5
+
+O clássico do Twitch Plays Pokémon, direto no seu chat:
+
+| Modo | Como funciona |
+|---|---|
+| ⚡ **Anarquia** (padrão) | Todo comando executa **na hora**, em ordem de chegada — o caos clássico |
+| 🗳️ **Democracia** | O chat **vota** durante uma janela (10s por padrão) e só o **mais votado** é executado no fim |
+
+- **Trocar de modo:** `!democracia`, `!anarquia` ou `!votacao` (alterna) — o chat decide junto (com intervalo mínimo de 30s pra não virar flip-flop; o **dono do canal** troca na hora);
+- **Streamer:** a tecla **F8** (configurável, `TECLA_MODO`) alterna na hora, sem esperar nada;
+- **Votar é igual jogar:** em democracia, mandar `cima`, `a`, `start`... conta como voto no botão (cada pessoa tem 1 voto e pode trocar — vale o último);
+- **Empate:** ganha o botão que recebeu o primeiro voto mais cedo;
+- O overlay mostra a **apuração ao vivo** (candidatos, votos e a contagem regressiva da janela).
+
 ### Comandos de informação
 
 | Comando | Ação |
 |---|---|
-| `!comandos` · `!commands` · `!cmd` | Lista **COMPLETA** de comandos (2 mensagens formatadas) |
+| `!comandos` · `!commands` · `!cmd` | Lista **COMPLETA** de comandos (3 mensagens formatadas) |
 | `!ajuda` · `!help` · `!socorro` | Mesma lista completa |
 | `!segurar` · `!hold` · `!segura` | Ajuda detalhada só dos comandos de segurar |
 | `!stats` · `!estatisticas` · `!status` | Estatísticas da live (total de comandos, tempo ligado, plataformas) |
 | `!top` · `!ranking` · `!rank` · `!placar` | 🏆 Top 5 jogadores que mais mandaram comandos |
+| `!uptime` · `!tempo` | ⏱ Há quanto tempo o bot está no ar (somando todas as lives) |
+| `!recorde` · `!record` · `!maior` | 👑 Maior jogador do histórico (todas as lives) |
+| `!democracia` · `!anarquia` · `!votacao` | 🗳 Troca o modo de jogo (veja a seção acima) |
 | `ola` · `oi` · `oie` · `hello` · `hey` · `hi` · `eae` · `salve` | Boas-vindas com dica rápida dos comandos |
 
 > 💡 Todas as respostas do bot são formatadas com **emojis, separadores e múltiplas linhas** — muito mais legíveis no chat da Twitch. E o **anti-flood** cuida do resto: se 20 pessoas pedirem `!comandos` no mesmo segundo, o bot responde só uma vez (sem risco de rate-limit).
@@ -350,7 +380,7 @@ TECLA_A=l
 # TECLA_UP, TECLA_DOWN, TECLA_LEFT, TECLA_RIGHT também funcionam
 ```
 
-Nomes de tecla aceitos: `up`, `down`, `left`, `right`, `enter`, `backspace`, `space`, `tab`, `esc`, `shift` e letras/dígitos (`a`-`z`, `0`-`9`). Tecla inválida no `.env` não quebra nada: o bot avisa no terminal e mantém o padrão.
+Nomes de tecla aceitos: `up`, `down`, `left`, `right`, `enter`, `backspace`, `space`, `tab`, `esc`, `shift`, `f1`–`f12` (novidade v2.5, para savestates), **combos** como `shift+f5` e letras/dígitos (`a`-`z`, `0`-`9`). Tecla inválida no `.env` não quebra nada: o bot avisa no terminal e mantém o padrão.
 
 > 💡 **Dica:** os presets seguem o layout *de fábrica* de cada emulador. Se você mudou as teclas lá dentro, espelhe a mudança com `TECLA_*`.
 
@@ -391,7 +421,7 @@ Configuração sem prompt:
 
 Quem quiser voltar ao modo antigo na hora: reinicie e responda `global` no prompt (a escolha fica salva). Compatível com VBA-M, mGBA e DeSmuME; **RetroArch** lê o teclado por *polling* (não por mensagem) — nesse caso use `MODO_TECLADO=global`.
 
-### 🛑 Tecla F9 — pausa o chat na hora
+### 🛑 Tecla F9 — pausa o chat na hora (configurável na v2.5)
 
 Precisou assumir o jogo num momento crítico? **Aperte F9 em qualquer lugar** (funciona mesmo com o emulador em foco — não precisa clicar na janela do bot):
 
@@ -402,7 +432,12 @@ Detalhes úteis:
 
 - Comandos informativos (`!comandos`, `!stats`, `!top`) continuam funcionando durante a pausa;
 - No Linux/macOS (ou se o F9 não estiver disponível), aperte **ENTER no terminal** do bot — mesmo efeito;
-- O streamer (dono do canal) é **isento do cooldown** — pode testar os comandos sozinho sem ser travado pelo anti-spam.
+- O streamer (dono do canal) é **isento do cooldown** — pode testar os comandos sozinho sem ser travado pelo anti-spam;
+- A tecla é configurável: `TECLA_PAUSA=f9` no `.env` (dica: o VBA-M usa F1-F10 para savestates — se você usa os saves do emulador, escolha uma tecla livre).
+
+### 🗳️ Tecla F8 — anarquia × democracia na hora (v2.5)
+
+Sem digitar nada no chat: **F8** alterna entre anarquia e democracia a qualquer momento (o aviso vai pro chat e pro overlay). Configurável com `TECLA_MODO` (`off` desativa). No terminal também funciona: digite `modo` (ou `votacao`) e ENTER. Veja a seção [Democracia × Anarquia](#-democracia--anarquia--novo-na-v25) para as regras completas.
 
 ### 🖥️ Overlay ao vivo para o OBS
 
@@ -416,8 +451,9 @@ O que aparece na tela (atualiza a cada 1s, tudo em português):
 
 | Painel | Conteúdo |
 |---|---|
-| **Últimas ações do chat** | Quem apertou o quê, com o botão colorido e selo (TOQUE / HOLD 3s / SOLTOU TUDO) |
+| **Últimas ações do chat** | Quem apertou o quê, com o botão colorido e selo (TOQUE / HOLD 3s / SOLTOU TUDO / VOTO) |
 | **Status** | 🟢 CHAT NO CONTROLE ou ⛔ PAUSADO PELO STREAMER (pulsando) |
+| **Votação ao vivo** | Em democracia: candidatos com barras de votos e contagem regressiva da janela (novo na v2.5) |
 | **Top jogadores** | Pódio 🥇🥈🥉 com barra de progresso |
 | **Segurando agora** | Chips com a tecla presa e contagem regressiva (ex.: `UP 5s`) |
 | **Cabeçalho/rodapé** | Versão, conexões Twitch/YouTube, alvo do teclado (🎯 modo janela), total de comandos e uptime |
@@ -491,7 +527,19 @@ Todas as opções ficam no arquivo `.env` (copiado do `.env.example`). Esta é a
 | `EMULADOR_PRESET` | `vbam` | Layout do emulador: `vbam`, `mgba`, `desmume` ou `retroarch` |
 | `EMULADOR_EXE` | (pergunta no boot) | Caminho do `.exe` do emulador — ativa o **modo janela** (teclas só no jogo, sem precisar de foco). Vazio = o bot pergunta no início |
 | `MODO_TECLADO` | `janela` | `janela` = teclas vão SÓ para o emulador · `global` = comportamento antigo (janela em foco) |
-| `TECLA_A` ... `TECLA_SELECT` | (do preset) | Sobrescreve a tecla de UM botão (ex.: `TECLA_A=q`). Válidos: setas, `enter`, `backspace`, `space`, `tab`, `esc`, `shift`, `a`-`z`, `0`-`9` |
+| `TECLA_A` ... `TECLA_SELECT` | (do preset) | Sobrescreve a tecla de UM botão (ex.: `TECLA_A=q`). Válidos: setas, `enter`, `backspace`, `space`, `tab`, `esc`, `shift`, `f1`–`f12`, `a`-`z`, `0`-`9` — e **combos** como `shift+f5` |
+| `TECLA_SALVAR` | `shift+f5` | Tecla do comando `salvar` do chat (savestate — layout VBA-M: slot 5) |
+| `TECLA_CARREGAR` | `f5` | Tecla do comando `carregar` (volta ao savestate) |
+
+### Democracia × anarquia e teclas do streamer (v2.5)
+
+| Variável | Padrão | Descrição |
+|---|:---:|---|
+| `MODO_INICIAL` | `anarquia` | Modo de jogo no boot: `anarquia` (comandos na hora) ou `democracia` (votação) |
+| `VOTACAO_INTERVALO_MS` | `10000` | Duração de cada janela de votação em democracia (mín. 2000) |
+| `VOTACAO_TROCA_MIN_MS` | `30000` | Intervalo mínimo entre trocas pedidas pelo chat (anti flip-flop; o streamer não espera) |
+| `TECLA_MODO` | `f8` | Tecla do streamer que alterna anarquia/democracia (`off` desativa) |
+| `TECLA_PAUSA` | `f9` | Tecla do streamer que pausa/libera o chat (escolha uma que o emulador não use) |
 
 ### Stats persistentes (v2.3)
 
@@ -517,6 +565,7 @@ Todas as opções ficam no arquivo `.env` (copiado do `.env.example`). Esta é a
 
 ## Funcionalidades
 
+> 🆕 **Novidades da v2.5:** modo **democracia/anarquia** (o chat vota no próximo passo — `!democracia` / `!anarquia` / tecla F8), comandos **`salvar` / `carregar`** (savestates do emulador no chat, com F1-F12 e combos como `shift+f5`), `!uptime` e `!recorde` (histórico), **tecla de pausa configurável** (`TECLA_PAUSA`) e proteção contra terminal morto (EPIPE) no log. \
 > 🆕 **Novidades da v2.3:** tecla **F9** de pausa do streamer, **overlay ao vivo pro OBS** (ações, top 3, teclas seguradas e status), **stats persistentes** entre lives, **teclas via `.env`** com presets de emulador (VBA-M, mGBA, DeSmuME, RetroArch), **aviso automático de versão nova** e streamer isento de cooldown. \
 > 🆕 **Novidades da v2.2:** segurar teclas (`hold`/`segurar`/`soltar`), `!comandos` completo e formatado, `!stats` e `!top` com ranking, refatoração total com testes e CI com testes antes do build.
 
@@ -543,7 +592,7 @@ Comparado ao projeto original que o inspirou, esta versão traz:
 - **Overlay embutida** — servidor HTTP próprio (sem dependências) servindo a página do OBS de dentro do `.exe`;
 - **Configuração via `.env`** — nada de credenciais escondidas no código;
 - **Logs coloridos com níveis** e arquivo de log por dia;
-- **112 testes automatizados** rodando offline com o `node:test` nativo;
+- **135 testes automatizados** rodando offline com o `node:test` nativo;
 - **CI no GitHub Actions** — os testes rodam antes de todo build do `.exe`;
 - **.exe gerado automaticamente** a cada tag `v*` via GitHub Actions;
 - **Setup interativo** (`npm run setup`) para quem nunca mexeu com `.env`.
@@ -576,7 +625,7 @@ Scripts disponíveis:
 | `npm start` | Inicia o bot |
 | `npm run dev` | Inicia com **auto-restart** ao editar o código (`node --watch`) |
 | `npm run setup` | Setup interativo (pergunta tudo e monta o `.env`) |
-| `npm test` | Roda os 112 testes automatizados |
+| `npm test` | Roda os 135 testes automatizados |
 | `npm run build` | Gera o `.exe` localmente (requer `pkg`) |
 
 ### Requisitos por sistema
@@ -595,7 +644,7 @@ Scripts disponíveis:
 npm test
 ```
 
-- **112 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas, modo janela com PostMessage), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões;
+- **135 testes** cobrindo: parser de comandos (botões, aliases, hold com todas as unidades de tempo, soltar, acentos), formatação de mensagens, pipeline com anti-flood e pausa, teclado (flags de setas estendidas, teclas suportadas, modo janela com PostMessage), presets de emulador, overlay HTTP, stats persistentes, pausa (F9) e comparador de versões — e, na v2.5, votação (democracia/anarquia), janelas, empates, teclas de função, combos e saves do chat;
 - **100% offline** — não precisa de emulador, Twitch nem credenciais;
 - **Compatível com Node 18, 20, 22 e 24+** (o wrapper `scripts/run-tests.js` lista os arquivos explicitamente, contornando as diferenças do runner entre versões);
 - Roda automaticamente no **CI antes de todo build** do `.exe`.
@@ -664,8 +713,9 @@ Pokemon-Chat-Plays/
     │   ├── cooldown.js        # Anti-spam por usuário + global
     │   ├── pausa.js           # Botão de pânico: watcher da tecla F9 (PowerShell)
     │   ├── emulador.js        # Pergunta/persiste o .exe alvo do modo janela (v2.4)
+    │   ├── votacao.js         # Motor da democracia/anarquia: votos, janelas e vencedor (v2.5)
     │   └── stats.js           # Estatísticas persistentes (dados/stats.json)
-    └── tests/                 # 112 testes automatizados (node:test)
+    └── tests/                 # 135 testes automatizados (node:test)
         ├── commands.test.js
         ├── messages.test.js
         ├── handlers.test.js

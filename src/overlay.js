@@ -42,12 +42,17 @@ const estado = {
   acoes: [],
   // v2.4: alvo do teclado (modo janela)
   alvo: { ativo: false, nome: '' },
+  // v2.5: tecla de pausa do streamer (texto do LED) + último toque por
+  // botão (para o gamepad acender na página)
+  teclaPausa: 'f9',
+  toques: {},
 };
 
 /** Provedores injetados pelo index.js (evita dependências circulares). */
 let provedores = {
   seguradas: () => [],
   resumoStats: () => ({}),
+  votacao: () => ({ modo: 'anarquia', candidatos: [] }),
 };
 
 /**
@@ -66,6 +71,11 @@ function setVersao(v) {
 /** Define o estado de pausa (espelha o botão F9 do streamer). */
 function setPausado(p) {
   estado.pausado = Boolean(p);
+}
+
+/** Define a tecla de pausa do streamer (v2.5 — TECLA_PAUSA). */
+function setTeclaPausa(nome) {
+  estado.teclaPausa = String(nome || 'f9').toLowerCase();
 }
 
 /** Define o status de conexão de uma plataforma. */
@@ -96,8 +106,8 @@ function setAlvo(exe) {
  * Registra uma ação do chat no feed do overlay.
  * @param {string} usuario - Quem mandou
  * @param {string|null} botao - Botão canônico (up, a, start...) ou null
- * @param {'tap'|'hold'|'soltar'} tipo
- * @param {number} [duracaoMs] - Duração do hold
+ * @param {'tap'|'hold'|'soltar'|'voto'} tipo
+ * @param {number} [duracaoMs] - Duração do hold (ou nº de votos, em 'voto')
  */
 function registrarAcao(usuario, botao, tipo, duracaoMs) {
   const meta = botao ? BOTOES[botao] : null;
@@ -113,6 +123,10 @@ function registrarAcao(usuario, botao, tipo, duracaoMs) {
   if (estado.acoes.length > MAX_ACOES) {
     estado.acoes.length = MAX_ACOES;
   }
+  // v2.5: guarda o toque para o gamepad acender (mantém só o mais recente)
+  if (botao) {
+    estado.toques[botao] = Date.now();
+  }
 }
 
 /** Gera o snapshot completo para /api/estado. */
@@ -121,21 +135,28 @@ function snapshot() {
   // pode morrer por causa disso: cada parte cai no fallback vazio.
   let stats = {};
   let seguradas = [];
+  let votacao = { modo: 'anarquia', candidatos: [] };
   try {
     stats = provedores.resumoStats() || {};
   } catch { /* segue com vazio */ }
   try {
     seguradas = provedores.seguradas ? provedores.seguradas() : [];
   } catch { /* segue com vazio */ }
+  try {
+    votacao = provedores.votacao ? (provedores.votacao() || {}) : votacao;
+  } catch { /* segue com vazio */ }
   const uptimeMs = Date.now() - estado.iniciadoEm;
   return {
     versao: estado.versao,
     pausado: estado.pausado,
+    teclaPausa: estado.teclaPausa,
     conexoes: { ...estado.conexoes },
     uptimeMs,
     acoes: estado.acoes,
     alvo: { ...estado.alvo },
     seguradas,
+    toques: { ...estado.toques },
+    votacao,
     stats: {
       total: stats.total || 0,
       holds: stats.holds || 0,
@@ -246,7 +267,9 @@ const PAGINA = [
   '  background: linear-gradient(135deg, #0b0d13 0%, #12161f 100%);',
   '  color: #e8ecf3; padding: 18px;',
   '}',
-  '.grade { display: grid; grid-template-columns: 1.7fr 1fr; gap: 18px; height: 100%; }',
+  '.grade { display: grid; grid-template-columns: 1.7fr 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 18px; height: 100%; }',
+  '.coluna-esq { display: flex; flex-direction: column; gap: 18px; min-height: 0; }',
+  '.feed-painel { flex: 1; min-height: 0; display: flex; flex-direction: column; }',
   '.painel {',
   '  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);',
   '  border-radius: 14px; padding: 14px 16px; backdrop-filter: blur(4px);',
@@ -294,6 +317,43 @@ const PAGINA = [
   '}',
   '.acao .selo.hold { background: rgba(139,92,246,0.25); color: #c4b5fd; }',
   '.acao .selo.soltar { background: rgba(34,197,94,0.2); color: #86efac; }',
+  '/* ---------- controle ao vivo (v2.5) ---------- */',
+  '.controle { display: flex; flex-direction: column; gap: 10px; padding: 2px; }',
+  '.glinha { display: flex; align-items: center; justify-content: space-between; }',
+  '.gmeio { display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }',
+  '.gbtn {',
+  '  background: #1e293b; border: 1px solid rgba(255,255,255,0.10); color: #94a3b8;',
+  '  display: flex; align-items: center; justify-content: center; font-weight: 800;',
+  '  border-radius: 8px; transition: transform 0.12s, box-shadow 0.12s, background 0.12s;',
+  '}',
+  '.gbtn.on { transform: scale(1.12); color: #ffffff; }',
+  '.ombro { width: 64px; height: 22px; font-size: 12px; letter-spacing: 1px; }',
+  '.dpad { display: grid; grid-template-columns: repeat(3, 27px); grid-template-rows: repeat(3, 27px); gap: 3px; }',
+  '.d-up { grid-column: 2; grid-row: 1; }',
+  '.d-left { grid-column: 1; grid-row: 2; }',
+  '.dpad-meio { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.05); border-radius: 6px; }',
+  '.d-right { grid-column: 3; grid-row: 2; }',
+  '.d-down { grid-column: 2; grid-row: 3; }',
+  '.dpad .gbtn { font-size: 15px; }',
+  '.gcentro { display: flex; flex-direction: column; gap: 8px; align-items: center; }',
+  '.pill { width: 58px; height: 16px; font-size: 9px; letter-spacing: 1px; border-radius: 999px; }',
+  '.gab { position: relative; width: 118px; height: 74px; }',
+  '.bola { position: absolute; width: 36px; height: 36px; border-radius: 50%; font-size: 15px; }',
+  '.bola.a { right: 0; top: 0; }',
+  '.bola.b { left: 0; top: 30px; }',
+  '/* ---------- votação (v2.5) ---------- */',
+  '.votacao { display: none; }',
+  '.vot-head { display: flex; justify-content: space-between; align-items: baseline; }',
+  '.vot-head .titulo-painel { margin-bottom: 4px; }',
+  '.vot-conta { font-size: 13px; color: #8fa3bf; font-weight: 700; }',
+  '.cd { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; margin-bottom: 10px; }',
+  '.cd i { display: block; height: 100%; background: linear-gradient(90deg, #f59e0b, #ef4444); transition: width 0.3s linear; }',
+  '.cand { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }',
+  '.c-icone { font-size: 16px; width: 22px; text-align: center; }',
+  '.c-nome { font-size: 12px; font-weight: 800; letter-spacing: 1px; width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+  '.c-barra { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }',
+  '.c-barra i { display: block; height: 100%; background: linear-gradient(90deg, #facc15, #f97316); }',
+  '.c-votos { font-size: 14px; font-weight: 800; color: #facc15; width: 26px; text-align: right; }',
   '/* ---------- coluna direita ---------- */',
   '.coluna-dir { display: flex; flex-direction: column; gap: 18px; overflow: hidden; }',
   '.status { text-align: center; padding: 20px 12px; }',
@@ -338,9 +398,47 @@ const PAGINA = [
   '      <div class="ponto" id="pt-youtube"><div class="bolinha"></div>YOUTUBE</div>',
   '    </div>',
   '  </div>',
-  '  <div class="painel">',
-  '    <div class="titulo-painel">Últimas ações do chat</div>',
-  '    <div class="feed" id="feed"></div>',
+  '  <div class="coluna-esq">',
+  '    <div class="painel">',
+  '      <div class="titulo-painel">Controle ao vivo</div>',
+  '      <div class="controle">',
+  '        <div class="glinha">',
+  '          <div class="gbtn ombro" id="g-l">L</div>',
+  '          <div class="gbtn ombro" id="g-r">R</div>',
+  '        </div>',
+  '        <div class="gmeio">',
+  '          <div class="dpad">',
+  '            <div class="gbtn d-up" id="g-up">▲</div>',
+  '            <div class="gbtn d-left" id="g-left">◀</div>',
+  '            <div class="dpad-meio"></div>',
+  '            <div class="gbtn d-right" id="g-right">▶</div>',
+  '            <div class="gbtn d-down" id="g-down">▼</div>',
+  '          </div>',
+  '          <div class="gcentro">',
+  '            <div class="gbtn pill" id="g-start">START</div>',
+  '            <div class="gbtn pill" id="g-select">SELECT</div>',
+  '            <div class="gbtn pill" id="g-salvar">SALVAR</div>',
+  '            <div class="gbtn pill" id="g-carregar">CARREGAR</div>',
+  '          </div>',
+  '          <div class="gab">',
+  '            <div class="gbtn bola a" id="g-a">A</div>',
+  '            <div class="gbtn bola b" id="g-b">B</div>',
+  '          </div>',
+  '        </div>',
+  '      </div>',
+  '    </div>',
+  '    <div class="painel votacao" id="painel-votacao">',
+  '      <div class="vot-head">',
+  '        <div class="titulo-painel">🗳️ Votação em andamento</div>',
+  '        <div class="vot-conta" id="vot-conta">10s</div>',
+  '      </div>',
+  '      <div class="cd"><i id="cd-barra"></i></div>',
+  '      <div id="candidatos"><div class="vazio">ninguém votou ainda...</div></div>',
+  '    </div>',
+  '    <div class="painel feed-painel">',
+  '      <div class="titulo-painel">Últimas ações do chat</div>',
+  '      <div class="feed" id="feed"></div>',
+  '    </div>',
   '  </div>',
   '  <div class="coluna-dir">',
   '    <div class="painel status">',
@@ -366,7 +464,12 @@ const PAGINA = [
   'var CORES_BOTAO = {',
   '  up: "#3b82f6", down: "#3b82f6", left: "#3b82f6", right: "#3b82f6",',
   '  a: "#22c55e", b: "#ef4444", l: "#8b5cf6", r: "#f97316",',
-  '  start: "#eab308", select: "#64748b"',
+  '  start: "#eab308", select: "#64748b", salvar: "#06b6d4", carregar: "#a855f7"',
+  '};',
+  'var ICONES_BOTAO = {',
+  '  up: "⬆ CIMA", down: "⬇ BAIXO", left: "⬅ ESQUERDA", right: "➡ DIREITA",',
+  '  a: "🅰 A", b: "🅱 B", l: "🔵 L", r: "🔴 R", start: "▶ START", select: "▦ SELECT",',
+  '  salvar: "💾 SALVAR", carregar: "📂 CARREGAR"',
   '};',
   'function esc(t) {',
   '  return String(t == null ? "" : t).replace(/[&<>"\\\']/g, function(c) {',
@@ -387,6 +490,7 @@ const PAGINA = [
   '  if (a.tipo === "hold") selo = \'<span class="selo hold">HOLD \' + (Math.round(a.duracaoMs / 100) / 10) + \'s</span>\';',
   '  if (a.tipo === "soltar") selo = \'<span class="selo soltar">SOLTOU TUDO</span>\';',
   '  if (a.tipo === "tap") selo = \'<span class="selo">TOQUE</span>\';',
+  '  if (a.tipo === "voto") selo = \'<span class="selo hold">VENCEDOR · \' + (a.duracaoMs || 0) + \' voto(s)</span>\';',
   '  div.innerHTML = \'<div class="icone-botao" style="background:\' + cor + \'">\' + esc(a.icone) +',
   '    \'</div><div class="quem">\' + esc(a.usuario) +',
   '    \'</div><div class="o-que"><div class="nome-botao">\' + esc(a.rotulo) + \'</div>\' + selo + \'</div>\';',
@@ -406,11 +510,44 @@ const PAGINA = [
   '  if (d.pausado) {',
   '    led.className = "led pausado";',
   '    led.textContent = "⛔ PAUSADO PELO STREAMER";',
-  '    document.getElementById("led-sub").textContent = "aperte F9 para liberar";',
+  '    document.getElementById("led-sub").textContent = "aperte " + String(d.teclaPausa || "f9").toUpperCase() + " para liberar";',
   '  } else {',
   '    led.className = "led livre";',
   '    led.textContent = "🟢 CHAT NO CONTROLE";',
   '    document.getElementById("led-sub").textContent = "o chat está jogando";',
+  '  }',
+  '  // ---- gamepad ao vivo (v2.5): botão acende ~600ms após o toque ----',
+  '  var agora = Date.now();',
+  '  var ids = ["up","down","left","right","a","b","l","r","start","select","salvar","carregar"];',
+  '  for (var n = 0; n < ids.length; n++) {',
+  '    var g = document.getElementById("g-" + ids[n]);',
+  '    if (!g) continue;',
+  '    var t = d.toques ? d.toques[ids[n]] : 0;',
+  '    var aceso = t && (agora - t) < 600;',
+  '    g.className = "gbtn" + (aceso ? " on" : "");',
+  '    g.style.background = aceso && CORES_BOTAO[ids[n]] ? CORES_BOTAO[ids[n]] : "";',
+  '  }',
+  '  // ---- votação (v2.5): painel só aparece em democracia ----',
+  '  var vp = document.getElementById("painel-votacao");',
+  '  if (d.votacao && d.votacao.modo === "democracia") {',
+  '    vp.style.display = "block";',
+  '    var rest = Math.max(0, d.votacao.restanteMs || 0);',
+  '    var total = Math.max(1, d.votacao.intervaloMs || 1);',
+  '    document.getElementById("cd-barra").style.width = Math.round(100 * rest / total) + "%";',
+  '    document.getElementById("vot-conta").textContent = Math.ceil(rest / 1000) + "s";',
+  '    var cands = d.votacao.candidatos || [];',
+  '    var maxv = cands.length ? (cands[0].votos || 1) : 1;',
+  '    var htmlC = "";',
+  '    for (var m = 0; m < cands.length; m++) {',
+  '      var cc = cands[m];',
+  '      htmlC += \'<div class="cand"><div class="c-icone">\' + (ICONES_BOTAO[cc.botao] || "🎮").charAt(0) +',
+  '        \'</div><div class="c-nome">\' + esc(ICONES_BOTAO[cc.botao] ? ICONES_BOTAO[cc.botao].slice(2) : cc.botao) +',
+  '        \'</div><div class="c-barra"><i style="width:\' + Math.max(8, Math.round(100 * cc.votos / maxv)) + \'%"></i></div>\' +',
+  '        \'<div class="c-votos">\' + cc.votos + \'</div></div>\';',
+  '    }',
+  '    document.getElementById("candidatos").innerHTML = htmlC || \'<div class="vazio">ninguém votou ainda...</div>\';',
+  '  } else {',
+  '    vp.style.display = "none";',
   '  }',
   '  var c = chaveAcoes(d.acoes);',
   '  if (c !== ultimaChave) {',
@@ -487,6 +624,7 @@ module.exports = {
   setConexao,
   setVersao,
   setAlvo,
+  setTeclaPausa,
   configurarProvedores,
   PAGINA,
 };

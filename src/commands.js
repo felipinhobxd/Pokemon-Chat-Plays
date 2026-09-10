@@ -7,7 +7,7 @@
  *      { tipo: 'botao',  botao: 'up' }
  *      { tipo: 'hold',   botao: 'up', duracaoMs: 3000 }
  *      { tipo: 'soltar' }
- *      { tipo: 'info',   comando: 'comandos' }
+ *      { tipo: 'info',   comando: 'comandos', bruto: 'comandos' }
  *      { tipo: 'ola' }
  *      { tipo: 'hold-invalido' }
  *      null  (não é comando)
@@ -19,6 +19,10 @@
  *  - "hold cima 500ms"  -> sufixo explícito em milissegundos
  *  - "hold cima 2s"     -> sufixo explícito em segundos
  *  - O valor é limitado a HOLD_MAX_MS (padrão 10s) por segurança.
+ *
+ * Novidade da v2.5 (SAVES):
+ *  - "salvar" e "carregar" são botões (savestates do emulador, ex.: F5).
+ *  - "hold salvar" não faz sentido (o save é instantâneo): vira toque.
  */
 
 const { config } = require('./config');
@@ -34,6 +38,14 @@ const ALIASES = {
   select: 'select',
   seleciona: 'select',
   selecionar: 'select',
+
+  // Savestates (v2.5) — o chat salva o ponto e volta no tempo
+  salvar: 'salvar',
+  salva: 'salvar',
+  save: 'salvar',
+  carregar: 'carregar',
+  carrega: 'carregar',
+  load: 'carregar',
 
   // Direções (EN + PT + variações comuns)
   up: 'up',
@@ -64,6 +76,9 @@ const BOTOES = {
   r: { rotulo: 'R', icone: '🔴' },
   start: { rotulo: 'START', icone: '▶' },
   select: { rotulo: 'SELECT', icone: '▦' },
+  // v2.5: savestates
+  salvar: { rotulo: 'SALVAR', icone: '💾' },
+  carregar: { rotulo: 'CARREGAR', icone: '📂' },
 };
 
 /** Direções na ordem de exibição. */
@@ -71,6 +86,9 @@ const DIRECOES = ['up', 'down', 'left', 'right'];
 
 /** Botões de ação na ordem de exibição. */
 const BOTOES_ACAO = ['a', 'b', 'l', 'r', 'start', 'select'];
+
+/** Botões de savestate (v2.5) — o toque é instantâneo, nunca hold. */
+const SAVES = ['salvar', 'carregar'];
 
 /** Verbos que iniciam um comando de segurar tecla. */
 const HOLD_VERBOS = ['hold', 'segurar', 'segura', 'segure', 'segurando'];
@@ -98,6 +116,10 @@ const INFO_COMANDOS = {
   hold: ['hold', 'segurar', 'segura'],
   stats: ['stats', 'estatisticas', 'status', 'stat'],
   top: ['top', 'ranking', 'rank', 'placar'],
+  // v2.5
+  uptime: ['uptime', 'tempo'],
+  recorde: ['recorde', 'record', 'maior'],
+  modo: ['democracia', 'anarquia', 'votacao'],
 };
 
 /**
@@ -122,6 +144,9 @@ function parseHoldResto(resto) {
 
   const botao = ALIASES[partes[0]];
   if (!botao) return { tipo: 'hold-invalido' };
+
+  // v2.5: "hold salvar" não faz sentido — o save é um toque instantâneo
+  if (SAVES.includes(botao)) return { tipo: 'botao', botao };
 
   let duracaoMs = config.geral.holdPadraoMs;
   const argDuracao = partes[1];
@@ -196,7 +221,7 @@ function parseComando(mensagemBruta) {
     const nome = texto.slice(prefixo.length).trim().split(/\s+/)[0];
     if (!nome) return null;
     for (const [chave, nomes] of Object.entries(INFO_COMANDOS)) {
-      if (nomes.includes(nome)) return { tipo: 'info', comando: chave };
+      if (nomes.includes(nome)) return { tipo: 'info', comando: chave, bruto: nome };
     }
     return null;
   }
@@ -227,6 +252,7 @@ module.exports = {
   BOTOES,
   DIRECOES,
   BOTOES_ACAO,
+  SAVES,
   parseComando,
   removerAcentos,
 };

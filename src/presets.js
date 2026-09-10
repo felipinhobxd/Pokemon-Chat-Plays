@@ -9,11 +9,15 @@
  *   TECLA_START=enter
  *
  * As teclas são nomes GENÉRICOS (up, down, left, right, enter, backspace,
- * space, tab, esc, shift, a-z, 0-9) — cada backend (Windows/Linux/macOS)
- * traduz para o seu formato.
+ * space, tab, esc, shift, a-z, 0-9, f1-f12 e COMBOS como shift+f5) —
+ * cada backend (Windows/Linux/macOS) traduz para o seu formato.
  *
  * ⚠️ Os presets seguem o layout PADRÃO de cada emulador. Se você mudou as
  * teclas dentro do emulador, ajuste com TECLA_*.
+ *
+ * v2.5 — SAVES: VBA-M/mGBA/DeSmuME usam F1-F10 para CARREGAR o slot e
+ * Shift+F1-F10 para SALVAR; o preset usa o slot 5 (F5 carrega, Shift+F5
+ * salva). RetroArch usa teclas simples (F2/F4 no padrão do retroarch.cfg).
  */
 
 /**
@@ -25,26 +29,30 @@ const PRESETS = {
   vbam: {
     up: 'up', down: 'down', left: 'left', right: 'right',
     a: 'x', b: 'z', l: 'a', r: 's', start: 'enter', select: 'backspace',
+    salvar: 'shift+f5', carregar: 'f5',
   },
   // mGBA — layout padrão idêntico ao VBA-M
   mgba: {
     up: 'up', down: 'down', left: 'left', right: 'right',
     a: 'x', b: 'z', l: 'a', r: 's', start: 'enter', select: 'backspace',
+    salvar: 'shift+f5', carregar: 'f5',
   },
   // DeSmuME — L=Q, R=W, Select=Shift (padrão do emulador)
   desmume: {
     up: 'up', down: 'down', left: 'left', right: 'right',
     a: 'x', b: 'z', l: 'q', r: 'w', start: 'enter', select: 'shift',
+    salvar: 'shift+f5', carregar: 'f5',
   },
   // RetroArch — padrão do retroarch.cfg (Q/W para L/R, Shift para Select)
   retroarch: {
     up: 'up', down: 'down', left: 'left', right: 'right',
     a: 'x', b: 'z', l: 'q', r: 'w', start: 'enter', select: 'shift',
+    salvar: 'f2', carregar: 'f4',
   },
 };
 
 /** Botões que podem ser remapeados via TECLA_*. */
-const BOTOES_REMAPEAVEIS = ['up', 'down', 'left', 'right', 'a', 'b', 'l', 'r', 'start', 'select'];
+const BOTOES_REMAPEAVEIS = ['up', 'down', 'left', 'right', 'a', 'b', 'l', 'r', 'start', 'select', 'salvar', 'carregar'];
 
 /**
  * Normaliza o nome do preset ("VBA-M" -> "vbam", "mGBA" -> "mgba").

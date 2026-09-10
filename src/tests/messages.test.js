@@ -83,20 +83,22 @@ test('!comandos mostra TODOS os botões do controle', () => {
   assert.ok(textoCompleto.includes('!segurar'), 'falta !segurar');
 });
 
-test('!comandos responde em 2 mensagens organizadas', () => {
+test('!comandos responde em 3 mensagens organizadas', () => {
   const partes = msg.msgComandos();
-  assert.strictEqual(partes.length, 2, 'esperado 2 mensagens (jogo + hold)');
-  // primeira parte = controles, segunda = hold/extras
+  assert.strictEqual(partes.length, 3, 'esperado 3 mensagens (jogo + hold/saves + extras)');
+  // 1 = controles, 2 = hold/savestates, 3 = outros comandos
   assert.ok(partes[0].includes('COMANDOS DO JOGO'));
   assert.ok(partes[1].includes('SEGURAR'));
+  assert.ok(partes[1].includes('salvar'));
+  assert.ok(partes[2].includes('OUTROS COMANDOS'));
 });
 
 test('!comandos é uma lista legível: 1 comando por linha, linhas curtas', () => {
   for (const parte of msg.msgComandos()) {
     const linhas = parte.split('\n');
     assert.ok(
-      linhas.length >= 9,
-      `esperado formato de lista (>= 9 linhas), veio ${linhas.length}`
+      linhas.length >= 8,
+      `esperado formato de lista (>= 8 linhas), veio ${linhas.length}`
     );
     for (const linha of linhas) {
       assert.ok(

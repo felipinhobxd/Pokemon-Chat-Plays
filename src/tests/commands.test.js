@@ -153,16 +153,40 @@ test('comando soltar e sinônimos', () => {
 // ---------------------------------------------------------------------------
 
 test('comandos de informação com prefixo', () => {
-  assert.deepStrictEqual(parseComando('!comandos'), { tipo: 'info', comando: 'comandos' });
-  assert.deepStrictEqual(parseComando('!ajuda'), { tipo: 'info', comando: 'ajuda' });
-  assert.deepStrictEqual(parseComando('!help'), { tipo: 'info', comando: 'ajuda' });
-  assert.deepStrictEqual(parseComando('!hold'), { tipo: 'info', comando: 'hold' });
-  assert.deepStrictEqual(parseComando('!segurar'), { tipo: 'info', comando: 'hold' });
-  assert.deepStrictEqual(parseComando('!stats'), { tipo: 'info', comando: 'stats' });
-  assert.deepStrictEqual(parseComando('!top'), { tipo: 'info', comando: 'top' });
-  assert.deepStrictEqual(parseComando('!ranking'), { tipo: 'info', comando: 'top' });
+  assert.deepStrictEqual(parseComando('!comandos'), { tipo: 'info', comando: 'comandos', bruto: 'comandos' });
+  assert.deepStrictEqual(parseComando('!ajuda'), { tipo: 'info', comando: 'ajuda', bruto: 'ajuda' });
+  assert.deepStrictEqual(parseComando('!help'), { tipo: 'info', comando: 'ajuda', bruto: 'help' });
+  assert.deepStrictEqual(parseComando('!hold'), { tipo: 'info', comando: 'hold', bruto: 'hold' });
+  assert.deepStrictEqual(parseComando('!segurar'), { tipo: 'info', comando: 'hold', bruto: 'segurar' });
+  assert.deepStrictEqual(parseComando('!stats'), { tipo: 'info', comando: 'stats', bruto: 'stats' });
+  assert.deepStrictEqual(parseComando('!top'), { tipo: 'info', comando: 'top', bruto: 'top' });
+  assert.deepStrictEqual(parseComando('!ranking'), { tipo: 'info', comando: 'top', bruto: 'ranking' });
+  // v2.5
+  assert.deepStrictEqual(parseComando('!uptime'), { tipo: 'info', comando: 'uptime', bruto: 'uptime' });
+  assert.deepStrictEqual(parseComando('!recorde'), { tipo: 'info', comando: 'recorde', bruto: 'recorde' });
+  assert.deepStrictEqual(parseComando('!democracia'), { tipo: 'info', comando: 'modo', bruto: 'democracia' });
+  assert.deepStrictEqual(parseComando('!anarquia'), { tipo: 'info', comando: 'modo', bruto: 'anarquia' });
+  assert.deepStrictEqual(parseComando('!votacao'), { tipo: 'info', comando: 'modo', bruto: 'votacao' });
   // com texto extra depois
-  assert.deepStrictEqual(parseComando('!comandos por favor'), { tipo: 'info', comando: 'comandos' });
+  assert.deepStrictEqual(parseComando('!comandos por favor'), { tipo: 'info', comando: 'comandos', bruto: 'comandos' });
+});
+
+// ---------------------------------------------------------------------------
+// Savestates (v2.5)
+// ---------------------------------------------------------------------------
+
+test('comandos de savestate: salvar, salva, save, carregar, load', () => {
+  assert.deepStrictEqual(parseComando('salvar'), { tipo: 'botao', botao: 'salvar' });
+  assert.deepStrictEqual(parseComando('salva'), { tipo: 'botao', botao: 'salvar' });
+  assert.deepStrictEqual(parseComando('save'), { tipo: 'botao', botao: 'salvar' });
+  assert.deepStrictEqual(parseComando('carregar'), { tipo: 'botao', botao: 'carregar' });
+  assert.deepStrictEqual(parseComando('carrega'), { tipo: 'botao', botao: 'carregar' });
+  assert.deepStrictEqual(parseComando('load'), { tipo: 'botao', botao: 'carregar' });
+});
+
+test('"hold salvar" vira toque instantâneo (save não é segurável)', () => {
+  assert.deepStrictEqual(parseComando('hold salvar'), { tipo: 'botao', botao: 'salvar' });
+  assert.deepStrictEqual(parseComando('segurar carregar 2'), { tipo: 'botao', botao: 'carregar' });
 });
 
 test('prefixo desconhecido não é comando', () => {

@@ -23,6 +23,20 @@ const overlay = require('../overlay');
 
 const EXE = 'C:\\Emuladores\\visualboyadvance-m.exe';
 
+/** Lê o FINAL do log (últimos 64KB) — o arquivo pode ter meses de live. */
+function lerCaudaLog(caminho, bytes = 65536) {
+  const fd = fs.openSync(caminho, 'r');
+  try {
+    const tamanho = fs.fstatSync(fd).size;
+    const inicio = Math.max(0, tamanho - bytes);
+    const buf = Buffer.alloc(tamanho - inicio);
+    fs.readSync(fd, buf, 0, buf.length, inicio);
+    return buf.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 1. Logger: buffer + flush síncrono
 // ---------------------------------------------------------------------------
@@ -41,10 +55,11 @@ test('logger: linhas vão para o buffer (sem syscall por linha)', () => {
 
   // o arquivo NÃO pode ter recebido nada ainda desse lote
   // (pode ter flush de 2s atrás de outros testes — só checamos o marcador;
-  // num checkout limpo o arquivo nem existe: a primeira gravação é lazy)
+  // num checkout limpo o arquivo nem existe: a primeira gravação é lazy;
+  // e em dev o arquivo pode estar GRANDE — lemos só a cauda, não tudo)
   let antes = '';
   try {
-    antes = fs.readFileSync(caminho, 'utf8');
+    antes = lerCaudaLog(caminho);
   } catch {
     /* arquivo ainda não existe — ok, nada foi gravado */
   }
@@ -54,9 +69,34 @@ test('logger: linhas vão para o buffer (sem syscall por linha)', () => {
   logger.flushSync();
   assert.strictEqual(logger.__test.pendentes(), 0, 'buffer esvaziado pelo flushSync');
 
-  const depois = fs.readFileSync(caminho, 'utf8');
+  const depois = lerCaudaLog(caminho);
   assert.ok(depois.includes(`${marcador} 1`), 'linha 1 gravada');
   assert.ok(depois.includes(`${marcador} 2`), 'linha 2 gravada');
+});
+
+test('logger: console morto (EPIPE) não vira loop infinito de exceção → log', () => {
+  // REGRESSÃO v2.5: um EPIPE no stdout fazia o uncaughtException logar no
+  // console morto → outro EPIPE → outro log... (1,2 GB de log na prática).
+  // O logger precisa engolir o erro do console e ABANDONAR o terminal.
+  const logOriginal = console.log;
+  let chamadas = 0;
+  console.log = () => {
+    chamadas += 1;
+    const err = new Error('write EPIPE');
+    err.code = 'EPIPE';
+    throw err;
+  };
+  try {
+    assert.doesNotThrow(() => logger.info('linha com console morto'),
+      'log não pode lançar quando o stdout está morto');
+    assert.doesNotThrow(() => logger.erro('outra linha com console morto'));
+    // depois do primeiro EPIPE o console não é mais tocado
+    const chamadasAntes = chamadas;
+    logger.aviso('terceira linha — console já abandonado');
+    assert.strictEqual(chamadas, chamadasAntes, 'console abandonado após o EPIPE');
+  } finally {
+    console.log = logOriginal;
+  }
 });
 
 test('logger: flushSync sem nada pendente é no-op (não explode)', () => {

@@ -79,6 +79,15 @@ const FLUSH_LINHAS = 200;
 /** Limite duro de memória do buffer (disco com problema: descarta o antigo). */
 const BUFFER_MAX_LINHAS = 5000;
 
+/**
+ * Terminal morto? (v2.5) Se o stdout quebrou (EPIPE — processo pai fechou o
+ * pipe), escrever no console lança exceção de novo; sem essa bandeira um
+ * único EPIPE virava um LOOP INFINITO de uncaughtException → log (bug real:
+ * 1,2 GB de log em minutos). Com a bandeira, o console é abandonado e o
+ * arquivo de log segue funcionando.
+ */
+let terminalMorto = false;
+
 /** Formatador de data em cache (criar Intl a cada linha era desperdício). */
 const formatadorData = new Intl.DateTimeFormat('pt-BR', { hour12: false });
 
@@ -101,8 +110,18 @@ function log(nivel, mensagem, extra) {
   const prefixo = `[${nivel.toUpperCase().padEnd(7)}]`;
   const linha = `${prefixo} ${mensagem}`;
 
-  // Linha colorida no console
-  console.log(`${cor}${linha}${CORES.reset}`);
+  // Linha colorida no console — se o stdout morreu (EPIPE), nunca mais tenta:
+  // a excessão de escrever no console morto não pode voltar a cada linha
+  if (!terminalMorto) {
+    try {
+      console.log(`${cor}${linha}${CORES.reset}`);
+    } catch (err) {
+      if (err && (err.code === 'EPIPE' || String(err.message || '').includes('EPIPE'))) {
+        terminalMorto = true; // console abandonado; arquivo de log segue vivo
+      }
+      // outros erros de console não derrubam o bot
+    }
+  }
 
   // Linha sem cor no arquivo (com timestamp) — só acumula no buffer;
   // a gravação acontece em lote, de forma assíncrona.
@@ -120,12 +139,14 @@ function log(nivel, mensagem, extra) {
   }
 
   // Dados extras
-  if (extra !== undefined) {
-    if (typeof extra === 'object') {
-      console.log(`${cor}${JSON.stringify(extra)}${CORES.reset}`);
-    } else {
-      console.log(`${cor}${extra}${CORES.reset}`);
-    }
+  if (extra !== undefined && !terminalMorto) {
+    try {
+      if (typeof extra === 'object') {
+        console.log(`${cor}${JSON.stringify(extra)}${CORES.reset}`);
+      } else {
+        console.log(`${cor}${extra}${CORES.reset}`);
+      }
+    } catch { /* console morto: já sinalizado acima */ }
   }
 }
 

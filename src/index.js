@@ -21,6 +21,13 @@
  *  - O caminho fica salvo em dados/emulador.json (Enter mantém o salvo).
  *  - MODO_TECLADO=global devolve o comportamento antigo.
  *
+ * Novidades v2.5 (DEMOCRACIA + SAVES):
+ *  - Modo DEMOCRACIA/anarquia: em democracia o chat VOTA e o comando mais
+ *    votado de cada janela é executado; !democracia / !anarquia / !votacao
+ *    trocam o modo (tecla F8 do streamer também — MODO_TECLADO=off desliga)
+ *  - Savestates: salvar/carregar viraram botões (padrão Shift+F5/F5)
+ *  - TECLA_PAUSA configurável (padrão F9) e tecla de savestate no !comandos
+ *
  * Uso:
  *   npm start
  *   node src/index.js
@@ -38,8 +45,9 @@ const pausa = require('./utils/pausa');
 const overlay = require('./overlay');
 const atualizacao = require('./utils/atualizacao');
 const emulador = require('./utils/emulador');
+const votacao = require('./utils/votacao');
 const { montarMapeamento } = require('./presets');
-const { msgChatPausado, msgChatLiberado } = require('./messages');
+const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
 const { verificarSistema, soltarTodasSync } = teclado;
 
 // Silencia avisos experimentais (ex.: "Fetch API is an experimental feature"
@@ -225,12 +233,64 @@ async function iniciarOverlay() {
   overlay.configurarProvedores({
     seguradas: () => teclado.listarSeguradas(),
     resumoStats: () => stats.resumo(),
+    votacao: () => votacao.status(),
   });
+  overlay.setTeclaPausa(config.pausa.tecla);
   await overlay.iniciar(config.overlay.porta);
 }
 
 /**
- * Configura o botão de pânico (F9) do streamer:
+ * Configura o modo DEMOCRACIA/ANARQUIA (v2.5):
+ *  - executor: aperta a tecla vencedora, registra stats/overlay e avisa o chat
+ *  - observador: anuncia trocas de modo vindas de fora do chat (F8/terminal)
+ *  - MODO_INICIAL do .env, F8 do streamer (via watcher de teclas do pausa.js)
+ */
+function configurarVotacao() {
+  votacao.configurar({
+    intervaloMs: config.votacao.intervaloMs,
+    trocaMinMs: config.votacao.trocaMinMs,
+  });
+
+  // O que acontece quando uma janela fecha e há um vencedor
+  votacao.configurarExecutor(({ botao, votos, eleitores }) => {
+    const ok = teclado.executarBotao(botao);
+    if (!ok) return;
+    stats.registrar(botao, 'democracia', `chat(${eleitores})`);
+    overlay.registrarAcao('chat', botao, 'voto', votos);
+    logger.comando(`[Votação] Vencedor: ${botao} (${votos} voto(s) de ${eleitores} pessoa(s))`);
+    twitch.enviarMensagem(msgVencedor(botao, votos, eleitores));
+  });
+
+  // Anuncia trocas que NÃO vieram de comando do chat (o handlers já responde
+  // no chat quando veio de lá — evita mensagem dupla)
+  votacao.observar((novoModo, origem) => {
+    if (String(origem || '').startsWith('chat') || String(origem || '').startsWith('streamer-cmd')) return;
+    const texto = novoModo === 'democracia' ? msgModoDemocracia() : msgModoAnarquia();
+    twitch.enviarMensagem(texto);
+  });
+
+  // MODO_INICIAL do .env (anarquia é o padrão — não anuncia nada)
+  if (config.votacao.modoInicial === 'democracia') {
+    votacao.definirModo('democracia', 'config MODO_INICIAL');
+    logger.info(`[Votação] 🗳️ MODO_INICIAL=democracia — janelas de ${Math.round(config.votacao.intervaloMs / 1000)}s.`);
+  }
+
+  // Tecla do streamer (F8 por padrão) alterna o modo NA HORA
+  if (config.votacao.tecla !== 'off') {
+    const registrada = pausa.registrarTecla(config.votacao.tecla, () => {
+      const r = votacao.alternarModo('tecla streamer');
+      if (!r.mudou && r.motivo === 'troca recente') {
+        logger.info(`[Votação] Troca ignorada (mudou há pouco) — aguarde ${Math.ceil((r.esperaMs || 0) / 1000)}s.`);
+      }
+    });
+    if (!registrada && process.platform === 'win32') {
+      logger.aviso(`[Votação] TECLA_MODO="${config.votacao.tecla}" inválida — use f1-f12, a-z... (ou 'off' para desligar).`);
+    }
+  }
+}
+
+/**
+ * Configura o botão de pânico do streamer:
  *  - watcher PowerShell (Windows) para a tecla F9 global
  *  - ENTER no terminal como alternativa multi-plataforma
  *  - ao pausar: solta teclas presas + avisa o chat + reflete na overlay
@@ -249,14 +309,23 @@ function configurarBotaoPanico() {
     }
   });
 
+  // TECLA_PAUSA do .env (v2.5 — padrão F9)
+  pausa.configurarTecla(config.pausa.tecla);
+
   pausa.iniciarWatcherF9();
 
-  // Alternativa universal: ENTER vazio (ou "p"/"pausa") no terminal alterna
+  // Alternativa universal: ENTER vazio (ou "p"/"pausa") no terminal alterna;
+  // "modo"/"votacao"/"f8" alternam anarquia/democracia (multi-plataforma)
   interfaceTerminal = readline.createInterface({ input: process.stdin, terminal: false });
   interfaceTerminal.on('line', (linha) => {
     const texto = String(linha || '').trim().toLowerCase();
-    if (texto === '' || texto === 'p' || texto === 'pausa' || texto === 'f9') {
+    if (texto === '' || texto === 'p' || texto === 'pausa' || texto === pausa.teclaAtual()) {
       pausa.alternar('terminal');
+    } else if (texto === 'modo' || texto === 'votacao' || texto === 'f8' || texto === 'democracia' || texto === 'anarquia') {
+      const r = votacao.alternarModo('terminal');
+      if (r.motivo === 'troca recente') {
+        logger.info(`[Votação] Troca ignorada — aguarde ${Math.ceil((r.esperaMs || 0) / 1000)}s.`);
+      }
     }
   });
 }
@@ -309,6 +378,9 @@ async function main() {
   // Overlay do OBS (v2.3)
   await iniciarOverlay();
 
+  // Modo democracia/anarquia (v2.5) — ANTES do watcher (registra a tecla F8)
+  configurarVotacao();
+
   // Botão de pânico F9 (v2.3)
   configurarBotaoPanico();
 
@@ -343,7 +415,7 @@ async function main() {
   await Promise.allSettled(promessas);
 
   logger.info('Bot em execução. Pressione Ctrl+C para parar.');
-  logger.info('Streamer: F9 pausa/libera o chat · ENTER no terminal também funciona.');
+  logger.info(`Streamer: ${pausa.teclaAtual().toUpperCase()} pausa/libera o chat · ENTER no terminal também · ${config.votacao.tecla === 'off' ? 'tecla de modo desligada' : `${config.votacao.tecla.toUpperCase()} alterna anarquia/democracia`}.`);
   logger.info(`Comandos de hold ativos: hold <direção/botão> [tempo] · "soltar" libera tudo.`);
 }
 
@@ -351,6 +423,13 @@ async function main() {
 process.on('SIGINT', () => encerrar('SIGINT'));
 process.on('SIGTERM', () => encerrar('SIGTERM'));
 process.on('uncaughtException', (err) => {
+  // EPIPE no stdout (o processo pai fechou o pipe: terminal morto/harness):
+  // logar via console lançaria EPIPE de novo — loop infinito de exceção →
+  // log (foi assim que um log de 1,2 GB nasceu). Sai em silêncio salvando o que der.
+  if (err && (err.code === 'EPIPE' || String(err.message || '').includes('EPIPE'))) {
+    try { stats.salvar(); } catch { /* nada mais a fazer */ }
+    process.exit(0);
+  }
   logger.erro(`Exceção não capturada: ${err.message}`);
   if (err.stack) logger.erro(err.stack);
 });

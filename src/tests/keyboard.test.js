@@ -15,19 +15,31 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { MAPEAMENTO_PADRAO, __test } = require('../controllers/keyboard');
 
-const { vkWindows, keycodeMac, nomeXdotool, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS } = __test;
+const { vkWindows, keycodeMac, nomeXdotool, flagsKeybd, linhaKey, linhaTap, scriptWindows, VK_ESTENDIDOS, resolverTecla } = __test;
 const tecladoModulo = require('../controllers/keyboard');
 
 // ---------------------------------------------------------------------------
 // VK codes das teclas usadas pelo mapeamento padrão
 // ---------------------------------------------------------------------------
 
-test('mapeamento padrão: todas as teclas têm VK code válido no Windows', () => {
+test('mapeamento padrão: todas as teclas (ou combos) resolvem nos 3 backends', () => {
   for (const [botao, tecla] of Object.entries(MAPEAMENTO_PADRAO)) {
-    const vk = vkWindows(tecla);
-    assert.notStrictEqual(vk, null, `tecla "${tecla}" (botão ${botao}) deveria ter VK code`);
-    assert.ok(Number.isInteger(vk) && vk > 0, `VK de "${tecla}" inválido: ${vk}`);
+    const combo = resolverTecla(tecla);
+    assert.notStrictEqual(combo, null, `tecla "${tecla}" (botão ${botao}) deveria resolver`);
+    // a tecla principal do combo precisa ter VK code válido
+    const vk = vkWindows(combo.tecla);
+    assert.ok(Number.isInteger(vk) && vk > 0, `VK de "${combo.tecla}" inválido: ${vk}`);
+    // os modificadores também
+    for (const m of combo.modificadores) {
+      const vm = vkWindows(m);
+      assert.ok(Number.isInteger(vm) && vm > 0, `VK do modificador "${m}" inválido: ${vm}`);
+    }
   }
+});
+
+test('mapeamento padrão v2.5: salvar/carregar são combos de savestate', () => {
+  assert.deepStrictEqual(resolverTecla(MAPEAMENTO_PADRAO.salvar), { modificadores: ['shift'], tecla: 'f5' });
+  assert.deepStrictEqual(resolverTecla(MAPEAMENTO_PADRAO.carregar), { modificadores: [], tecla: 'f5' });
 });
 
 test('setas convertem para os VK codes corretos do Windows', () => {
@@ -167,8 +179,30 @@ test('teclaSuportada aceita setas, letras, dígitos e teclas nomeadas', () => {
   }
 });
 
-test('teclaSuportada rejeita lixo e teclas desconhecidas', () => {
-  for (const tecla of ['cima', 'seta', 'xyz', 'F9', 'enter2', '', null, undefined]) {
+test('teclaSuportada aceita F1-F12 (savestates, v2.5)', () => {
+  for (let i = 1; i <= 12; i++) {
+    assert.ok(tecladoModulo.teclaSuportada(`f${i}`), `"f${i}" deveria ser suportada (savestate do emulador)`);
+  }
+  // maiúsculas também (o resolver normaliza)
+  assert.ok(tecladoModulo.teclaSuportada('F5'));
+});
+
+test('teclaSuportada aceita COMBOS com modificadores (v2.5)', () => {
+  assert.ok(tecladoModulo.teclaSuportada('shift+f5'), 'shift+f5 (salvar do VBA-M)');
+  assert.ok(tecladoModulo.teclaSuportada('ctrl+alt+f2'), 'ctrl+alt+f2');
+  assert.ok(tecladoModulo.teclaSuportada('Shift+F5'), 'normalização de maiúsculas');
+  assert.ok(tecladoModulo.teclaSuportada('shift + f5'), 'espaços em volta do +');
+});
+
+test('teclaSuportada rejeita lixo, combos inválidos e teclas desconhecidas', () => {
+  const rejeitadas = [
+    'cima', 'seta', 'xyz', 'f13', 'enter2', '', null, undefined,
+    'shift+shift', // modificador como tecla principal do combo
+    'a+b', // "a" não é modificador
+    'shift+f13', // tecla principal desconhecida
+    '+f5', 'shift+', '++',
+  ];
+  for (const tecla of rejeitadas) {
     assert.ok(!tecladoModulo.teclaSuportada(tecla), `"${tecla}" NÃO deveria passar como tecla`);
   }
 });

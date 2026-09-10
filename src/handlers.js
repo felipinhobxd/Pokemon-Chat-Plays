@@ -15,6 +15,7 @@ const cooldown = require('./utils/cooldown');
 const stats = require('./utils/stats');
 const teclado = require('./controllers/keyboard');
 const pausa = require('./utils/pausa');
+const votacao = require('./utils/votacao');
 const overlay = require('./overlay');
 const { parseComando } = require('./commands');
 const msg = require('./messages');
@@ -34,6 +35,11 @@ const RESPOSTA_COOLDOWN_MS = {
   'hold-uso': 4000,
   'hold-confirmado': 1500,
   'soltar-confirmado': 1500,
+  // v2.5
+  uptime: 8000,
+  recorde: 8000,
+  modo: 4000,
+  'modo-bloqueado': 8000,
 };
 
 /**
@@ -160,6 +166,43 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
             responderSeguro(responder, msg.msgTop(stats.resumo()), 'alta');
           }
           break;
+        // ------------------------------------------------------- v2.5
+        case 'uptime':
+          if (podeResponder('uptime')) {
+            responderSeguro(responder, msg.msgUptime(stats.resumo()), 'alta');
+          }
+          break;
+        case 'recorde':
+          if (podeResponder('recorde')) {
+            responderSeguro(responder, msg.msgRecorde(stats.resumo()), 'alta');
+          }
+          break;
+        case 'modo': {
+          // !democracia / !anarquia (explícitos) ou !votacao (alterna).
+          // O dono do canal troca na hora ('streamer-cmd' passa direto);
+          // o resto do chat respeita o intervalo mínimo (anti flip-flop
+          // aplicada DENTRO do votacao.definirModo)
+          const destino = parsed.bruto === 'anarquia' ? 'anarquia' : parsed.bruto === 'democracia' ? 'democracia' : null;
+          const origem = ehStreamer(usuario) ? `streamer-cmd @${usuario}` : `chat @${usuario}`;
+          const resultado = destino
+            ? votacao.definirModo(destino, origem)
+            : votacao.alternarModo(origem);
+          if (resultado.mudou) {
+            if (podeResponder('modo')) {
+              const texto = votacao.modoAtual() === 'democracia'
+                ? msg.msgModoDemocracia()
+                : msg.msgModoAnarquia();
+              responderSeguro(responder, texto, 'alta');
+            }
+          } else if (resultado.motivo === 'troca recente' && podeResponder('modo-bloqueado')) {
+            responderSeguro(
+              responder,
+              msg.msgModoTrocaBloqueada(Math.ceil((resultado.esperaMs || 0) / 1000)),
+              'baixa'
+            );
+          }
+          break;
+        }
         default:
           break;
       }
@@ -204,6 +247,11 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         }
         return;
       }
+      // v2.5: em democracia, o hold vale como VOTO no botão (não segura)
+      if (votacao.modoAtual() === 'democracia') {
+        votacao.votar(parsed.botao, usuario);
+        return;
+      }
       const ok = teclado.segurar(parsed.botao, parsed.duracaoMs, usuario);
       if (ok) {
         cooldown.registrarExecucao(usuario);
@@ -224,6 +272,12 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado: ${verificacao.motivo}`);
         }
+        return;
+      }
+      // v2.5: em democracia o comando vira VOTO — o mais votado executa
+      // no fim da janela (o feed do overlay mostra a votação ao vivo)
+      if (votacao.modoAtual() === 'democracia') {
+        votacao.votar(parsed.botao, usuario);
         return;
       }
       const ok = teclado.executarBotao(parsed.botao);

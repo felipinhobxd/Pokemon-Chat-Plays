@@ -139,7 +139,30 @@ const config = {
       r: getEnv('TECLA_R'),
       start: getEnv('TECLA_START'),
       select: getEnv('TECLA_SELECT'),
+      // v2.5: savestates (ex.: shift+f5 / f5 no VBA-M, slot 5)
+      salvar: getEnv('TECLA_SALVAR'),
+      carregar: getEnv('TECLA_CARREGAR'),
     },
+  },
+  // --- Novidades v2.5: tecla de pausa configurável ---
+  pausa: {
+    // TECLA_PAUSA: tecla global que pausa/libera o chat (padrão F9).
+    // Dica: escolha uma tecla que o emulador NÃO use (F9 é savestate no
+    // VBA-M — troque se você usa os F1-F10 do emulador).
+    tecla: getEnv('TECLA_PAUSA', 'f9').toLowerCase(),
+  },
+  // --- Novidades v2.5: modo democracia/anarquia ---
+  votacao: {
+    // MODO_INICIAL: anarquia (padrão — todo comando executa na hora) ou
+    // democracia (o comando mais votado a cada janela é executado)
+    modoInicial: getEnv('MODO_INICIAL', 'anarquia').toLowerCase() === 'democracia' ? 'democracia' : 'anarquia',
+    // duração de cada janela de votação (mínimo 2s)
+    intervaloMs: Math.max(2000, getEnvInt('VOTACAO_INTERVALO_MS', 10000)),
+    // intervalo mínimo entre trocas de modo pedidas pelo CHAT (anti flip-flop);
+    // o streamer (tecla F8) troca na hora, sem espera
+    trocaMinMs: getEnvInt('VOTACAO_TROCA_MIN_MS', 30000),
+    // tecla do streamer para alternar anarquia/democracia ('off' desativa)
+    tecla: getEnv('TECLA_MODO', 'f8').toLowerCase(),
   },
   // --- Novidades v2.3: stats persistentes ---
   stats: {
