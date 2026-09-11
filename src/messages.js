@@ -13,6 +13,7 @@
  */
 
 const controles = require('./controles');
+const { aliasesEfetivos } = require('./commands');
 const { config } = require('./config');
 
 /** Limite prático de caracteres por mensagem (Twitch = 500). */
@@ -45,24 +46,30 @@ function garantirLimite(texto) {
 
 /**
  * Palavra principal de um controle (a que o chat digita primeiro).
+ * Prefere o nome PT-BR do rótulo quando ele é um alias realmente válido;
+ * caso contrário usa o primeiro alias efetivo configurado/fallback.
  * @param {object} c - controle do registro
  * @returns {string}
  */
 function palavraPrincipal(c) {
+  const aliases = aliasesEfetivos(c);
   const rot = controles.removerAcentos(String(c.label || '').toLowerCase()).trim();
-  return c.aliases.includes(rot) ? rot : (c.aliases[0] || rot);
+  return aliases.includes(rot) ? rot : (aliases[0] || rot);
 }
 
 /**
  * Linha de lista para um controle: "⬆ cima (ou up, subir, sobe)".
+ * Mostra apenas aliases que realmente resolvem para este controle agora,
+ * incluindo os fallbacks PT-BR/EN de compatibilidade.
  * Cabe sempre em 45 caracteres (reduz os extras se precisar).
  * @param {object} c - controle do registro
  * @returns {string}
  */
 function linhaControle(c) {
+  const aliases = aliasesEfetivos(c);
   const primaria = palavraPrincipal(c);
   const labelLimpo = controles.removerAcentos(String(c.label || '')).trim();
-  const outros = c.aliases.filter((a) => a !== primaria);
+  const outros = aliases.filter((a) => a !== primaria);
 
   const base = labelLimpo.toLowerCase() === primaria
     ? `${c.icone} ${primaria}`
@@ -103,7 +110,7 @@ function agruparLinhas(linhas) {
 }
 
 /**
- * Mensagem completa de comandos (resposta ao !comandos / !ajuda).
+ * Mensagem completa de comandos (resposta ao !comandos / !commands / !ajuda).
  * Montada a partir dos controles ATIVOS do registro: controles
  * personalizados aparecem aqui sem nenhum código extra.
  * @returns {string[]}
@@ -124,21 +131,22 @@ function msgComandos() {
     '✊ SEGURAR TECLAS (hold)',
     ...exemplosHold.map((linha) => garantirLinhaCurta(linha)),
     `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
-    '🔓 soltar — solta todas as teclas',
-    ...(temSalvar ? ['💾 salvar — o chat salva o ponto do jogo'] : []),
-    ...(temCarregar ? ['📂 carregar — volta ao ponto salvo'] : []),
+    '🔓 soltar / release — solta todas',
+    ...(temSalvar ? ['💾 salvar / save — salva o jogo'] : []),
+    ...(temCarregar ? ['📂 carregar / load — volta ao salvo'] : []),
   ];
 
   const linhasOutros = [
     '📊 OUTROS COMANDOS',
     '📊 !stats — estatísticas da live',
     '🏆 !top — ranking dos jogadores',
-    '⏱ !uptime — há quanto tempo o bot está no ar',
-    '👑 !recorde — maior jogador do histórico',
-    '🗳️ !democracia — o chat vota no passo',
-    '⚡ !anarquia — todos jogam de uma vez',
-    '✊ !segurar — ajuda só do hold',
-    '❓ !ajuda — o mesmo que !comandos',
+    '⏱ !uptime — tempo do bot no ar',
+    '👑 !recorde / !record — maior jogador',
+    '🗳️ !democracia / !democracy — votação',
+    '⚡ !anarquia / !anarchy — todos jogam',
+    '✊ !segurar / !hold — ajuda do hold',
+    '❓ !ajuda / !help — igual a !comandos',
+    '📜 !commands — alias inglês de !comandos',
   ];
 
   const total = blocos.length + 2;
@@ -147,7 +155,9 @@ function msgComandos() {
     : '✊ SEGURAR TECLAS (hold)';
   const partes = [];
   blocos.forEach((bloco, i) => {
-    partes.push(garantirLimite(['🎮 COMANDOS DO JOGO ' + `(${i + 1}/${total})`, ...bloco].join('\n')));
+    const cabecalho = `🎮 COMANDOS DO JOGO PT/EN (${i + 1}/${total})`;
+    const dica = i === 0 ? ['💬 controles não usam !: cima ou up'] : [];
+    partes.push(garantirLimite([cabecalho, ...dica, ...bloco].join('\n')));
   });
   partes.push(garantirLimite([`${cabecalhoHold} (${blocos.length + 1}/${total})`, ...linhasHold.slice(1)].join('\n')));
   partes.push(garantirLimite([`📊 OUTROS COMANDOS (${total}/${total})`, ...linhasOutros.slice(1)].join('\n')));
@@ -186,7 +196,7 @@ function msgHoldAjuda() {
     b,
     c,
     `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
-    '🔓 soltar — solta tudo na hora',
+    '🔓 soltar / release — solta tudo',
   ].join('\n');
   return garantirLimite(texto);
 }
@@ -217,15 +227,16 @@ function msgAnuncio() {
     if (primarias.length > 6) linhas.push(`        (e mais — !comandos)`);
   }
 
+  linhas.push('🌐 PT-BR + EN · controles sem !');
   linhas.push('✊ hold <palavra> [tempo] · 🔓 soltar');
   linhas.push('🗳️ !democracia / ⚡ !anarquia');
-  linhas.push('📜 !comandos — lista completa');
+  linhas.push('📜 !comandos / !commands — lista');
   return garantirLimite(linhas.join('\n'));
 }
 
 /**
  * Boas-vindas personalizada.
- * @param {string} usuario
+ * @param {string} usuario - Nome do usuário
  * @returns {string}
  */
 function msgBoasVindas(usuario) {

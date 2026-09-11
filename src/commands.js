@@ -38,10 +38,95 @@ const controles = require('./controles');
 const HOLD_VERBOS = controles.VERBOS_HOLD;
 const SOLTAR_PALAVRAS = controles.PALAVRAS_SOLTAR;
 const OLA_PALAVRAS = controles.PALAVRAS_OLA;
-const INFO_COMANDOS = controles.NOMES_INFO;
+const INFO_COMANDOS = {
+  ...controles.NOMES_INFO,
+  // v2.9.3: os comandos administrativos de modo também aceitam inglês.
+  modo: [...controles.NOMES_INFO.modo, 'democracy', 'anarchy', 'vote', 'voting'],
+};
 
 /** Remove acentos de um texto (para aceitar "segurar címa", "olá" etc.). */
 const removerAcentos = controles.removerAcentos;
+
+/**
+ * Aliases de compatibilidade PT-BR/EN para controles clássicos.
+ *
+ * O assistente permite editar aliases livremente e instalações antigas podem
+ * ter salvo apenas a versão inglesa (ex.: "right"). Para não deixar uma live
+ * quebrar depois de upgrade, estes pares continuam funcionando enquanto o
+ * controle embutido correspondente estiver ATIVO.
+ *
+ * Importante: um alias configurado explicitamente pelo streamer sempre ganha.
+ * Assim, se um controle custom usar "cima", não roubamos essa escolha.
+ */
+const ALIASES_BILINGUES = Object.freeze({
+  up: ['cima', 'up'],
+  down: ['baixo', 'down'],
+  left: ['esquerda', 'left'],
+  right: ['direita', 'right'],
+  start: ['iniciar', 'start'],
+  select: ['selecionar', 'select'],
+  salvar: ['salvar', 'save'],
+  carregar: ['carregar', 'load'],
+});
+
+/** Canoniza equivalentes em inglês dos comandos de modo. */
+const MODO_INFO_CANONICO = Object.freeze({
+  democracy: 'democracia',
+  anarchy: 'anarquia',
+  vote: 'votacao',
+  voting: 'votacao',
+});
+
+/**
+ * Resolve um texto para um controle ativo.
+ *
+ * Ordem:
+ *  1. alias configurado pelo usuário (fonte de verdade);
+ *  2. fallback bilíngue dos controles clássicos.
+ *
+ * Isso corrige configurações persistidas que perderam "cima/baixo/..."
+ * sem sobrescrever aliases personalizados.
+ * @param {string} alias
+ * @returns {string|null}
+ */
+function resolverControle(alias) {
+  const normalizado = controles.normalizarAlias(alias);
+  if (!normalizado) return null;
+
+  const configurado = controles.resolverAlias(normalizado);
+  if (configurado) return configurado;
+
+  const ativos = new Set(controles.ativos().map((c) => c.id));
+  for (const [id, aliases] of Object.entries(ALIASES_BILINGUES)) {
+    if (ativos.has(id) && aliases.includes(normalizado)) return id;
+  }
+  return null;
+}
+
+/**
+ * Lista os aliases que REALMENTE funcionam para um controle agora.
+ * Usado pelo !comandos para não esconder os fallbacks PT-BR/EN e, ao mesmo
+ * tempo, não anunciar um fallback que foi explicitamente ocupado por outro
+ * controle personalizado.
+ * @param {object} controle
+ * @returns {string[]}
+ */
+function aliasesEfetivos(controle) {
+  if (!controle || !controle.id) return [];
+  const candidatos = [
+    ...(Array.isArray(controle.aliases) ? controle.aliases : []),
+    ...(ALIASES_BILINGUES[controle.id] || []),
+  ];
+  const saida = [];
+  const vistos = new Set();
+  for (const alias of candidatos) {
+    const n = controles.normalizarAlias(alias);
+    if (!n || vistos.has(n)) continue;
+    vistos.add(n);
+    if (resolverControle(n) === controle.id) saida.push(n);
+  }
+  return saida;
+}
 
 /**
  * Interpreta a parte de trás de um comando de hold (controle + duração).
@@ -59,7 +144,7 @@ function parseHoldResto(resto) {
   let botao = null;
   let fimDoAlias = 0;
   for (let n = partes.length; n >= 1; n--) {
-    const id = controles.resolverAlias(partes.slice(0, n).join(' '));
+    const id = resolverControle(partes.slice(0, n).join(' '));
     if (id) {
       botao = id;
       fimDoAlias = n;
@@ -119,7 +204,7 @@ function extrairHold(texto) {
   for (const verbo of HOLD_VERBOS) {
     if (texto.startsWith(verbo) && texto.length > verbo.length) {
       const resto = texto.slice(verbo.length);
-      if (controles.resolverAlias(resto.split(/\s+/)[0])) {
+      if (resolverControle(resto.split(/\s+/)[0])) {
         return parseHoldResto(resto);
       }
     }
@@ -149,7 +234,10 @@ function parseComando(mensagemBruta) {
     const nome = texto.slice(prefixo.length).trim().split(/\s+/)[0];
     if (!nome) return null;
     for (const [chave, nomes] of Object.entries(INFO_COMANDOS)) {
-      if (nomes.includes(nome)) return { tipo: 'info', comando: chave, bruto: nome };
+      if (nomes.includes(nome)) {
+        const bruto = chave === 'modo' ? (MODO_INFO_CANONICO[nome] || nome) : nome;
+        return { tipo: 'info', comando: chave, bruto };
+      }
     }
     return null;
   }
@@ -168,8 +256,8 @@ function parseComando(mensagemBruta) {
     return { tipo: 'ola' };
   }
 
-  // 5) Controle simples (alias do registro ativo)
-  const botao = controles.resolverAlias(texto);
+  // 5) Controle simples (alias configurado ou fallback PT-BR/EN)
+  const botao = resolverControle(texto);
   if (botao) return { tipo: 'botao', botao };
 
   return null;
@@ -178,4 +266,7 @@ function parseComando(mensagemBruta) {
 module.exports = {
   parseComando,
   removerAcentos,
+  resolverControle,
+  aliasesEfetivos,
+  ALIASES_BILINGUES,
 };
