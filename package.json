@@ -4,7 +4,7 @@
   "description": "Let Twitch and YouTube chat control emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
   "main": "src/boot.js",
   "bin": {
-    "chatplays": "src/index.js"
+    "chatplays": "src/boot.js"
   },
   "pkg": {
     "assets": [
@@ -19,6 +19,7 @@
     "test": "node scripts/run-tests.js",
     "setup": "node scripts/setup.js",
     "assistente": "node src/assistente.js",
+    "perfis": "node src/perfis-cli.js",
     "build": "node scripts/build.js"
   },
   "keywords": [
