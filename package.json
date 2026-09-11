@@ -1,6 +1,6 @@
 {
   "name": "pokemon-chat-plays",
-  "version": "2.9.0",
+  "version": "2.9.1",
   "description": "Let Twitch and YouTube chat control Pokemon, emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
   "main": "src/index.js",
   "bin": {
