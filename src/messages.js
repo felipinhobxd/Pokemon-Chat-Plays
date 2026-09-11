@@ -88,6 +88,8 @@ function linhaControle(c) {
 
 /**
  * Divide linhas em blocos que caibam no limite do IRC.
+ * Reserva espaço suficiente para cabeçalho/dica, evitando que garantirLimite
+ * corte a última linha de controle em listas grandes.
  * @param {string[]} linhas
  * @returns {string[][]}
  */
@@ -97,7 +99,7 @@ function agruparLinhas(linhas) {
   let tamanho = 0;
   for (const linha of linhas) {
     const custo = linha.length + 1; // + quebra de linha
-    if (atual.length > 0 && tamanho + custo > LIMITE_CARACTERES - 30) {
+    if (atual.length > 0 && tamanho + custo > LIMITE_CARACTERES - 70) {
       blocos.push(atual);
       atual = [];
       tamanho = 0;
@@ -156,7 +158,7 @@ function msgComandos() {
   const partes = [];
   blocos.forEach((bloco, i) => {
     const cabecalho = `🎮 COMANDOS DO JOGO PT/EN (${i + 1}/${total})`;
-    const dica = i === 0 ? ['💬 controles não usam !: cima ou up'] : [];
+    const dica = i === 0 ? ['💬 controles do jogo não usam !'] : [];
     partes.push(garantirLimite([cabecalho, ...dica, ...bloco].join('\n')));
   });
   partes.push(garantirLimite([`${cabecalhoHold} (${blocos.length + 1}/${total})`, ...linhasHold.slice(1)].join('\n')));
