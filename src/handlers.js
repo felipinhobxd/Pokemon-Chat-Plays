@@ -14,11 +14,13 @@ const { config } = require('./config');
 const cooldown = require('./utils/cooldown');
 const stats = require('./utils/stats');
 const teclado = require('./controllers/keyboard');
+const mouse = require('./controllers/mouse');
 const pausa = require('./utils/pausa');
 const votacao = require('./utils/votacao');
 const dialogo = require('./utils/dialogo');
 const overlay = require('./overlay');
 const { parseComando } = require('./commands');
+const { parseMouseCommand } = require('./mouse-commands');
 const msg = require('./messages');
 
 /**
@@ -91,10 +93,12 @@ function responderSeguro(responder, texto, prioridade) {
 }
 
 function processarMensagem({ plataforma, usuario, texto, responder }) {
-  // `dialogo` é uma macro de gameplay, não um controle simples: por 5s ela
-  // toca o botão A repetidamente. Fica fora do registro configurável para não
-  // transformar a macro numa tecla única por engano.
-  const parsed = dialogo.ehComando(texto) ? { tipo: 'dialogo' } : parseComando(texto);
+  // Macros/comandos especiais são resolvidos antes dos controles simples.
+  // `dialogo` aperta A repetidamente; mouse usa um parser próprio para não
+  // poluir o registro configurável de teclas.
+  const parsed = dialogo.ehComando(texto)
+    ? { tipo: 'dialogo' }
+    : (parseMouseCommand(texto) || parseComando(texto));
   if (!parsed) return;
 
   switch (parsed.tipo) {
@@ -253,6 +257,41 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         stats.registrar('dialogo', plataforma, usuario);
         overlay.registrarAcao(usuario, 'a', 'dialogo', dialogo.DURACAO_MS);
         logger.comando(`[Chat] 💬 @${usuario} iniciou DIALOGO — pressionando A repetidamente por 5s.`);
+      }
+      return;
+    }
+
+    // ------------------------------------------------------------- mouse
+    // A votação de comandos de mouse é uma implementação separada (item 6
+    // do plano). Até ela entrar, o mouse é BLOQUEADO em democracia para não
+    // permitir que alguém burle a votação de gameplay.
+    case 'mouse-mover':
+    case 'mouse-pos':
+    case 'mouse-click': {
+      const descricao = parsed.descricao || parsed.tipo;
+      if (bloqueadoPelaPausa(usuario, descricao)) return;
+
+      const verificacao = verificarCooldown(usuario);
+      if (!verificacao.permitido) {
+        if (config.geral.debug) {
+          logger.debug(`[Chat] @${usuario} bloqueado no mouse: ${verificacao.motivo}`);
+        }
+        return;
+      }
+
+      if (votacao.modoAtual() === 'democracia') {
+        if (config.geral.debug) {
+          logger.debug(`[Mouse] "${descricao}" ignorado em democracia até a etapa de votação de mouse.`);
+        }
+        return;
+      }
+
+      const ok = mouse.executar(parsed);
+      if (ok) {
+        cooldown.registrarExecucao(usuario);
+        stats.registrar(descricao, plataforma, usuario);
+        overlay.registrarAcao(usuario, null, 'mouse');
+        logger.comando(`[Chat] 🖱️ @${usuario}: ${descricao}`);
       }
       return;
     }
