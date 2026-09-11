@@ -1,10 +1,14 @@
 /**
- * Registro central de comandos do Pokemon Chat Plays.
+ * Parser central de comandos do chat (Pokemon Chat Plays).
  *
- * Responsabilidades:
- *  - Definir os botões do controle, seus aliases (PT/EN) e ícones de exibição.
- *  - Converter uma mensagem bruta do chat em um comando estruturado:
- *      { tipo: 'botao',  botao: 'up' }
+ * v2.9: os BOTÕES não são mais uma lista fixa — vivem no REGISTRO de
+ * controles (src/controles.js), alimentado pelo .env (compatibilidade com
+ * as versões antigas) ou por dados/controles.json (assistente). O parser
+ * consulta o registro na hora: controles personalizados do Minecraft (ou
+ * de qualquer jogo) funcionam sem tocar em código.
+ *
+ * Converte uma mensagem bruta do chat em um comando estruturado:
+ *      { tipo: 'botao',  botao: 'up' }            // id do controle
  *      { tipo: 'hold',   botao: 'up', duracaoMs: 3000 }
  *      { tipo: 'soltar' }
  *      { tipo: 'info',   comando: 'comandos', bruto: 'comandos' }
@@ -20,121 +24,27 @@
  *  - "hold cima 2s"     -> sufixo explícito em segundos
  *  - O valor é limitado a HOLD_MAX_MS (padrão 10s) por segurança.
  *
- * Novidade da v2.5 (SAVES):
- *  - "salvar" e "carregar" são botões (savestates do emulador, ex.: F5).
- *  - "hold salvar" não faz sentido (o save é instantâneo): vira toque.
+ * "hold salvar" (savestate, toque instantâneo) continua virando toque —
+ * a regra agora é geral: qualquer controle NÃO segurável (combos tipo
+ * shift+f5 e savestates) vira toque em vez de hold.
  */
 
 const { config } = require('./config');
+const controles = require('./controles');
 
-/** Aliases aceitos no chat -> botão canônico do controle. */
-const ALIASES = {
-  // Botões de ação
-  a: 'a',
-  b: 'b',
-  l: 'l',
-  r: 'r',
-  start: 'start',
-  select: 'select',
-  seleciona: 'select',
-  selecionar: 'select',
+// O vocabulário do sistema (verbos de hold, soltar, saudações e nomes dos
+// comandos !) vive no registro — fonte única, também usada para validar
+// aliases novos no assistente.
+const HOLD_VERBOS = controles.VERBOS_HOLD;
+const SOLTAR_PALAVRAS = controles.PALAVRAS_SOLTAR;
+const OLA_PALAVRAS = controles.PALAVRAS_OLA;
+const INFO_COMANDOS = controles.NOMES_INFO;
 
-  // Savestates (v2.5) — o chat salva o ponto e volta no tempo
-  salvar: 'salvar',
-  salva: 'salvar',
-  save: 'salvar',
-  carregar: 'carregar',
-  carrega: 'carregar',
-  load: 'carregar',
-
-  // Direções (EN + PT + variações comuns)
-  up: 'up',
-  cima: 'up',
-  subir: 'up',
-  sobe: 'up',
-  down: 'down',
-  baixo: 'down',
-  descer: 'down',
-  desce: 'down',
-  left: 'left',
-  esquerda: 'left',
-  esq: 'left',
-  right: 'right',
-  direita: 'right',
-  dir: 'right',
-};
-
-/** Botões canônicos com rótulo e ícone para exibição no chat. */
-const BOTOES = {
-  up: { rotulo: 'CIMA', icone: '⬆' },
-  down: { rotulo: 'BAIXO', icone: '⬇' },
-  left: { rotulo: 'ESQUERDA', icone: '⬅' },
-  right: { rotulo: 'DIREITA', icone: '➡' },
-  a: { rotulo: 'A', icone: '🅰' },
-  b: { rotulo: 'B', icone: '🅱' },
-  l: { rotulo: 'L', icone: '🔵' },
-  r: { rotulo: 'R', icone: '🔴' },
-  start: { rotulo: 'START', icone: '▶' },
-  select: { rotulo: 'SELECT', icone: '▦' },
-  // v2.5: savestates
-  salvar: { rotulo: 'SALVAR', icone: '💾' },
-  carregar: { rotulo: 'CARREGAR', icone: '📂' },
-};
-
-/** Direções na ordem de exibição. */
-const DIRECOES = ['up', 'down', 'left', 'right'];
-
-/** Botões de ação na ordem de exibição. */
-const BOTOES_ACAO = ['a', 'b', 'l', 'r', 'start', 'select'];
-
-/** Botões de savestate (v2.5) — o toque é instantâneo, nunca hold. */
-const SAVES = ['salvar', 'carregar'];
-
-/** Verbos que iniciam um comando de segurar tecla. */
-const HOLD_VERBOS = ['hold', 'segurar', 'segura', 'segure', 'segurando'];
-
-/** Palavras que soltam todas as teclas presas. */
-const SOLTAR_PALAVRAS = [
-  'soltar',
-  'solta',
-  'solte',
-  'soltando',
-  'release',
-  'relaxa',
-  'largar',
-  'largue',
-  'solteira',
-];
-
-/** Saudações reconhecidas. */
-const OLA_PALAVRAS = ['ola', 'oi', 'oie', 'hello', 'hey', 'hi', 'eae', 'salve'];
-
-/** Nomes aceitos para cada comando de informação (após o prefixo admin). */
-const INFO_COMANDOS = {
-  comandos: ['comandos', 'commands', 'cmd'],
-  ajuda: ['ajuda', 'help', 'socorro'],
-  hold: ['hold', 'segurar', 'segura'],
-  stats: ['stats', 'estatisticas', 'status', 'stat'],
-  top: ['top', 'ranking', 'rank', 'placar'],
-  // v2.5
-  uptime: ['uptime', 'tempo'],
-  recorde: ['recorde', 'record', 'maior'],
-  modo: ['democracia', 'anarquia', 'votacao'],
-};
+/** Remove acentos de um texto (para aceitar "segurar címa", "olá" etc.). */
+const removerAcentos = controles.removerAcentos;
 
 /**
- * Remove acentos de um texto (para aceitar "segurar címa", "olá" etc.).
- * @param {string} texto
- * @returns {string}
- */
-function removerAcentos(texto) {
-  return (texto || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
-/**
- * Interpreta a parte de trás de um comando de hold (botão + duração opcional).
+ * Interpreta a parte de trás de um comando de hold (controle + duração).
  * @param {string} resto - Texto após o verbo (ex: "cima", "up 500ms", "a 3")
  * @returns {object|null}
  */
@@ -142,11 +52,11 @@ function parseHoldResto(resto) {
   const partes = resto.split(/\s+/).filter(Boolean);
   if (partes.length === 0) return { tipo: 'hold-invalido' };
 
-  const botao = ALIASES[partes[0]];
+  const botao = controles.resolverAlias(partes[0]);
   if (!botao) return { tipo: 'hold-invalido' };
 
-  // v2.5: "hold salvar" não faz sentido — o save é um toque instantâneo
-  if (SAVES.includes(botao)) return { tipo: 'botao', botao };
+  // controle não segurável (savestate, combo): "hold salvar" vira toque
+  if (!controles.ehSeguravel(botao)) return { tipo: 'botao', botao };
 
   let duracaoMs = config.geral.holdPadraoMs;
   const argDuracao = partes[1];
@@ -196,7 +106,7 @@ function extrairHold(texto) {
   for (const verbo of HOLD_VERBOS) {
     if (texto.startsWith(verbo) && texto.length > verbo.length) {
       const resto = texto.slice(verbo.length);
-      if (ALIASES[resto.split(/\s+/)[0]]) {
+      if (controles.resolverAlias(resto.split(/\s+/)[0])) {
         return parseHoldResto(resto);
       }
     }
@@ -207,6 +117,8 @@ function extrairHold(texto) {
 
 /**
  * Converte uma mensagem bruta do chat em comando estruturado.
+ * Consulta o REGISTRO de controles — Twitch e YouTube passam pelo MESMO
+ * lugar (não existe lista de comandos por plataforma).
  * @param {string} mensagemBruta - Mensagem exatamente como enviada
  * @returns {object|null} Comando estruturado ou null se não for comando
  */
@@ -240,19 +152,14 @@ function parseComando(mensagemBruta) {
     return { tipo: 'ola' };
   }
 
-  // 5) Botão simples
-  const botao = ALIASES[texto];
+  // 5) Controle simples (alias do registro ativo)
+  const botao = controles.resolverAlias(texto);
   if (botao) return { tipo: 'botao', botao };
 
   return null;
 }
 
 module.exports = {
-  ALIASES,
-  BOTOES,
-  DIRECOES,
-  BOTOES_ACAO,
-  SAVES,
   parseComando,
   removerAcentos,
 };

@@ -172,7 +172,7 @@ test('hold inválido recebe dica de uso', () => {
   const { respostas, responder } = criarResponderEspiao();
   processarMensagem({ plataforma: 'twitch', usuario: 'confuso', texto: 'hold pizza', responder });
   assert.strictEqual(respostas.length, 1);
-  assert.ok(respostas[0].texto.includes('hold <direção/botão>'));
+  assert.ok(respostas[0].texto.includes('hold <controle>'));
 });
 
 test('sem responder (YouTube), nada quebra', () => {
@@ -246,6 +246,78 @@ test('cooldown bloqueando todo mundo: streamer (dono do canal) passa', () => {
     assert.strictEqual(chamadasTeclado[0].botao, 'up');
   } finally {
     bloquearTodosNoCooldown = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// v2.9: controles personalizados — Twitch e YouTube usam o MESMO registro
+// ---------------------------------------------------------------------------
+
+test('controles personalizados (Minecraft) funcionam igual na Twitch e no YouTube', () => {
+  const controles = require('../controles');
+  const minecraft = controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: ['pular', 'pulo', 'jump'] },
+    { label: 'Inventário', key: 'e', aliases: ['inventario', 'inventory', 'e'] },
+  ]).lista;
+  // só os controles do teste: embutidos desligados para o cenário ser puro
+  for (const c of minecraft) if (!['pular', 'inventario'].includes(c.id)) c.enabled = false;
+  controles.__definirLista(minecraft);
+
+  try {
+    chamadasTeclado = [];
+    // Twitch reconhece
+    processarMensagem({ plataforma: 'twitch', usuario: 'jog1', texto: 'pular', responder: null });
+    // YouTube reconhece (mesma palavra, MESMO registro — sem lista por plataforma)
+    processarMensagem({ plataforma: 'youtube', usuario: 'jog2', texto: 'jump', responder: null });
+    processarMensagem({ plataforma: 'youtube', usuario: 'jog3', texto: 'inventário', responder: null });
+    // palavra de controle DESLIGADO não executa
+    processarMensagem({ plataforma: 'twitch', usuario: 'jog4', texto: 'a', responder: null });
+
+    assert.strictEqual(chamadasTeclado.length, 3);
+    assert.deepStrictEqual(chamadasTeclado.map((c) => c.botao), ['pular', 'pular', 'inventario']);
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
+test('hold de controle personalizado segurável chega ao teclado', () => {
+  const controles = require('../controles');
+  controles.__definirLista(
+    controles.validarLista([{ label: 'Agachar', key: 'shift', aliases: ['agachar', 'crouch'] }]).lista
+  );
+  try {
+    chamadasTeclado = [];
+    processarMensagem({ plataforma: 'twitch', usuario: 'steve', texto: 'hold agachar 2', responder: null });
+    assert.strictEqual(chamadasTeclado.length, 1);
+    assert.strictEqual(chamadasTeclado[0].fn, 'segurar');
+    assert.strictEqual(chamadasTeclado[0].botao, 'agachar');
+    assert.strictEqual(chamadasTeclado[0].duracaoMs, 2000);
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
+test('!comandos lista os controles PERSONALIZADOS ativos (não os padrões desligados)', () => {
+  const controles = require('../controles');
+  const msg = require('../messages');
+  const minecraft = controles.validarLista([
+    { label: 'Frente', key: 'w', aliases: ['frente', 'w'] },
+    { label: 'Pular', key: 'space', aliases: ['pular', 'jump'] },
+  ]).lista;
+  for (const c of minecraft) if (!['frente', 'pular'].includes(c.id)) c.enabled = false;
+  controles.__definirLista(minecraft);
+
+  try {
+    resetarAntiFlood();
+    const { respostas, responder } = criarResponderEspiao();
+    processarMensagem({ plataforma: 'twitch', usuario: 'curioso', texto: '!comandos', responder });
+    const tudo = respostas.map((r) => r.texto).join('\n').toLowerCase();
+    assert.ok(tudo.includes('pular'), 'controle personalizado pular deveria aparecer');
+    assert.ok(tudo.includes('frente'), 'controle personalizado frente deveria aparecer');
+    assert.ok(!tudo.includes('start'), 'controle padrão desligado não deveria aparecer');
+    assert.ok(!tudo.includes('select'), 'controle padrão desligado não deveria aparecer (2)');
+  } finally {
+    controles.restaurarPadrao();
   }
 });
 

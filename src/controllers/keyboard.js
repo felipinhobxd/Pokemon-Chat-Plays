@@ -1299,6 +1299,26 @@ function teclaSuportada(tecla) {
   return resolverTecla(tecla) !== null;
 }
 
+/**
+ * v2.9: lista das teclas SIMPLES suportadas (interseção dos 3 backends) —
+ * o assistente usa para validar no navegador a tecla que o streamer
+ * digitou/capturou, antes mesmo de salvar. Combos (shift+f5) são montados
+ * a partir destas + modificadores.
+ * @returns {string[]}
+ */
+function listarTeclasValidas() {
+  const nomes = new Set([
+    ...Object.keys(VK_WINDOWS),
+    ...Object.keys(KEYCODES_MAC),
+    ...Object.keys(TECLAS_XDOTOOL),
+  ]);
+  // só teclas que os TRÊS backends conhecem (mesma regra do resolverTecla)
+  const validas = [...nomes].filter((t) =>
+    vkWindows(t) !== null && keycodeMac(t) !== null && nomeXdotool(t) !== null
+  );
+  return validas.sort();
+}
+
 // ---------------------------------------------------------------------------
 // API pública de alto nível
 // ---------------------------------------------------------------------------
@@ -1332,10 +1352,16 @@ function executarBotao(botao) {
 
 /**
  * Atualiza o mapeamento de botões -> teclas.
+ * v2.9: com { substituir: true } o mapa NOVO substitui por completo o
+ * antigo (controles desativados deixam de existir para o teclado);
+ * sem a opção mantém o comportamento antigo de mesclar.
  * @param {object} novoMapa
+ * @param {{substituir?: boolean}} [opcoes]
  */
-function configurarMapeamento(novoMapa) {
-  mapeamentoAtual = { ...mapeamentoAtual, ...novoMapa };
+function configurarMapeamento(novoMapa, opcoes = {}) {
+  mapeamentoAtual = opcoes.substituir
+    ? { ...novoMapa }
+    : { ...mapeamentoAtual, ...novoMapa };
   logger.info(`[Teclado] Mapeamento atualizado: ${JSON.stringify(mapeamentoAtual)}`);
 }
 
@@ -1402,6 +1428,7 @@ module.exports = {
   totalSeguradas,
   listarSeguradas,
   teclaSuportada,
+  listarTeclasValidas,
   configurarMapeamento,
   configurarAlvoJanela,
   modoJanela,

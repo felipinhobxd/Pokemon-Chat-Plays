@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
 [![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-198%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![Tests](https://img.shields.io/badge/tests-270%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
@@ -16,25 +16,27 @@
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
-- **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs.
+- **Fully configurable chat controls** — the wizard's **🎮 Chat Controls** section maps *any action* to *any key* and *any chat word*: remap A/B/directions, or add brand-new actions (`Pular → Space → pular, jump, espaço`). Aliases are auto-suggested (PT-BR + EN), editable, and checked for conflicts/reserved words before saving. Works for **any game** — Minecraft, Terraria, whatever — with no code changes. Both Twitch and YouTube read the same registry; `!comandos` and the auto-announcement always reflect what you configured. Presets (VBA-M, mGBA, DeSmuME, RetroArch) are just **starting templates**.
+- **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs (works with custom controls too).
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
-- **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim.
+- **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim (custom controls too, when the key is holdable).
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 198 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — 270 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
 1. **Download and run** `PokemonChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `PokemonChatPlays-Windows.zip`.)*
 2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*). Saved keys come back **masked** (`••••••••abcd`): leave the field as-is to keep the saved value, clear it to remove, paste a new one to replace.
-3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game for you**.
-4. Hit **Save & start** — the bot **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
+3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game** for you.
+4. In the wizard's **🎮 Chat Controls** card, check the action → key → chat-word mapping. Apply a **template** (VBA-M, mGBA, DeSmuME, RetroArch) as a starting point and then customize freely: capture keys with the ⌨ button, add controls like `Pular → Space → pular, jump`, disable what the game doesn't use.
+5. Hit **Save & start** — the bot **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
 
 > 🛡️ *Windows says "protected your PC"? The exe has no digital signature — click **More info → Run anyway**.*
 > 🔒 *Never share your `.env` — it contains your bot token.*
 
 ## Chat commands
 
-No prefix needed — any message that is exactly a command triggers it. Accents are ignored.
+No prefix needed — any message that is exactly a command triggers it. Accents are ignored. **The list below is the default control set** — everything is editable in the wizard (see [Chat Controls](#chat-controls-fully-configurable)).
 
 | Command | Action |
 |---|---|
@@ -70,9 +72,22 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 
 **While paused:** game commands are blocked (including democracy winners) — info commands still work. The channel owner is exempt from cooldown.
 
-## Emulator setup
+## Chat Controls (fully configurable)
 
-The bot ships with presets (set `EMULADOR_PRESET` in `.env`):
+Every control is a triple: **action → keyboard key → chat words**. The wizard's **🎮 Chat Controls** card edits them all — and new controls need **zero code changes**:
+
+- **Remap built-ins** — change the key or the chat words of `A`, `B`, directions, Start, Select, savestates.
+- **Add any action** — Minecraft in 2 minutes: `Pular → Space → pular, pulo, jump` · `Inventário → E → inventario, inventory, e` · `Agachar → Shift → agachar, crouch`.
+- **Key capture** — press the ⌨ button and then the physical key: `Space`→`space`, `Shift+F5`→`shift+f5`, arrows, `F1`–`F12`… Only keys the keyboard backend actually supports are accepted.
+- **Auto-suggested aliases** — from the key (`space` → `space, espaço, barra de espaço`; `up` → `up, cima`) and the action name; always visible and editable. Accents are normalized (`espaço` ≡ `espaco`), duplicates collapse.
+- **Conflict protection** — the same chat word on two active controls, or reserved system words (`hold`, `soltar`, `comandos`…), are **rejected before saving** — the wizard never silently picks a winner.
+- **Same registry everywhere** — Twitch and YouTube, `!comandos`, the auto-announcement, democracy voting, hold, stats and the OBS overlay all read the same control list. Overlay, confirmations and winner messages use your action names.
+- **Persistence** — controls are saved in `dados/controles.json` (versioned, atomic writes, survives reinstall/uninstall). Until you save controls in the wizard, `EMULADOR_PRESET` + `TECLA_*` from `.env` keep working exactly as before.
+- **Templates, not limits** — the presets below just pre-fill the list; after applying one, edit whatever you want (the badge shows *Personalizado*).
+
+## Emulator templates
+
+The bot ships with key presets (set `EMULADOR_PRESET` in `.env`, or apply one in the wizard):
 
 | Preset | A | B | L | R | Start | Select | Save / Load |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|---|
@@ -108,6 +123,7 @@ Copy `.env.example` → `.env` — or just open `iniciar.bat` (the wizard opens 
 | `COMMAND_COOLDOWN_MS` | `1500` | Per-user cooldown — nobody solo-controls the game |
 | `KEY_PRESS_DURATION_MS` | `230` | How long each key tap lasts |
 | `EMULADOR_PRESET` / `EMULADOR_EXE` / `MODO_TECLADO` | `vbam` / *(ask at boot)* / `janela` | Emulator layout, target exe and key delivery mode |
+| `CONTROLES_ARQUIVO` | `dados/controles.json` | Where the wizard-saved control registry lives (has priority over `EMULADOR_PRESET`/`TECLA_*`) |
 | `JOGO_ROM` / `JOGO_ARGS` / `JOGO_AUTO_REINICIAR` | — / — / `true` | Game manager: ROM opened with the exe, extra launch args, auto-reopen on crash |
 | `JOGO_REINICIAR_DELAY_MS` / `JOGO_TENTATIVAS_MAX` / `JOGO_VIDA_MINIMA_MS` | `3000` / `5` / `15000` | Reopen delay and crash-loop limits |
 | `MODO_INICIAL` / `VOTACAO_INTERVALO_MS` / `VOTACAO_TROCA_MIN_MS` | `anarquia` / `10000` / `30000` | Democracy settings |
@@ -139,7 +155,7 @@ npm start       # run the bot
 npm run dev     # run with auto-restart on file change
 npm run assistente   # setup wizard in the browser
 npm run setup   # terminal-only .env wizard (legacy)
-npm test        # 198 offline tests (no emulator/chat needed)
+npm test        # 270 offline tests (no emulator/chat needed)
 npm run build   # build the .exe + setup.exe locally (requires pkg; NSIS optional)
 ```
 
@@ -152,17 +168,18 @@ Works on Windows (PowerShell), Linux (xdotool) and macOS (osascript). GitHub Act
 src/
 ├── index.js              # entry point / lifecycle
 ├── config.js             # .env loading and validation
-├── commands.js           # chat message parser
+├── controles.js          # central chat-control registry (aliases, keys, persistence)
+├── commands.js           # chat message parser (reads the registry)
 ├── handlers.js           # central pipeline (cooldown, pause, votes)
-├── messages.js           # chat replies (PT-BR, emoji formatted)
-├── presets.js            # emulator key presets
+├── messages.js           # chat replies (PT-BR, emoji formatted, dynamic)
+├── presets.js            # emulator key presets (control templates)
 ├── overlay.js            # embedded OBS overlay (HTTP, zero deps)
 ├── controllers/
 │   ├── keyboard.js       # key injection (worker, PostMessage, combos)
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
 ├── utils/                # logger, stats, cooldown, pause, votes, update check, game manager
-└── tests/                # 198 tests (node:test)
+└── tests/                # 270 tests (node:test)
 ```
 
 </details>

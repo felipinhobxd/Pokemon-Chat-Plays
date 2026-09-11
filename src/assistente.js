@@ -48,6 +48,7 @@ const {
 } = require('./config');
 const { interpretarErroApi } = require('./controllers/youtube');
 const { PAGINA } = require('./assistente-pagina');
+const controles = require('./controles');
 
 const PORTA_PADRAO = 8124;
 const LIMITE_BODY_BYTES = 64 * 1024;
@@ -209,7 +210,9 @@ function montarConteudoEnv(v, envAtual = '') {
     `CONFIRM_COMMANDS=${val('CONFIRM_COMMANDS')}`,
     '',
     '# ----- EMULADOR / JOGO (v2.7) -----',
-    '# Presets: vbam, mgba, desmume, retroarch',
+    '# Modelo INICIAL dos controles (vbam, mgba, desmume, retroarch).',
+    '# Os controles detalhados (tecla + palavras do chat) ficam em',
+    '# dados/controles.json — configurados no assistente.',
     `EMULADOR_PRESET=${val('EMULADOR_PRESET')}`,
     '# Caminho completo do .exe do jogo/emulador (qualquer programa serve:',
     '# VBA-M, mGBA, RetroArch, Minecraft...). Vazio = o bot pergunta no terminal.',
@@ -354,6 +357,20 @@ function estadoAtual(cfg = config) {
     configurado: errosConfig(cfg).length === 0,
     twitchAtivo: plataformas.includes('twitch'),
     youtubeAtivo: plataformas.includes('youtube'),
+    // v2.9: controles do chat para a seção "Controles do Chat" do wizard
+    controles: controles.todos(),
+    origemControles: controles.origem(),
+    // modelos (VBA-M/mGBA/DeSmuME/RetroArch) como listas prontas — o wizard
+    // aplica no navegador sem roundtrip; editar depois é livre
+    modelos: {
+      vbam: controles.controlesPadrao('vbam'),
+      mgba: controles.controlesPadrao('mgba'),
+      desmume: controles.controlesPadrao('desmume'),
+      retroarch: controles.controlesPadrao('retroarch'),
+    },
+    // vocabulário reservado + teclas válidas (validação no navegador)
+    reservados: [...controles.RESERVADOS].sort(),
+    teclasValidas: controles.teclasValidas(),
     // há valor salvo? (para a página mostrar "deixe como está para manter")
     temTokenTwitch: Boolean(String(cfg.twitch.oauthToken || '').trim()),
     temChaveYoutube: Boolean(String(cfg.youtube.apiKey || '').trim()),
@@ -593,6 +610,17 @@ function avaliarSalvamento(v = {}, atuais = {}) {
     erros.push('Nenhuma plataforma ativa — ligue pelo menos Twitch ou YouTube');
   }
 
+  // v2.9: controles do chat — a lista só é trocada quando o wizard mandou
+  // uma (body sem "controles" = página antiga/testes: registro intocado).
+  // Valida ANTES de gravar: conflito de alias, palavra reservada, tecla
+  // inválida — nada de escolher silenciosamente qual ação venceria.
+  if (Array.isArray(v.controles)) {
+    const res = controles.validarLista(v.controles);
+    for (const e of res.erros) erros.push(`Controles: ${e}`);
+    finais.controles = res.lista;
+    if (res.avisos.length > 0) finais.avisosControles = res.avisos;
+  }
+
   return { ok: erros.length === 0, erros, finais };
 }
 
@@ -600,9 +628,19 @@ function avaliarSalvamento(v = {}, atuais = {}) {
 function salvarConfiguracao(v) {
   const { ok, erros, finais } = avaliarSalvamento(v);
   if (!ok) {
-    // NÃO grava nada: o .env anterior (com os segredos intactos) continua
-    // válido — a página mostra o erro e o usuário completa/recarrega.
+    // NÃO grava nada: o .env anterior (com os segredos intactos) e o
+    // dados/controles.json anterior continuam válidos — a página mostra o
+    // erro e o usuário corrige.
     return { ok: false, erros };
+  }
+
+  // v2.9: controles PRIMEIRO (se falhar — pasta sem permissão etc. — o .env
+  // nem é tocado; nada de meia-configuração)
+  if (finais.controles) {
+    const r = controles.salvarArquivo(finais.controles);
+    if (!r.ok) {
+      return { ok: false, erros: [`Não consegui salvar os controles (${r.erro}). Verifique permissões na pasta dados/.`] };
+    }
   }
 
   try {
@@ -613,11 +651,19 @@ function salvarConfiguracao(v) {
 
   recarregar();
   const { nomeDoProcesso } = require('./utils/jogo');
+  const controlesAtivos = finais.controles
+    ? finais.controles.filter((c) => c.enabled).length
+    : null;
   return {
     ok: true,
     erros: [],
     arquivo: caminhoEnv(),
     overlay: config.overlay.ativa ? `http://localhost:${config.overlay.porta}` : null,
+    // v2.9: controles salvos (quantidade + avisos p/ tela de sucesso)
+    controles: controlesAtivos !== null
+      ? { quantidade: controlesAtivos, arquivo: controles.caminhoArquivo() }
+      : null,
+    avisosControles: finais.avisosControles || [],
     // v2.7: info do jogo p/ a tela de sucesso ("o bot abre sozinho...")
     jogo: finais.EMULADOR_EXE
       ? {
@@ -765,6 +811,19 @@ async function tratarRequisicao(req, res) {
         rom: body.JOGO_ROM ?? config.jogo.rom,
       });
       responderJson(res, 200, resultado);
+      return;
+    }
+
+    // v2.9: sugere palavras de chat para uma tecla + rótulo (o wizard usa
+    // ao adicionar um controle e ao trocar a tecla — tudo editável depois)
+    if (req.method === 'POST' && url === '/api/gerar-aliases') {
+      const body = await lerBody(req);
+      responderJson(res, 200, {
+        aliases: controles.gerarAliases(
+          String(body.chave || '').toLowerCase().trim(),
+          String(body.rotulo || '').trim()
+        ),
+      });
       return;
     }
 

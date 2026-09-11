@@ -49,7 +49,7 @@ const atualizacao = require('./utils/atualizacao');
 const emulador = require('./utils/emulador');
 const jogo = require('./utils/jogo');
 const votacao = require('./utils/votacao');
-const { montarMapeamento } = require('./presets');
+const controles = require('./controles');
 const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
 const { verificarSistema, soltarTodasSync } = teclado;
 const assistente = require('./assistente');
@@ -241,31 +241,42 @@ function iniciarGerenciadorJogo() {
 }
 
 /**
- * Aplica o mapeamento de teclas do .env (preset + TECLA_*).
- * Tecla inválida não derruba o app: avisa e usa o padrão.
+ * Aplica os CONTROLES DO CHAT (v2.9).
+ * Ordem de precedência:
+ *   1. dados/controles.json — salvo pelo assistente (controles personalizados
+ *      sobrevivem a restarts e a atualizações do instalador);
+ *   2. .env — EMULADOR_PRESET + TECLA_* (compatibilidade total com as
+ *      versões anteriores: sem o arquivo, nada muda).
+ * O registro alimenta o parser (Twitch E YouTube), o teclado, o !comandos,
+ * o anúncio automático, o overlay e a votação — tudo a partir daqui.
+ * Tecla inválida não derruba o app: avisa e segue sem o controle.
  */
-function aplicarMapeamentoTeclas() {
-  const { mapa, preset, presetDesconhecido, sobrescritas } = montarMapeamento(
-    config.teclado.preset,
-    config.teclado.teclas
-  );
+function aplicarControles() {
+  const resumo = controles.inicializar();
 
-  if (presetDesconhecido) {
-    logger.aviso(`[Teclado] EMULADOR_PRESET="${config.teclado.preset}" desconhecido — usando VBA-M.`);
-  }
-
-  // Valida cada tecla configurada (padrões do preset também são válidos)
+  // valida cada tecla configurada (normalmente já validada no assistente;
+  // aqui cobre o arquivo editado na mão)
   let invalidas = 0;
-  for (const [botao, tecla] of Object.entries(mapa)) {
+  const mapa = {};
+  for (const [id, tecla] of Object.entries(controles.mapaTeclado())) {
     if (!teclado.teclaSuportada(tecla)) {
-      logger.erro(`[Teclado] TECLA para "${botao}" inválida: "${tecla}" — valores aceitos: setas, enter, backspace, space, tab, esc, shift, ctrl, alt, f1-f12, a-z, 0-9 e combos como shift+f5`);
+      logger.erro(`[Controles] Tecla "${tecla}" do controle "${id}" não é suportada — use setas, enter, backspace, space, tab, esc, shift, ctrl, alt, f1-f12, a-z, 0-9 e combos como shift+f5`);
       invalidas++;
+      continue; // controle fica sem tecla: parser aceita, teclado recusa
     }
+    mapa[id] = tecla;
   }
 
-  teclado.configurarMapeamento(mapa);
-  const nomesPreset = { vbam: 'VBA-M', mgba: 'mGBA', desmume: 'DeSmuME', retroarch: 'RetroArch' };
-  logger.info(`[Teclado] Preset do emulador: ${nomesPreset[preset] || preset}${sobrescritas > 0 ? ` + ${sobrescritas} tecla(s) customizada(s) do .env` : ''}${invalidas > 0 ? ` (${invalidas} tecla(s) inválida(s) usará o padrão)` : ''}`);
+  teclado.configurarMapeamento(mapa, { substituir: true });
+
+  const ativos = controles.ativos();
+  const origemTxt = resumo.origem === 'arquivo'
+    ? 'dados/controles.json (assistente)'
+    : 'EMULADOR_PRESET + TECLA_* do .env';
+  const invalidasTxt = invalidas > 0 ? ` (${invalidas} tecla(s) inválida(s) ignorada(s))` : '';
+  logger.info(
+    `[Controles] 🎮 ${ativos.length} controle(s) ativos de ${origemTxt}${invalidasTxt} — o chat pode digitar: ${ativos.slice(0, 8).map((c) => c.aliases[0]).filter(Boolean).join(', ')}${ativos.length > 8 ? '...' : ''}`
+  );
 }
 
 /**
@@ -456,8 +467,8 @@ async function main() {
   // Emulador alvo (v2.4): pergunta o .exe ANTES de mexer em qualquer tecla
   await configurarAlvoDoEmulador();
 
-  // Teclas customizáveis (v2.3) — antes de qualquer coisa tocar no teclado
-  aplicarMapeamentoTeclas();
+  // Controles do chat (v2.9) — antes de qualquer coisa tocar no teclado
+  aplicarControles();
 
   // Jogo (v2.7): abre com a ROM + watchdog que reabre se fechar
   iniciarGerenciadorJogo();

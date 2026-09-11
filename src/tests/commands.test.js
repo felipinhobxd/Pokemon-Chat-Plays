@@ -5,7 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseComando, removerAcentos, ALIASES, BOTOES } = require('../commands');
+const { parseComando, removerAcentos } = require('../commands');
+const controles = require('../controles');
 
 // ---------------------------------------------------------------------------
 // Botões simples
@@ -209,9 +210,17 @@ test('saudações reconhecidas', () => {
 // Consistência do registro
 // ---------------------------------------------------------------------------
 
-test('todo alias aponta para um botão existente', () => {
-  for (const alias of Object.values(ALIASES)) {
-    assert.ok(BOTOES[alias], `alias "${alias}" não tem botão correspondente`);
+test('todo alias do registro resolve no parser (consistência)', () => {
+  // v2.9: o registro de controles é a fonte única — cada alias de cada
+  // controle ATIVO tem que virar comando de botão quando o chat digita
+  for (const c of controles.ativos()) {
+    assert.ok(c.aliases.length >= 1, `controle "${c.id}" sem alias`);
+    for (const alias of c.aliases) {
+      const parsed = parseComando(alias);
+      assert.ok(parsed, `alias "${alias}" não resolve`);
+      assert.strictEqual(parsed.tipo, 'botao', `alias "${alias}" deveria ser botão`);
+      assert.strictEqual(parsed.botao, c.id, `alias "${alias}" -> ${parsed.botao} (esperado ${c.id})`);
+    }
   }
 });
 

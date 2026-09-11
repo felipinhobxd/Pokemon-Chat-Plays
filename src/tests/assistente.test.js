@@ -452,3 +452,120 @@ test('verificarCaminhosJogo: exe sem extensão de programa vira aviso, não erro
   assert.ok(r.ok, 'sem extensão continua OK');
   assert.ok(r.mensagem.includes('atenção'), 'mas chama atenção');
 });
+
+// ---------------------------------------------------------------------------
+// v2.9: controles do chat no salvar do wizard
+// ---------------------------------------------------------------------------
+
+const controles = require('../controles');
+
+test('estadoAtual: traz a lista de controles + modelos + reservados + teclas válidas', () => {
+  const d = estadoAtual(cfgFake());
+  assert.ok(Array.isArray(d.controles) && d.controles.length === 12, 'controles padrão ausentes');
+  assert.strictEqual(d.origemControles, 'env');
+  assert.ok(d.controles[0].key, 'controle sem tecla');
+  assert.ok(Array.isArray(d.controles[0].aliases));
+  for (const m of ['vbam', 'mgba', 'desmume', 'retroarch']) {
+    assert.ok(Array.isArray(d.modelos[m]), `modelo ${m} ausente`);
+  }
+  assert.ok(d.reservados.includes('soltar'));
+  assert.ok(d.teclasValidas.includes('space'));
+});
+
+test('avaliarSalvamento: controles válidos entram nos finais (normalizados)', () => {
+  const r = avaliarSalvamento({
+    twitchAtivo: false,
+    youtubeAtivo: true,
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+    controles: [
+      ...controles.todos(),
+      { label: 'Pular', key: 'space', aliases: ['pular', 'PULAR', 'jump'] },
+    ],
+  });
+  assert.strictEqual(r.ok, true, r.erros);
+  const pular = r.finais.controles.find((c) => c.id === 'pular');
+  assert.deepStrictEqual(pular.aliases, ['pular', 'jump']);
+});
+
+test('avaliarSalvamento: conflito de palavra nos controles BLOQUEIA o save', () => {
+  const antes = fs.existsSync(caminhoEnv()) ? fs.readFileSync(caminhoEnv(), 'utf8') : null;
+  const r = avaliarSalvamento({
+    twitchAtivo: false,
+    youtubeAtivo: true,
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+    controles: [
+      { label: 'Pular', key: 'space', aliases: ['pular', 'jump'] },
+      { label: 'Voar', key: 'f', aliases: ['voar', 'jump'] },
+    ],
+  });
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.erros.some((e) => e.includes('jump')), 'erro deveria citar a palavra conflitante');
+
+  // e o salvarConfiguracao NEM CHEGA a gravar (.env e controles.json intactos)
+  const r2 = salvarConfiguracao({
+    twitchAtivo: false,
+    youtubeAtivo: true,
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+    controles: [
+      { label: 'Pular', key: 'space', aliases: ['pular', 'jump'] },
+      { label: 'Voar', key: 'f', aliases: ['voar', 'jump'] },
+    ],
+  });
+  assert.strictEqual(r2.ok, false);
+  const depois = fs.existsSync(caminhoEnv()) ? fs.readFileSync(caminhoEnv(), 'utf8') : null;
+  assert.strictEqual(depois, antes, '.env foi gravado com controles conflitantes!');
+});
+
+test('avaliarSalvamento: body SEM controles não toca no registro (página antiga)', () => {
+  const antes = controles.todos();
+  const r = avaliarSalvamento({
+    twitchAtivo: false,
+    youtubeAtivo: true,
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+  });
+  assert.strictEqual(r.ok, true, r.erros);
+  assert.strictEqual(r.finais.controles, undefined, 'sem controles no body = registro intocado');
+  assert.deepStrictEqual(controles.todos(), antes);
+});
+
+test('wizard save → restart: controles do Minecraft voltam idênticos do arquivo', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-ciclo-'));
+  process.env.CONTROLES_ARQUIVO = path.join(dir, 'controles.json');
+  try {
+    const finais = avaliarSalvamento({
+      twitchAtivo: false,
+      youtubeAtivo: true,
+      YOUTUBE_API_KEY: 'AIza1',
+      YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+      controles: [
+        { label: 'Frente', key: 'w', aliases: ['frente', 'w'] },
+        { label: 'Pular', key: 'space', aliases: ['pular', 'jump'] },
+        { label: 'Agachar', key: 'shift', aliases: ['agachar'] },
+      ],
+    });
+    assert.strictEqual(finais.ok, true, finais.erros);
+
+    const salvo = controles.salvarArquivo(finais.finais.controles);
+    assert.strictEqual(salvo.ok, true, salvo.erro);
+
+    // "reinicia o bot": registro volta ao padrão e o boot lê o arquivo
+    controles.restaurarPadrao();
+    controles.inicializar();
+    assert.strictEqual(controles.origem(), 'arquivo');
+
+    const { parseComando } = require('../commands');
+    assert.deepStrictEqual(parseComando('pular'), { tipo: 'botao', botao: 'pular' });
+    assert.deepStrictEqual(parseComando('frente'), { tipo: 'botao', botao: 'frente' });
+    assert.deepStrictEqual(parseComando('agachar'), { tipo: 'botao', botao: 'agachar' });
+    // builtins do Game Boy ficaram desligados (cenário Minecraft puro)
+    assert.strictEqual(parseComando('cima'), null);
+  } finally {
+    delete process.env.CONTROLES_ARQUIVO;
+    fs.rmSync(dir, { recursive: true, force: true });
+    controles.restaurarPadrao();
+  }
+});

@@ -37,6 +37,38 @@ test('ações trazem ícone e rótulo do botão (catálogo do commands.js)', () 
   assert.strictEqual(soltar.rotulo, 'SOLTAR');
 });
 
+test('v2.9: ações de controles PERSONALIZADOS usam o rótulo do registro', () => {
+  const controles = require('../controles');
+  controles.__definirLista(
+    controles.validarLista([{ label: 'Agachar', key: 'shift', aliases: ['agachar'] }]).lista
+  );
+  try {
+    overlay.registrarAcao('steve', 'agachar', 'hold', 2000);
+    // id desconhecido (registro trocado no meio da sessão etc.): rótulo = id,
+    // nunca o rótulo de OUTRA ação (regressão: dizia "SOLTAR")
+    overlay.registrarAcao('tester', 'desconhecido', 'tap');
+    const snap = overlay.snapshot();
+
+    const agachar = snap.acoes.find((a) => a.botao === 'agachar');
+    assert.strictEqual(agachar.icone, '🎮');
+    assert.strictEqual(agachar.rotulo, 'AGACHAR');
+    assert.strictEqual(agachar.duracaoMs, 2000);
+
+    const outro = snap.acoes.find((a) => a.botao === 'desconhecido');
+    assert.strictEqual(outro.rotulo, 'DESCONHECIDO');
+    assert.ok(!snap.acoes.some((a) => a.botao === 'desconhecido' && a.rotulo === 'SOLTAR'));
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
+test('v2.9: snapshot traz o mapa de controles ativos p/ a página fundir', () => {
+  const snap = overlay.snapshot();
+  assert.ok(snap.controles && typeof snap.controles === 'object');
+  assert.strictEqual(snap.controles.up.rotulo, 'CIMA');
+  assert.strictEqual(snap.controles.a.icone, '🅰');
+});
+
 test('snapshot reflete pausa, conexões e versão', () => {
   overlay.setVersao('9.9.9');
   overlay.setPausado(true);

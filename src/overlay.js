@@ -25,7 +25,7 @@
 const http = require('http');
 
 const logger = require('./utils/logger');
-const { BOTOES } = require('./commands');
+const controles = require('./controles');
 
 /** Máximo de ações mantidas no feed. */
 const MAX_ACOES = 15;
@@ -127,18 +127,23 @@ function setJogo(st) {
 
 /**
  * Registra uma ação do chat no feed do overlay.
+ * v2.9: ícone/rótulo vêm do REGISTRO de controles — ações de controles
+ * personalizados (Minecraft etc.) aparecem com o nome amigável deles.
  * @param {string} usuario - Quem mandou
- * @param {string|null} botao - Botão canônico (up, a, start...) ou null
+ * @param {string|null} botao - Id do controle (up, a, pular...) ou null
  * @param {'tap'|'hold'|'soltar'|'voto'} tipo
  * @param {number} [duracaoMs] - Duração do hold (ou nº de votos, em 'voto')
  */
 function registrarAcao(usuario, botao, tipo, duracaoMs) {
-  const meta = botao ? BOTOES[botao] : null;
+  const meta = botao ? controles.meta(botao) : null;
+  const ehSoltar = tipo === 'soltar';
   estado.acoes.unshift({
     usuario: String(usuario || 'alguem'),
     botao: botao || null,
-    icone: meta ? meta.icone : (tipo === 'soltar' ? '🔓' : '🎮'),
-    rotulo: meta ? meta.rotulo : 'SOLTAR',
+    icone: meta ? meta.icone : (ehSoltar ? '🔓' : '🎮'),
+    // sem registro (id inexistente/soltar): o próprio id em maiúsculas —
+    // nunca um rótulo de outra ação
+    rotulo: meta ? meta.rotulo : (ehSoltar ? 'SOLTAR' : String(botao || '?').toUpperCase()),
     tipo: tipo || 'tap',
     duracaoMs: duracaoMs || 0,
     ts: Date.now(),
@@ -181,6 +186,8 @@ function snapshot() {
     seguradas,
     toques: { ...estado.toques },
     votacao,
+    // v2.9: controles ativos (ícone/rótulo) para a página fundir no gamepad
+    controles: controles.metaAtivos(),
     stats: {
       total: stats.total || 0,
       holds: stats.holds || 0,
@@ -361,6 +368,9 @@ const PAGINA = [
   '.dpad .gbtn { font-size: 15px; }',
   '.gcentro { display: flex; flex-direction: column; gap: 8px; align-items: center; }',
   '.pill { width: 58px; height: 16px; font-size: 9px; letter-spacing: 1px; border-radius: 999px; }',
+  '/* v2.9: chips de controles personalizados (Minecraft etc.) */',
+  '.extras-controles { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }',
+  '.gbtn.mini { padding: 4px 10px; font-size: 10px; letter-spacing: 0.5px; border-radius: 999px; height: auto; }',
   '.gab { position: relative; width: 118px; height: 74px; }',
   '.bola { position: absolute; width: 36px; height: 36px; border-radius: 50%; font-size: 15px; }',
   '.bola.a { right: 0; top: 0; }',
@@ -450,6 +460,8 @@ const PAGINA = [
   '            <div class="gbtn bola b" id="g-b">B</div>',
   '          </div>',
   '        </div>',
+  '        <!-- v2.9: controles personalizados ganham chips próprios -->',
+  '        <div class="extras-controles" id="extras-controles"></div>',
   '      </div>',
   '    </div>',
   '    <div class="painel votacao" id="painel-votacao">',
@@ -502,6 +514,15 @@ const PAGINA = [
   '    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\\\'": "&#39;" }[c];',
   '  });',
   '}',
+  'function criarChipCustom(cid, meta) {',
+  '  var alvo = document.getElementById("extras-controles");',
+  '  if (!alvo || document.getElementById("g-" + cid)) return;',
+  '  var div = document.createElement("div");',
+  '  div.className = "gbtn mini";',
+  '  div.id = "g-" + cid;',
+  '  div.textContent = meta.icone + " " + meta.rotulo;',
+  '  alvo.appendChild(div);',
+  '}',
   'function fmtUptime(ms) {',
   '  var min = Math.floor(ms / 60000);',
   '  if (min < 60) return min + "min";',
@@ -532,6 +553,17 @@ const PAGINA = [
   '  document.getElementById("versao").textContent = d.versao ? ("v" + d.versao) : "";',
   '  document.getElementById("pt-twitch").className = "ponto" + (d.conexoes.twitch ? " on" : "");',
   '  document.getElementById("pt-youtube").className = "ponto" + (d.conexoes.youtube ? " on" : "");',
+  '  // v2.9: funde controles do registro — personalizados acendem junto',
+  '  if (d.controles) {',
+  '    for (var cid in d.controles) {',
+  '      if (!ICONES_BOTAO[cid]) {',
+  '        var m = d.controles[cid];',
+  '        ICONES_BOTAO[cid] = m.icone + " " + m.rotulo;',
+  '        CORES_BOTAO[cid] = "#0ea5e9";',
+  '        criarChipCustom(cid, m);',
+  '      }',
+  '    }',
+  '  }',
   '  var led = document.getElementById("led");',
   '  if (d.pausado) {',
   '    led.className = "led pausado";',
@@ -544,7 +576,7 @@ const PAGINA = [
   '  }',
   '  // ---- gamepad ao vivo (v2.5): botão acende ~600ms após o toque ----',
   '  var agora = Date.now();',
-  '  var ids = ["up","down","left","right","a","b","l","r","start","select","salvar","carregar"];',
+  '  var ids = Object.keys(ICONES_BOTAO);',
   '  for (var n = 0; n < ids.length; n++) {',
   '    var g = document.getElementById("g-" + ids[n]);',
   '    if (!g) continue;',

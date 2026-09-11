@@ -1,14 +1,18 @@
 /**
  * Formatação central das mensagens que o bot envia no chat.
  *
- * Objetivos:
- *  - Formato de LISTA: um comando por linha, com explicação curta após
- *    o travessão — muito mais legível no chat da Twitch (e YouTube).
- *  - Cada mensagem respeita o limite de ~500 caracteres por linha do IRC.
+ * v2.9: as listas de comandos não são mais fixas — são montadas a partir do
+ * REGISTRO de controles (src/controles.js). Se o streamer configurou
+ * Minecraft (Pular/Inventário/Agachar...), o !comandos e o anúncio
+ * automático mostram exatamente isso, em vez de A/B/Start de Game Boy.
+ *
+ *  - Formato de LISTA: um comando por linha, com explicação curta.
+ *  - Cada mensagem respeita o limite de ~500 caracteres do IRC — quando a
+ *    lista de controles é grande, ela se divide em mais mensagens.
  *  - Sem hardcode espalhado: todo texto de chat do bot nasce aqui.
  */
 
-const { BOTOES, DIRECOES, BOTOES_ACAO } = require('./commands');
+const controles = require('./controles');
 const { config } = require('./config');
 
 /** Limite prático de caracteres por mensagem (Twitch = 500). */
@@ -40,46 +44,93 @@ function garantirLimite(texto) {
 }
 
 /**
+ * Palavra principal de um controle (a que o chat digita primeiro).
+ * @param {object} c - controle do registro
+ * @returns {string}
+ */
+function palavraPrincipal(c) {
+  const rot = controles.removerAcentos(String(c.label || '').toLowerCase()).trim();
+  return c.aliases.includes(rot) ? rot : (c.aliases[0] || rot);
+}
+
+/**
+ * Linha de lista para um controle: "⬆ cima (ou up, subir, sobe)".
+ * Cabe sempre em 45 caracteres (reduz os extras se precisar).
+ * @param {object} c - controle do registro
+ * @returns {string}
+ */
+function linhaControle(c) {
+  const primaria = palavraPrincipal(c);
+  const labelLimpo = controles.removerAcentos(String(c.label || '')).trim();
+  const outros = c.aliases.filter((a) => a !== primaria);
+
+  const base = labelLimpo.toLowerCase() === primaria
+    ? `${c.icone} ${primaria}`
+    : `${c.icone} ${labelLimpo}: ${primaria}`;
+
+  for (const qtd of [4, 3, 2, 1, 0]) {
+    const exibidos = outros.slice(0, qtd);
+    const extras = exibidos.length
+      ? ` (ou ${exibidos.join(', ')}${outros.length > qtd ? '…' : ''})`
+      : '';
+    const linha = `${base}${extras}`;
+    if (linha.length <= 45) return linha;
+  }
+  return base.slice(0, 45);
+}
+
+/**
+ * Divide linhas em blocos que caibam no limite do IRC.
+ * @param {string[]} linhas
+ * @returns {string[][]}
+ */
+function agruparLinhas(linhas) {
+  const blocos = [];
+  let atual = [];
+  let tamanho = 0;
+  for (const linha of linhas) {
+    const custo = linha.length + 1; // + quebra de linha
+    if (atual.length > 0 && tamanho + custo > LIMITE_CARACTERES - 30) {
+      blocos.push(atual);
+      atual = [];
+      tamanho = 0;
+    }
+    atual.push(linha);
+    tamanho += custo;
+  }
+  if (atual.length) blocos.push(atual);
+  return blocos;
+}
+
+/**
  * Mensagem completa de comandos (resposta ao !comandos / !ajuda).
- * São 3 mensagens em formato de LISTA — um comando por linha, com
- * explicação curta após o travessão — muito mais legível no chat.
+ * Montada a partir dos controles ATIVOS do registro: controles
+ * personalizados aparecem aqui sem nenhum código extra.
  * @returns {string[]}
  */
 function msgComandos() {
-  const aliasEN = { up: 'up', down: 'down', left: 'left', right: 'right' };
-  const linhasMovimento = DIRECOES.map(
-    (d) => `${BOTOES[d].icone} ${BOTOES[d].rotulo.toLowerCase()} (ou ${aliasEN[d]})`
-  );
+  const ativos = controles.ativos();
 
-  const acoes = {
-    a: 'confirmar / interagir',
-    b: 'cancelar / correr',
-    l: 'ombro esquerdo',
-    r: 'ombro direito',
-    start: 'abrir o menu',
-    select: 'trocar item',
-  };
-  const linhasBotoes = BOTOES_ACAO.map((b) => `${BOTOES[b].icone} ${b} — ${acoes[b]}`);
+  const linhasControles = ativos.map(linhaControle);
+  const blocos = agruparLinhas(linhasControles);
 
-  const parte1 = [
-    '🎮 COMANDOS DO JOGO (1/3)',
-    ...linhasMovimento,
-    ...linhasBotoes,
-  ].join('\n');
+  // savestates continuam merecendo explicação própria (se estiverem ativos)
+  const temSalvar = ativos.some((c) => c.id === 'salvar');
+  const temCarregar = ativos.some((c) => c.id === 'carregar');
 
-  const parte2 = [
-    '✊ SEGURAR E VOLTAR NO TEMPO (2/3)',
-    `hold cima — segura ${formatarDuracao(config.geral.holdPadraoMs)}`,
-    'hold baixo 3 — segura 3s',
-    'hold up 500ms — meio segundo',
+  const exemplosHold = exemploHold();
+
+  const linhasHold = [
+    '✊ SEGURAR TECLAS (hold)',
+    ...exemplosHold.map((linha) => garantirLinhaCurta(linha)),
     `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
     '🔓 soltar — solta todas as teclas',
-    '💾 salvar — o chat salva o ponto do jogo',
-    '📂 carregar — volta ao ponto salvo',
-  ].join('\n');
+    ...(temSalvar ? ['💾 salvar — o chat salva o ponto do jogo'] : []),
+    ...(temCarregar ? ['📂 carregar — volta ao ponto salvo'] : []),
+  ];
 
-  const parte3 = [
-    '📊 OUTROS COMANDOS (3/3)',
+  const linhasOutros = [
+    '📊 OUTROS COMANDOS',
     '📊 !stats — estatísticas da live',
     '🏆 !top — ranking dos jogadores',
     '⏱ !uptime — há quanto tempo o bot está no ar',
@@ -88,9 +139,39 @@ function msgComandos() {
     '⚡ !anarquia — todos jogam de uma vez',
     '✊ !segurar — ajuda só do hold',
     '❓ !ajuda — o mesmo que !comandos',
-  ].join('\n');
+  ];
 
-  return [garantirLimite(parte1), garantirLimite(parte2), garantirLimite(parte3)];
+  const total = blocos.length + 2;
+  const cabecalhoHold = temSalvar || temCarregar
+    ? '✊ SEGURAR E VOLTAR NO TEMPO'
+    : '✊ SEGURAR TECLAS (hold)';
+  const partes = [];
+  blocos.forEach((bloco, i) => {
+    partes.push(garantirLimite(['🎮 COMANDOS DO JOGO ' + `(${i + 1}/${total})`, ...bloco].join('\n')));
+  });
+  partes.push(garantirLimite([`${cabecalhoHold} (${blocos.length + 1}/${total})`, ...linhasHold.slice(1)].join('\n')));
+  partes.push(garantirLimite([`📊 OUTROS COMANDOS (${total}/${total})`, ...linhasOutros.slice(1)].join('\n')));
+  return partes;
+}
+
+/**
+ * Linhas de exemplo do hold usando uma palavra REAL dos controles ativos.
+ * @returns {string[]}
+ */
+function exemploHold() {
+  const seguraveis = controles.ativos().filter((c) => c.holdable);
+  const palavra = seguraveis.length ? palavraPrincipal(seguraveis[0]) : 'cima';
+  return [
+    `hold ${palavra} — segura ${formatarDuracao(config.geral.holdPadraoMs)} (padrão)`,
+    `hold ${palavra} 3 — segura 3s`,
+    `hold ${palavra} 500ms — meio segundo`,
+  ];
+}
+
+/** Corta a linha em 45 caracteres sem quebrar no meio da palavra. */
+function garantirLinhaCurta(linha) {
+  if (linha.length <= 45) return linha;
+  return `${linha.slice(0, 44)}…`;
 }
 
 /**
@@ -98,12 +179,12 @@ function msgComandos() {
  * @returns {string}
  */
 function msgHoldAjuda() {
+  const [a, b, c] = exemploHold();
   const texto = [
     '✊ COMO SEGURAR TECLAS:',
-    `hold cima — segura ${formatarDuracao(config.geral.holdPadraoMs)} (padrão)`,
-    'hold cima 3 — segura 3s',
-    'hold cima 500ms — meio segundo',
-    'hold left 2s — sufixos s e ms valem',
+    a,
+    b,
+    c,
     `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
     '🔓 soltar — solta tudo na hora',
   ].join('\n');
@@ -111,20 +192,35 @@ function msgHoldAjuda() {
 }
 
 /**
- * Anúncio automático periódico (curto e em lista).
+ * Anúncio automático periódico (curto e em lista) — reflete os controles
+ * configurados (Minecraft? mostra pular, inventário...).
  * @returns {string}
  */
 function msgAnuncio() {
-  const texto = [
-    '🎮 O CHAT CONTROLA O JOGO!',
-    'mova: cima, baixo, esquerda, direita',
-    'aperte: a, b, l, r, start, select',
-    '💾 salvar / 📂 carregar — volta no tempo',
-    '✊ hold cima [tempo] · 🔓 soltar',
-    '🗳️ !democracia / ⚡ !anarquia',
-    '📜 !comandos — lista completa',
-  ].join('\n');
-  return garantirLimite(texto);
+  const primarias = controles.ativos().map(palavraPrincipal).filter(Boolean);
+  const linhas = ['🎮 O CHAT CONTROLA O JOGO!'];
+
+  // até 6 palavras, quebrando em linhas que caibam
+  const palavras = primarias.slice(0, 6);
+  if (palavras.length > 0) {
+    let atual = 'digite: ';
+    for (const p of palavras) {
+      const pedaco = atual === 'digite: ' ? p : `, ${p}`;
+      if ((atual + pedaco).length > 44 && atual !== 'digite: ') {
+        linhas.push(atual);
+        atual = `        ${p}`;
+      } else {
+        atual += pedaco;
+      }
+    }
+    if (atual.trim()) linhas.push(atual);
+    if (primarias.length > 6) linhas.push(`        (e mais — !comandos)`);
+  }
+
+  linhas.push('✊ hold <palavra> [tempo] · 🔓 soltar');
+  linhas.push('🗳️ !democracia / ⚡ !anarquia');
+  linhas.push('📜 !comandos — lista completa');
+  return garantirLimite(linhas.join('\n'));
 }
 
 /**
@@ -133,11 +229,13 @@ function msgAnuncio() {
  * @returns {string}
  */
 function msgBoasVindas(usuario) {
+  const primarias = controles.ativos().map(palavraPrincipal).filter(Boolean).slice(0, 4);
+  const palavras = primarias.length ? primarias.join(', ') : '!comandos';
   return garantirLimite(
     [
       `👋 Bem-vindo, @${usuario}!`,
       'O chat está no controle do jogo!',
-      'Mande: a, b, cima, baixo... ou !comandos para ver tudo',
+      `Mande: ${palavras}... ou !comandos para ver tudo`,
     ].join('\n')
   );
 }
@@ -145,12 +243,12 @@ function msgBoasVindas(usuario) {
 /**
  * Confirmação de hold iniciado.
  * @param {string} usuario - Quem pediu
- * @param {string} botao - Botão canônico
+ * @param {string} botao - Id do controle
  * @param {number} duracaoMs - Duração
  * @returns {string}
  */
 function msgHoldConfirmado(usuario, botao, duracaoMs) {
-  const info = BOTOES[botao] || { icone: '⌨', rotulo: botao.toUpperCase() };
+  const info = controles.meta(botao) || { icone: '⌨', rotulo: String(botao || '?').toUpperCase() };
   return garantirLimite(
     `🔒 @${usuario} segurou ${info.icone} ${info.rotulo} por ${formatarDuracao(duracaoMs)} — digite "soltar" para liberar antes`
   );
@@ -195,7 +293,7 @@ function msgChatLiberado() {
 function msgUsoHold(usuario) {
   return garantirLimite(
     [
-      `@${usuario} uso: hold <direção/botão> [tempo]`,
+      `@${usuario} uso: hold <controle> [tempo]`,
       'ex: hold cima · hold baixo 3 · hold up 500ms',
     ].join('\n')
   );
@@ -278,8 +376,7 @@ function msgModoDemocracia() {
   const texto = [
     '🗳️ MODO DEMOCRACIA ATIVADO!',
     `A cada ${formatarDuracao(config.votacao.intervaloMs)} vale o comando mais votado`,
-    'Vote como nos comandos normais: cima, a, start...',
-    'Trocar de voto vale — só vale o último',
+    'Vote como nos comandos normais — vale o último voto',
     '⚡ !anarquia devolve o caos',
   ].join('\n');
   return garantirLimite(texto);
@@ -300,13 +397,13 @@ function msgModoAnarquia() {
 
 /**
  * v2.5: resultado de uma janela de votação.
- * @param {string} botao - Botão canônico vencedor
+ * @param {string} botao - Id do controle vencedor
  * @param {number} votos - Votos do vencedor
  * @param {number} votantes - Total de pessoas que votaram
  * @returns {string}
  */
 function msgVencedor(botao, votos, votantes) {
-  const info = BOTOES[botao] || { icone: '🎮', rotulo: String(botao || '?').toUpperCase() };
+  const info = controles.meta(botao) || { icone: '🎮', rotulo: String(botao || '?').toUpperCase() };
   const v = votos || 0;
   return garantirLimite(
     `🗳️ O CHAT decidiu: ${info.icone} ${info.rotulo} — ${v} ${v === 1 ? 'voto' : 'votos'}${votantes ? ` (de ${votantes} ${votantes === 1 ? 'pessoa' : 'pessoas'})` : ''}`

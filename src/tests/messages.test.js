@@ -1,14 +1,15 @@
 /**
  * Testes do formatador de mensagens (src/messages.js).
  * Garante que todas as mensagens cabem no limite da Twitch (~500 chars)
- * e que o conteúdo inclui TODOS os comandos (o problema antigo do
- * "!comandos" incompleto nunca mais volta).
+ * e que o conteúdo inclui TODOS os controles ATIVOS do registro (o
+ * problema antigo do "!comandos" incompleto nunca mais volta — e desde a
+ * v2.9 a lista é DINÂMICA: Minecraft mostra Minecraft, não A/B/Start).
  */
 
 const test = require('node:test');
 const assert = require('node:assert');
 const msg = require('../messages');
-const { BOTOES, DIRECOES, BOTOES_ACAO } = require('../commands');
+const controles = require('../controles');
 
 const LIMITE = 500; // limite oficial da Twitch
 
@@ -63,17 +64,15 @@ test('não há mensagens vazias', () => {
   }
 });
 
-test('!comandos mostra TODOS os botões do controle', () => {
+test('!comandos mostra TODOS os controles ativos do registro', () => {
   const textoCompleto = msg.msgComandos().join('\n').toLowerCase();
-  // direções (PT e EN)
-  for (const d of DIRECOES) {
-    const nomePT = { up: 'cima', down: 'baixo', left: 'esquerda', right: 'direita' }[d];
-    assert.ok(textoCompleto.includes(nomePT.toLowerCase()), `falta "${nomePT}"`);
-    assert.ok(textoCompleto.includes(d), `falta "${d}"`);
-  }
-  // botões de ação
-  for (const b of BOTOES_ACAO) {
-    assert.ok(textoCompleto.includes(b), `falta "${b}"`);
+  // cada controle ativo aparece com sua primeira palavra de chat
+  for (const c of controles.ativos()) {
+    const palavra = c.aliases[0];
+    assert.ok(
+      palavra && textoCompleto.includes(palavra),
+      `controle "${c.label}" (${palavra}) não aparece no !comandos`
+    );
   }
   // extras essenciais
   assert.ok(textoCompleto.includes('hold'), 'falta mencionar hold');
@@ -83,9 +82,9 @@ test('!comandos mostra TODOS os botões do controle', () => {
   assert.ok(textoCompleto.includes('!segurar'), 'falta !segurar');
 });
 
-test('!comandos responde em 3 mensagens organizadas', () => {
+test('!comandos responde em 3 mensagens organizadas (registro padrão)', () => {
   const partes = msg.msgComandos();
-  assert.strictEqual(partes.length, 3, 'esperado 3 mensagens (jogo + hold/saves + extras)');
+  assert.strictEqual(partes.length, 3, 'esperado 3 mensagens (jogo + hold + extras)');
   // 1 = controles, 2 = hold/savestates, 3 = outros comandos
   assert.ok(partes[0].includes('COMANDOS DO JOGO'));
   assert.ok(partes[1].includes('SEGURAR'));
@@ -93,7 +92,7 @@ test('!comandos responde em 3 mensagens organizadas', () => {
   assert.ok(partes[2].includes('OUTROS COMANDOS'));
 });
 
-test('!comandos é uma lista legível: 1 comando por linha, linhas curtas', () => {
+test('!comandos é uma lista legível: 1 controle por linha, linhas curtas', () => {
   for (const parte of msg.msgComandos()) {
     const linhas = parte.split('\n');
     assert.ok(
@@ -107,17 +106,71 @@ test('!comandos é uma lista legível: 1 comando por linha, linhas curtas', () =
       );
     }
   }
-  // botões e comandos de hold têm o padrão "comando — explicação"
-  const tudo = msg.msgComandos().join('\n');
-  const comTravessao = tudo.split('\n').filter((l) => l.includes(' — '));
-  assert.ok(
-    comTravessao.length >= 12,
-    `esperado >= 12 linhas com "comando — explicação", veio ${comTravessao.length}`
-  );
-  // cada linha de movimento cita o alias em inglês
+  // controles com mais de uma palavra mostram os sinônimos entre parênteses
   const parte1 = msg.msgComandos()[0];
-  for (const alias of ['up', 'down', 'left', 'right']) {
-    assert.ok(parte1.includes(`(ou ${alias})`), `falta "(ou ${alias})" na lista de movimento`);
+  assert.ok(parte1.includes('(ou up'), 'sinônimos de cima deveriam aparecer');
+  assert.ok(parte1.includes('(ou left'), 'sinônimos de esquerda deveriam aparecer');
+});
+
+test('!comandos DINÂMICO: registro Minecraft mostra os controles do Minecraft', () => {
+  const lista = controles.validarLista([
+    { label: 'Frente', key: 'w', aliases: ['frente', 'forward'] },
+    { label: 'Trás', key: 's', aliases: ['tras', 'back'] },
+    { label: 'Pular', key: 'space', aliases: ['pular', 'jump'] },
+    { label: 'Inventário', key: 'e', aliases: ['inventario', 'inventory'] },
+    { label: 'Agachar', key: 'shift', aliases: ['agachar', 'crouch'] },
+  ]).lista;
+  for (const c of lista) if (!['frente', 'tras', 'pular', 'inventario', 'agachar'].includes(c.id)) c.enabled = false;
+  controles.__definirLista(lista);
+
+  try {
+    const partes = msg.msgComandos();
+    for (const p of partes) assert.ok(p.length <= 500, 'parte estourou o limite');
+    const tudo = partes.join('\n').toLowerCase();
+    for (const palavra of ['frente', 'tras', 'pular', 'inventario', 'agachar']) {
+      assert.ok(tudo.includes(palavra), `controle Minecraft "${palavra}" sumiu do !comandos`);
+    }
+    // comandos de Game Boy desligados NÃO aparecem
+    assert.ok(!tudo.includes('start'), 'start (desligado) não deveria aparecer');
+    assert.ok(!tudo.includes('cima'), 'cima (desligado) não deveria aparecer');
+    // anúncio também reflete os controles configurados
+    const anuncio = msg.msgAnuncio().toLowerCase();
+    assert.ok(anuncio.includes('pular'), 'anúncio deveria citar pular');
+    assert.ok(!anuncio.includes('cima'), 'anúncio não deveria citar cima (desligado)');
+    // boas-vindas citam as palavras reais
+    const boas = msg.msgBoasVindas('novato').toLowerCase();
+    assert.ok(boas.includes('frente') || boas.includes('pular'), 'boas-vindas citam controles reais');
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
+test('!comandos divide em mais mensagens quando a lista é ENORME', () => {
+  // 40 controles com nomes longos — não cabe numa mensagem só
+  const lista = [];
+  for (let i = 1; i <= 40; i++) {
+    lista.push({ label: `Ação Composta numero ${i}`, key: 'space', aliases: [`acao composta numero ${i}`, `ac${i}`] });
+  }
+  const res = controles.validarLista(lista);
+  assert.strictEqual(res.ok, true, res.erros);
+  controles.__definirLista(res.lista);
+
+  try {
+    const partes = msg.msgComandos();
+    assert.ok(partes.length > 3, `esperado > 3 mensagens, veio ${partes.length}`);
+    for (const p of partes) {
+      assert.ok(p.length <= 480, `parte com ${p.length} chars estoura o limite prático`);
+    }
+    // numeração (i/total) coerente nas partes de controles
+    const total = partes[partes.length - 1].match(/\((\d+)\/(\d+)\)/);
+    assert.ok(total, 'numeração (i/total) ausente');
+    assert.strictEqual(Number(total[1]), Number(total[2]), 'última parte deveria fechar a numeração');
+    assert.strictEqual(partes.length, Number(total[2]), 'numeração não bate com a quantidade de partes');
+    // TODOS os controles apareceram (um por linha — conta as linhas de controle)
+    const linhasControle = partes.join('\n').split('\n').filter((l) => l.startsWith('🎮 acao composta'));
+    assert.strictEqual(linhasControle.length, 40, `esperado 40 linhas de controle, veio ${linhasControle.length}`);
+  } finally {
+    controles.restaurarPadrao();
   }
 });
 
@@ -147,6 +200,19 @@ test('confirmação de hold cita usuário, botão e duração', () => {
   assert.ok(texto.includes('3s'));
 });
 
+test('confirmação de hold usa o rótulo de controles PERSONALIZADOS', () => {
+  controles.__definirLista(
+    controles.validarLista([{ label: 'Agachar', key: 'shift', aliases: ['agachar'] }]).lista
+  );
+  try {
+    const texto = msg.msgHoldConfirmado('user1', 'agachar', 2000);
+    assert.ok(texto.includes('AGACHAR'), 'rótulo do controle personalizado deveria aparecer');
+    assert.ok(texto.includes('2s'));
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
 test('durações formatam corretamente', () => {
   assert.strictEqual(msg.formatarDuracao(1000), '1s');
   assert.strictEqual(msg.formatarDuracao(3000), '3s');
@@ -172,10 +238,12 @@ test('ranking com jogadores mostra medalhas', () => {
   assert.ok(texto.includes('@a'));
 });
 
-test('todo botão tem ícone e rótulo definidos', () => {
-  for (const [nome, info] of Object.entries(BOTOES)) {
-    assert.ok(info.icone, `botão "${nome}" sem ícone`);
-    assert.ok(info.rotulo, `botão "${nome}" sem rótulo`);
+test('todo controle do registro tem ícone, rótulo e pelo menos uma palavra', () => {
+  for (const c of controles.ativos()) {
+    assert.ok(c.icone, `controle "${c.id}" sem ícone`);
+    assert.ok(c.label, `controle "${c.id}" sem rótulo`);
+    assert.ok(c.key, `controle "${c.id}" sem tecla`);
+    assert.ok(Array.isArray(c.aliases) && c.aliases.length >= 1, `controle "${c.id}" sem palavra de chat`);
   }
 });
 

@@ -231,3 +231,59 @@ test('origemPermitida: sem Origin passa (curl/node); Origin local passa; resto c
   assert.strictEqual(assistente.origemPermitida({ headers: { origin: 'https://evil.com' } }), false);
   assert.strictEqual(assistente.origemPermitida({ headers: { origin: 'https://localhost.evil.com' } }), false);
 });
+
+// ---------------------------------------------------------------------------
+// v2.9: controles do chat no wizard — estado, aliases e SEGURANÇA da rota nova
+// ---------------------------------------------------------------------------
+
+test('GET /api/estado entrega os controles do registro (sem segredos, claro)', async () => {
+  const r = await pedir(porta, '/api/estado', {
+    headers: { Host: `localhost:${porta}` },
+  });
+  assert.strictEqual(r.status, 200);
+  const d = JSON.parse(r.corpo);
+  assert.ok(Array.isArray(d.controles) && d.controles.length >= 12, 'lista de controles ausente');
+  assert.strictEqual(d.origemControles, 'env');
+  assert.ok(Array.isArray(d.reservados) && d.reservados.includes('hold'));
+  assert.ok(Array.isArray(d.teclasValidas) && d.teclasValidas.includes('space'));
+  // modelos p/ o botão "Aplicar modelo"
+  for (const m of ['vbam', 'mgba', 'desmume', 'retroarch']) {
+    assert.ok(Array.isArray(d.modelos[m]) && d.modelos[m].length === 12, `modelo ${m} ausente`);
+  }
+  // controles não são segredo — mas o corpo continua sem os segredos
+  assert.ok(!r.corpo.includes(TOKEN));
+  assert.ok(!r.corpo.includes(CHAVE));
+});
+
+test('POST /api/gerar-aliases sugere palavras PT/EN a partir da tecla', async () => {
+  const r = await pedir(porta, '/api/gerar-aliases', {
+    metodo: 'POST',
+    headers: { 'Content-Type': 'application/json', Host: `localhost:${porta}` },
+    body: JSON.stringify({ chave: 'space', rotulo: 'Pular' }),
+  });
+  assert.strictEqual(r.status, 200);
+  const d = JSON.parse(r.corpo);
+  assert.deepStrictEqual(d.aliases, ['pular', 'space', 'espaco', 'barra de espaco']);
+});
+
+test('POST /api/gerar-aliases com Host/Origin do atacante é 403 (rota nova segue as regras)', async () => {
+  const r = await pedir(porta, '/api/gerar-aliases', {
+    metodo: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Host: 'evil-attacker.com',
+      Origin: 'https://evil-attacker.com',
+    },
+    body: JSON.stringify({ chave: 'space' }),
+  });
+  assert.strictEqual(r.status, 403);
+});
+
+test('POST /api/gerar-aliases sem corpo não explode (400 do JSON inválido)', async () => {
+  const r = await pedir(porta, '/api/gerar-aliases', {
+    metodo: 'POST',
+    headers: { 'Content-Type': 'application/json', Host: `localhost:${porta}` },
+    body: 'isto não é json',
+  });
+  assert.strictEqual(r.status, 400);
+});
