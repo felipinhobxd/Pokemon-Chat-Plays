@@ -1,5 +1,5 @@
 /**
- * Modo DEMOCRACIA / ANARQUIA (v2.5).
+ * Modo DEMOCRACIA / ANARQUIA (v2.5+).
  *
  *  - ANARQUIA (padrão, comportamento clássico): todo comando do chat
  *    executa na hora, em ordem de chegada.
@@ -7,30 +7,37 @@
  *    no fim dela, APENAS o comando mais votado é executado. Cada usuário
  *    tem 1 voto (pode trocar votando de novo — vale o último).
  *
+ * Troca de modo pelo chat (v2.9.4+):
+ *  - !democracia / !anarquia viram VOTOS DE MODO;
+ *  - uma única pessoa nunca troca o modo;
+ *  - cada usuário tem 1 voto e pode mudar de lado;
+ *  - é necessária maioria estrita entre os votos recentes, com pelo menos
+ *    2 votantes;
+ *  - votos de modo expiram após 30s para uma decisão antiga não ficar presa.
+ *
+ * O streamer ainda pode trocar imediatamente pela tecla F8 / terminal / API.
+ *
  * O motor é PURO: ele só coleta votos e entrega o vencedor a um executor
  * registrado pelo index.js (que toca a tecla, registra stats/overlay e
  * avisa o chat). Assim não há dependências circulares.
  *
- * Trocas de modo:
- *  - pelo CHAT (!democracia / !anarquia): respeitam um intervalo mínimo
- *    (VOTACAO_TROCA_MIN_MS, padrão 30s) para não virar flip-flop;
- *  - pelo STREAMER (tecla F8 / !comando do dono do canal / terminal):
- *    sempre imediatas.
- *
- * Empate: ganha o candidato que RECEBEU O PRIMEIRO VOTO mais cedo.
+ * Empate de comandos em democracia: ganha o candidato que RECEBEU O
+ * PRIMEIRO VOTO mais cedo.
  */
 
 const logger = require('./logger');
 const { config } = require('../config');
 
 const MODOS = ['anarquia', 'democracia'];
+const JANELA_VOTO_MODO_MS = 30000;
+const MIN_VOTANTES_MODO = 2;
 
 /** Modo atual. */
 let modo = 'anarquia';
 
 /** Duração de cada janela de votação. */
 let intervaloMs = config.votacao.intervaloMs;
-/** Intervalo mínimo entre trocas pedidas pelo chat. */
+/** Intervalo mínimo entre trocas diretas pedidas pelo chat legado. */
 let trocaMinMs = config.votacao.trocaMinMs;
 
 /** Executor do vencedor: ({botao, votos, eleitores}) => void. */
@@ -43,6 +50,12 @@ const ouvintes = [];
 let votos = new Map();
 /** Último voto de cada usuário: usuario -> botao. */
 let votoDe = new Map();
+
+/**
+ * Votos para escolher o MODO: usuario -> { modo, ts }.
+ * Não se confundem com os votos de botão da democracia.
+ */
+let votosModo = new Map();
 
 /** Timer da janela corrente. */
 let timer = null;
@@ -100,12 +113,118 @@ function modoAtual() {
   return modo;
 }
 
+/** Remove votos de modo antigos. */
+function limparVotosModoExpirados(agora = Date.now()) {
+  for (const [usuario, voto] of votosModo.entries()) {
+    if (agora - voto.ts > JANELA_VOTO_MODO_MS) votosModo.delete(usuario);
+  }
+}
+
 /**
- * Troca o modo de jogo.
+ * Resumo atual dos votos de modo.
+ * @returns {{anarquia:number, democracia:number, totalVotantes:number, necessario:number}}
+ */
+function statusModo() {
+  limparVotosModoExpirados();
+  let anarquia = 0;
+  let democracia = 0;
+  for (const voto of votosModo.values()) {
+    if (voto.modo === 'anarquia') anarquia++;
+    if (voto.modo === 'democracia') democracia++;
+  }
+  const totalVotantes = votosModo.size;
+  const necessario = Math.max(MIN_VOTANTES_MODO, Math.floor(totalVotantes / 2) + 1);
+  return { anarquia, democracia, totalVotantes, necessario };
+}
+
+/**
+ * Registra o voto de um usuário para o modo desejado.
+ *
+ * A troca só acontece quando o modo OPOSTO ao atual consegue maioria
+ * estrita dos votos recentes e existem pelo menos 2 votantes únicos.
+ * Repetir o mesmo voto é idempotente; votar no outro lado substitui o voto.
+ *
  * @param {string} novo - 'anarquia' | 'democracia'
- * @param {string} [origem] - 'chat @fulano' (respeita o intervalo mínimo) |
- *   'streamer-cmd @fulano' (comando do dono no chat: troca na hora) |
- *   'tecla' / 'terminal' / 'config' / 'api' (trocam na hora)
+ * @param {string} usuario - identificador único (ideal: plataforma:nome)
+ * @returns {{mudou:boolean, motivo?:string, votos:number, totalVotantes:number,
+ *   necessario:number, modoDesejado:string}}
+ */
+function votarModo(novo, usuario) {
+  if (!MODOS.includes(novo)) {
+    return {
+      mudou: false,
+      motivo: 'modo desconhecido',
+      votos: 0,
+      totalVotantes: 0,
+      necessario: MIN_VOTANTES_MODO,
+      modoDesejado: novo,
+    };
+  }
+
+  const eleitor = String(usuario || '').trim().toLowerCase();
+  if (!eleitor) {
+    return {
+      mudou: false,
+      motivo: 'usuário inválido',
+      votos: 0,
+      totalVotantes: 0,
+      necessario: MIN_VOTANTES_MODO,
+      modoDesejado: novo,
+    };
+  }
+
+  const agora = Date.now();
+  limparVotosModoExpirados(agora);
+  votosModo.set(eleitor, { modo: novo, ts: agora });
+
+  const st = statusModo();
+  const votosNoAlvo = novo === 'democracia' ? st.democracia : st.anarquia;
+
+  // Votar para MANTER o modo atual é válido (serve como oposição), mas não
+  // precisa provocar mudança nenhuma.
+  if (novo === modo) {
+    return {
+      mudou: false,
+      motivo: 'voto para manter modo atual',
+      votos: votosNoAlvo,
+      totalVotantes: st.totalVotantes,
+      necessario: st.necessario,
+      modoDesejado: novo,
+    };
+  }
+
+  const temMaioria = st.totalVotantes >= MIN_VOTANTES_MODO
+    && votosNoAlvo >= st.necessario;
+
+  if (!temMaioria) {
+    return {
+      mudou: false,
+      motivo: 'aguardando maioria',
+      votos: votosNoAlvo,
+      totalVotantes: st.totalVotantes,
+      necessario: st.necessario,
+      modoDesejado: novo,
+    };
+  }
+
+  const totalAntes = st.totalVotantes;
+  const votosAntes = votosNoAlvo;
+  const necessarioAntes = st.necessario;
+  const resultado = definirModo(novo, `maioria-chat ${votosAntes}/${totalAntes}`);
+  return {
+    ...resultado,
+    votos: votosAntes,
+    totalVotantes: totalAntes,
+    necessario: necessarioAntes,
+    modoDesejado: novo,
+  };
+}
+
+/**
+ * Troca o modo de jogo diretamente.
+ * @param {string} novo - 'anarquia' | 'democracia'
+ * @param {string} [origem] - 'chat @fulano' (API legado, respeita intervalo) |
+ *   'tecla' / 'terminal' / 'config' / 'api' / 'maioria-chat' (imediatos)
  * @returns {{mudou: boolean, motivo?: string, esperaMs?: number}}
  */
 function definirModo(novo, origem = 'api') {
@@ -116,8 +235,8 @@ function definirModo(novo, origem = 'api') {
     return { mudou: false, motivo: 'já está neste modo' };
   }
   const agora = Date.now();
-  const veioDoChat = String(origem).startsWith('chat');
-  if (veioDoChat && agora - ultimaTroca < trocaMinMs) {
+  const veioDoChatLegado = String(origem).startsWith('chat');
+  if (veioDoChatLegado && agora - ultimaTroca < trocaMinMs) {
     return {
       mudou: false,
       motivo: 'troca recente',
@@ -130,6 +249,7 @@ function definirModo(novo, origem = 'api') {
   pararJanela();
   votos = new Map();
   votoDe = new Map();
+  votosModo = new Map();
   if (novo === 'democracia') {
     agendarJanela();
   }
@@ -139,7 +259,7 @@ function definirModo(novo, origem = 'api') {
 }
 
 /**
- * Alterna entre anarquia e democracia (tecla F8 / terminal / !votacao).
+ * Alterna entre anarquia e democracia (tecla F8 / terminal).
  * @param {string} [origem]
  */
 function alternarModo(origem = 'api') {
@@ -247,6 +367,7 @@ function status() {
     intervaloMs,
     candidatos,
     totalVotantes: votoDe.size,
+    votosModo: statusModo(),
   };
 }
 
@@ -256,6 +377,7 @@ function resetar() {
   modo = 'anarquia';
   votos = new Map();
   votoDe = new Map();
+  votosModo = new Map();
   ultimaTroca = 0;
 }
 
@@ -267,6 +389,8 @@ module.exports = {
   definirModo,
   alternarModo,
   votar,
+  votarModo,
+  statusModo,
   status,
   resetar,
 };
