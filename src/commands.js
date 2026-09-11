@@ -45,21 +45,34 @@ const removerAcentos = controles.removerAcentos;
 
 /**
  * Interpreta a parte de trás de um comando de hold (controle + duração).
- * @param {string} resto - Texto após o verbo (ex: "cima", "up 500ms", "a 3")
+ * O alias pode ter VÁRIAS palavras ("barra de espaco"): casa o MAIOR
+ * prefixo de palavras que resolve no registro; o que sobrar vira o
+ * argumento de duração ("hold barra de espaco 2" → alias de 3 palavras
+ * + duração 2s; "hold cima 3" → alias "cima" + 3s).
+ * @param {string} resto - Texto após o verbo (ex: "cima", "up 500ms", "barra de espaco 2")
  * @returns {object|null}
  */
 function parseHoldResto(resto) {
   const partes = resto.split(/\s+/).filter(Boolean);
   if (partes.length === 0) return { tipo: 'hold-invalido' };
 
-  const botao = controles.resolverAlias(partes[0]);
+  let botao = null;
+  let fimDoAlias = 0;
+  for (let n = partes.length; n >= 1; n--) {
+    const id = controles.resolverAlias(partes.slice(0, n).join(' '));
+    if (id) {
+      botao = id;
+      fimDoAlias = n;
+      break;
+    }
+  }
   if (!botao) return { tipo: 'hold-invalido' };
 
   // controle não segurável (savestate, combo): "hold salvar" vira toque
   if (!controles.ehSeguravel(botao)) return { tipo: 'botao', botao };
 
   let duracaoMs = config.geral.holdPadraoMs;
-  const argDuracao = partes[1];
+  const argDuracao = partes[fimDoAlias];
 
   if (argDuracao) {
     const m = argDuracao.match(/^(\d{1,7})(ms|s|seg|segs|segundo|segundos)?$/);
@@ -124,7 +137,10 @@ function extrairHold(texto) {
  */
 function parseComando(mensagemBruta) {
   if (typeof mensagemBruta !== 'string') return null;
-  const texto = removerAcentos(mensagemBruta.trim().toLowerCase());
+  // normaliza: minúsculas + sem acentos + espaços colapsados (alias de
+  // várias palavras tipo "barra de espaco" tem que casar mesmo se o chat
+  // digitar espaços duplos — mesmas regras do normalizarAlias do registro)
+  const texto = removerAcentos(mensagemBruta.trim().toLowerCase()).replace(/\s+/g, ' ');
   if (!texto || texto.length > 100) return null;
 
   // 1) Comandos de informação (com prefixo admin, ex: "!comandos")

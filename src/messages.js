@@ -287,14 +287,18 @@ function msgChatLiberado() {
 
 /**
  * Dica de uso quando mandam "hold" sem botão válido.
+ * Usa uma palavra REAL dos controles ativos (Minecraft? sugere "pular",
+ * não "cima" — a dica tem que funcionar no jogo configurado).
  * @param {string} usuario
  * @returns {string}
  */
 function msgUsoHold(usuario) {
+  const seguraveis = controles.ativos().filter((c) => c.holdable);
+  const palavra = seguraveis.length ? palavraPrincipal(seguraveis[0]) : 'cima';
   return garantirLimite(
     [
       `@${usuario} uso: hold <controle> [tempo]`,
-      'ex: hold cima · hold baixo 3 · hold up 500ms',
+      `ex: hold ${palavra} · hold ${palavra} 3 · hold ${palavra} 500ms`,
     ].join('\n')
   );
 }

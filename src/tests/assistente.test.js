@@ -234,6 +234,57 @@ test('salvarConfiguracao: página sem prefill NÃO apaga chaves salvas (regress�
   assert.strictEqual(depois, antes, '.env destruído por body vazio!');
 });
 
+test('REGRESSÃO v2.9.1: falha no rename do .env preserva o anterior, sem .tmp órfão', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-atomic-'));
+  const controlesArquivoOriginal = process.env.CONTROLES_ARQUIVO;
+  const cwdOriginal = process.cwd();
+  process.env.CONTROLES_ARQUIVO = path.join(dir, 'controles.json');
+  try {
+    process.chdir(dir); // .env isolado — nunca o do repositório
+    const envLocal = path.join(dir, '.env');
+    fs.writeFileSync(envLocal, '# anterior — configuração boa do usuário\nACTIVE_PLATFORMS=twitch\nTWITCH_BOT_USERNAME=antigo\n', 'utf8');
+    const antes = fs.readFileSync(envLocal, 'utf8');
+
+    // o rename falha SÓ para o .env (queda de energia simulada no meio da
+    // gravação); o controles.json segue o caminho normal
+    const renomeOriginal = fs.renameSync;
+    let r;
+    try {
+      fs.renameSync = (de, para) => {
+        if (String(para).endsWith('.env')) throw new Error('simulando queda no rename do .env');
+        return renomeOriginal(de, para);
+      };
+      r = salvarConfiguracao({
+        twitchAtivo: true,
+        TWITCH_BOT_USERNAME: 'novo',
+        TWITCH_OAUTH_TOKEN: 'oauth:tok',
+        TWITCH_CHANNEL: 'canal',
+        controles: [{ label: 'Pular', key: 'space', aliases: ['pular'] }],
+      });
+    } finally {
+      fs.renameSync = renomeOriginal;
+    }
+
+    // o save reporta o erro (nada de meia-configuração silenciosa)...
+    assert.strictEqual(r.ok, false, 'deveria reportar a falha de gravação');
+    assert.ok(r.erros.some((e) => e.includes('.env')), r.erros);
+    // ...o .env ANTERIOR segue byte a byte intacto...
+    assert.strictEqual(fs.readFileSync(envLocal, 'utf8'), antes, '.env anterior foi destruído!');
+    // ...e não sobrou .tmp órfão
+    assert.ok(!fs.existsSync(`${envLocal}.tmp`), '.tmp órfão não deveria sobrar');
+
+    // os controles foram salvos PRIMEIRO (ordem documentada) — arquivo válido
+    const disco = JSON.parse(fs.readFileSync(process.env.CONTROLES_ARQUIVO, 'utf8'));
+    assert.ok(disco.controles.some((c) => c.id === 'pular'), 'controles deveriam ter sido gravados antes do .env');
+  } finally {
+    process.chdir(cwdOriginal);
+    if (controlesArquivoOriginal === undefined) delete process.env.CONTROLES_ARQUIVO;
+    else process.env.CONTROLES_ARQUIVO = controlesArquivoOriginal;
+    fs.rmSync(dir, { recursive: true, force: true });
+    controles.restaurarPadrao();
+  }
+});
+
 test('avaliarSalvamento: body com as MÁSCARAS intactas mantém os segredos atuais (v2.8.1)', () => {
   const atuais = { token: 'oauth:salvo1234', apiKey: 'AIzaSyD-salva-5678' };
   const r = avaliarSalvamento(

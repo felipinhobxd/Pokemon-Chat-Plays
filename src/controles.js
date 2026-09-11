@@ -276,6 +276,13 @@ let mapaAlias = new Map();
 /** De onde veio o registro atual: 'env' | 'arquivo'. */
 let origemAtual = 'env';
 
+/**
+ * Já garantiu a carga de dados/controles.json neste processo?
+ * (garantirInicializado lê o arquivo UMA vez; restaurarPadrao/salvarArquivo
+ * ajustam a bandeira para os testes e para o fluxo do assistente)
+ */
+let arquivoGarantido = false;
+
 // estado inicial já responde ao parser (o boot chama inicializar() depois
 // para trocar pelo arquivo salvo, se existir)
 reconstruirMapaAlias();
@@ -290,14 +297,26 @@ function caminhoArquivo() {
   return path.resolve(process.cwd(), rel);
 }
 
-/** Reconstrói o mapa alias → id a partir da lista atual. */
+/** Reconstrói o mapa alias → id a partir da lista atual.
+ *
+ * Defesa em profundidade: a validação (validarLista) já impede que dois
+ * controles ATIVOS disputem a mesma palavra — mas se isso chegar aqui de
+ * qualquer jeito (arquivo editado na mão, __definirLista de teste), o mapa
+ * NÃO escolhe um vencedor em silêncio: mantém o primeiro e AVISA no log.
+ */
 function reconstruirMapaAlias() {
   mapaAlias = new Map();
   for (const c of itens) {
     if (!c.enabled) continue;
     for (const alias of c.aliases) {
       const n = normalizarAlias(alias);
-      if (n) mapaAlias.set(n, c.id);
+      if (!n) continue;
+      const anterior = mapaAlias.get(n);
+      if (anterior && anterior !== c.id) {
+        logger.aviso(`[Controles] ⚠️ Palavra "${n}" serve para "${anterior}" E para "${c.id}" — mantendo a primeira (isso não deveria passar da validação).`);
+        continue;
+      }
+      mapaAlias.set(n, c.id);
     }
   }
 }
@@ -317,6 +336,7 @@ function definirLista(lista) {
  * @returns {{origem: string, quantidade: number}}
  */
 function inicializar() {
+  arquivoGarantido = true;
   const caminho = caminhoArquivo();
   let bruto = null;
   try {
@@ -372,12 +392,32 @@ function salvarArquivo(lista) {
     fs.writeFileSync(tmp, JSON.stringify(dados, null, 2));
     fs.renameSync(tmp, caminho);
   } catch (err) {
+    // rename falhou? remove o .tmp órfão (best-effort) — o arquivo ANTERIOR
+    // continua intacto, que é a garantia que importa
+    try { fs.unlinkSync(`${caminho}.tmp`); } catch { /* já não existia */ }
     return { ok: false, erro: `não consegui gravar ${caminho} (${err.message})` };
   }
 
   definirLista(normalizada);
   origemAtual = 'arquivo';
+  arquivoGarantido = true;
   return { ok: true, avisos };
+}
+
+/**
+ * Garante que o registro reflita dados/controles.json ANTES de qualquer um
+ * apresentar estado ao usuário (v2.9.1).
+ *
+ * Por quê: o assistente abre no boot ANTES do aplicarControles() do
+ * index.js — sem isto, o /api/estado mostraria o registro derivado do .env
+ * e um "Salvar" sem mexer sobrescreveria os controles personalizados.
+ * Idempotente: só a 1ª chamada lê o arquivo; o index.js continua chamando
+ * inicializar() depois do wizard (pega o que acabou de ser salvo).
+ * @returns {{origem: string, quantidade: number}}
+ */
+function garantirInicializado() {
+  if (arquivoGarantido) return { origem: origemAtual, quantidade: itens.length };
+  return inicializar();
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +455,31 @@ function validarLista(lista) {
   }
 
   const idsVistos = new Set();
-  const donoAlias = new Map(); // alias normalizado → { label, enabled } do dono
+  const donoAlias = new Map(); // alias normalizado → { id, label, enabled } do dono
+
+  /**
+   * Um controle reivindica a palavra `n` (v2.9.1 — detecção por ID, não por
+   * label: dois controles podem ter o mesmo nome, e o dono registrado tem
+   * que ser um ATIVO para o próximo conflito esbarrar nele). Regras:
+   *  - mesmo controle (mesmo id): só dedup;
+   *  - dois ATIVOS diferentes: ERRO — nunca escolhemos quem vence;
+   *  - ativo novo + dono desativado: o ATIVO assume a titularidade (o
+   *    desativado não disputa o chat, mas o próximo ativo que pedir a
+   *    mesma palavra TEM que esbarrar neste);
+   *  - desativado novo + dono existente: não toma a titularidade.
+   * @returns {boolean} true se a palavra pode ser usada por este controle
+   */
+  const reivindicar = (n, dados) => {
+    const dono = donoAlias.get(n);
+    if (!dono) {
+      donoAlias.set(n, dados);
+      return true;
+    }
+    if (dono.id === dados.id) return true; // mesmo controle: dedup
+    if (dono.enabled && dados.enabled) return false; // conflito entre ATIVOS
+    if (dados.enabled) donoAlias.set(n, dados); // ativo passa a ser o dono
+    return true;
+  };
 
   for (const item of lista) {
     if (!item || typeof item !== 'object') continue;
@@ -477,27 +541,21 @@ function validarLista(lista) {
       // desligado nunca disputa o chat (o mapa de aliases só mapeia os
       // ativos). Reativar um deles no assistente reacende o conflito na
       // hora — nunca escolhemos em silêncio qual ação vence.
-      const dono = donoAlias.get(n);
-      if (dono && dono.label !== label && dono.enabled && enabled) {
-        erros.push(`palavra "${n}" usada por "${dono.label}" E "${label}" — remova de um dos dois`);
+      const donoAntigo = donoAlias.get(n);
+      if (!reivindicar(n, { id, label, enabled })) {
+        erros.push(`palavra "${n}" usada por "${donoAntigo.label}" E "${label}" — remova de um dos dois`);
         continue;
       }
-      if (!dono) donoAlias.set(n, { label, enabled });
       if (!aliasLimpos.includes(n)) aliasLimpos.push(n);
     }
 
     // vazio → sugere automaticamente (o assistente também sugere na hora);
     // palavras já tomadas por controles ATIVOS não são reaproveitadas
+    // (reivindicar registra a titularidade dos gerados que passarem)
     if (aliasLimpos.length === 0) {
-      const gerados = gerarAliases(key, label).filter((a) => {
-        const d = donoAlias.get(a);
-        return !d || !d.enabled;
-      });
+      const gerados = gerarAliases(key, label).filter((a) => reivindicar(a, { id, label, enabled }));
       if (gerados.length > 0) {
         aliasLimpos.push(...gerados);
-        for (const g of gerados) {
-          if (!donoAlias.has(g)) donoAlias.set(g, { label, enabled });
-        }
         avisos.push(`"${label}": palavras de chat geradas automaticamente (${gerados.join(', ')})`);
       }
     }
@@ -613,10 +671,13 @@ function origem() {
   return origemAtual;
 }
 
-/** Volta ao registro derivado do .env (testes / "descartar arquivo"). */
+/** Volta ao registro derivado do .env (testes / "descartar arquivo") —
+ *  também re-arma a garantia de carga: a próxima garantirInicializado lê o
+ *  arquivo de novo (é assim que os testes simulam um restart do processo). */
 function restaurarPadrao() {
   definirLista(controlesPadrao());
   origemAtual = 'env';
+  arquivoGarantido = false;
 }
 
 module.exports = {
@@ -636,6 +697,7 @@ module.exports = {
   controlesPadrao,
   caminhoArquivo,
   inicializar,
+  garantirInicializado,
   salvarArquivo,
   validarLista,
   // consultas

@@ -22,12 +22,23 @@ process.env.YOUTUBE_API_KEY = 'AIzaSyCHAVEsupersecreta999';
 process.env.YOUTUBE_VIDEO_ID = 'jfKfPfyJRdk';
 process.env.ACTIVE_PLATFORMS = 'twitch,youtube';
 
+// v2.9.1: controles.json isolado para esta suíte — o iniciar() do assistente
+// garante a carga do registro PERSISTIDO ao subir o servidor; sem isto, um
+// dados/controles.json real na pasta do repo tornaria os testes dependentes
+// do estado da máquina de quem roda.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+process.env.CONTROLES_ARQUIVO = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-http-')), 'controles.json');
+
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const net = require('net');
 
 const assistente = require('../assistente');
+const controles = require('../controles');
+const { parseComando } = require('../commands');
 const { mascararSegredo } = assistente;
 
 const TOKEN = 'oauth:segredotestesupersecreto';
@@ -80,6 +91,7 @@ test.before(async () => {
 
 test.after(async () => {
   await assistente.parar();
+  try { fs.rmSync(path.dirname(process.env.CONTROLES_ARQUIVO), { recursive: true, force: true }); } catch { /* ignora */ }
 });
 
 // ---------------------------------------------------------------------------
@@ -286,4 +298,83 @@ test('POST /api/gerar-aliases sem corpo não explode (400 do JSON inválido)', a
     body: 'isto não é json',
   });
   assert.strictEqual(r.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// REGRESSÃO v2.9.1 — o wizard entrega os controles PERSISTIDOS no boot
+//
+// Cenário exato do bug: o assistente abre ANTES do aplicarControles() do
+// index.js. Sem a garantia de carga no iniciar(), o /api/estado mostrava o
+// registro derivado do .env (preset do emulador) e um "Salvar" SEM MEXER
+// sobrescrevia dados/controles.json com os padrões — apagando os controles
+// personalizados do usuário. (Este teste roda por último: ele gravaria um
+// .env real — em diretório isolado — e recarrega a config do processo.)
+// ---------------------------------------------------------------------------
+
+test('REGRESSÃO boot: wizard mostra controles PERSISTIDOS; salvar sem mexer NÃO os troca pelos padrão', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-wizard-boot-'));
+  const arquivoControles = path.join(dir, 'controles.json');
+  const controlesArquivoOriginal = process.env.CONTROLES_ARQUIVO;
+  const cwdOriginal = process.cwd();
+  process.env.CONTROLES_ARQUIVO = arquivoControles;
+  try {
+    // 1) o usuário criou um controle personalizado e SALVOU
+    const salvo = controles.salvarArquivo([{ label: 'Pular', key: 'space', aliases: ['pular', 'jump'] }]);
+    assert.strictEqual(salvo.ok, true, salvo.erro);
+
+    // 2) RESTART: o módulo volta ao estado recém-carregado (derivado do .env)
+    controles.restaurarPadrao();
+    assert.strictEqual(controles.origem(), 'env');
+
+    // 3) o wizard abre — iniciar() roda ANTES do aplicarControles() do boot
+    await assistente.parar();
+    const porta2 = await assistente.iniciar(0);
+    assert.ok(porta2, 'servidor deveria subir de novo');
+
+    // 4) a página VÊ os controles PERSISTIDOS (não os padrão do preset)
+    const r = await pedir(porta2, '/api/estado', { headers: { Host: `localhost:${porta2}` } });
+    assert.strictEqual(r.status, 200);
+    const d = JSON.parse(r.corpo);
+    assert.strictEqual(d.origemControles, 'arquivo', 'wizard deveria refletir o controles.json');
+    const pular = d.controles.find((c) => c.id === 'pular');
+    assert.ok(pular, 'controle persistido "Pular" deveria aparecer para o usuário');
+    assert.strictEqual(pular.key, 'space');
+    assert.deepStrictEqual(pular.aliases, ['pular', 'jump']);
+
+    // 5) o usuário salva SEM MEXER (a página manda o que ela mesma mostrou)
+    process.chdir(dir); // .env isolado — nunca o do repositório
+    const rs = await pedir(porta2, '/api/salvar', {
+      metodo: 'POST',
+      headers: { 'Content-Type': 'application/json', Host: `localhost:${porta2}` },
+      body: JSON.stringify({
+        twitchAtivo: true,
+        TWITCH_BOT_USERNAME: 'bot_wizard',
+        TWITCH_OAUTH_TOKEN: 'oauth:xyz123',
+        TWITCH_CHANNEL: 'canal_wizard',
+        controles: d.controles,
+      }),
+    });
+    const ds = JSON.parse(rs.corpo);
+    assert.strictEqual(ds.ok, true, JSON.stringify(ds.erros));
+
+    // 6) o arquivo continua PERSONALIZADO — não virou o preset do .env
+    const disco = JSON.parse(fs.readFileSync(arquivoControles, 'utf8'));
+    const pular2 = disco.controles.find((c) => c.id === 'pular');
+    assert.ok(pular2, '"Pular" sumiu do controles.json depois de salvar sem mexer!');
+    assert.strictEqual(pular2.key, 'space');
+    assert.deepStrictEqual(pular2.aliases, ['pular', 'jump']);
+
+    // 7) RESTART de novo: o boot lê o arquivo e o parser reconhece tudo
+    controles.restaurarPadrao();
+    controles.inicializar();
+    assert.strictEqual(parseComando('pular').botao, 'pular');
+    assert.strictEqual(parseComando('jump').botao, 'pular');
+    assert.strictEqual(parseComando('cima'), null, 'os padrões do preset não deveriam ter voltado');
+  } finally {
+    process.chdir(cwdOriginal);
+    process.env.CONTROLES_ARQUIVO = controlesArquivoOriginal;
+    await assistente.parar();
+    fs.rmSync(dir, { recursive: true, force: true });
+    controles.restaurarPadrao();
+  }
 });

@@ -1,7 +1,7 @@
 {
   "name": "pokemon-chat-plays",
   "version": "2.9.0",
-  "description": "Bot que permite que o chat da Twitch e do YouTube jogue Pokemon (ou outros jogos) enviando comandos no chat. Versao brasileira melhorada do projeto twitch-chat-plays-pokemon, criada para o canal SindromeGames.",
+  "description": "Let Twitch and YouTube chat control Pokemon, emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
   "main": "src/index.js",
   "bin": {
     "pokemon-chat-plays": "src/index.js"

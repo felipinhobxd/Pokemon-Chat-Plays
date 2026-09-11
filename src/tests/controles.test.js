@@ -428,3 +428,131 @@ test('teclasValidas: contém as canônicas e SÓ o que os 3 backends suportam', 
     assert.ok(!lista.includes(proibida), `tecla ${proibida} NÃO deveria estar na lista`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSÃO v2.9.1 — garantia de carga p/ o wizard, conflitos por ID e
+// alias de VÁRIAS palavras no hold
+// ---------------------------------------------------------------------------
+
+test('REGRESSÃO v2.9.1: garantirInicializado entrega o registro PERSISTIDO antes de o wizard abrir', () => {
+  controles.salvarArquivo([{ label: 'Pular', key: 'space', aliases: ['pular', 'jump'] }]);
+
+  // "restart do processo": módulo volta ao estado derivado do .env
+  controles.restaurarPadrao();
+  assert.strictEqual(controles.origem(), 'env');
+
+  // o assistente chama garantirInicializado() ao subir o servidor — ANTES
+  // do aplicarControles() do index.js
+  const r = controles.garantirInicializado();
+  assert.strictEqual(r.origem, 'arquivo');
+  const pular = controles.todos().find((c) => c.id === 'pular');
+  assert.ok(pular, 'registro persistido deveria estar carregado');
+  assert.deepStrictEqual(pular.aliases, ['pular', 'jump']);
+  assert.deepStrictEqual(parseComando('pular'), { tipo: 'botao', botao: 'pular' });
+
+  // IDEMPOTENTE: trocar o arquivo "por fora" depois da 1ª carga não muda
+  // o registro (o wizard não recarrega no meio da edição)...
+  fs.writeFileSync(process.env.CONTROLES_ARQUIVO, JSON.stringify({
+    versao: 1,
+    controles: [{ label: 'Outra', key: 'o', aliases: ['outra'], id: 'outra', holdable: true, builtin: false, enabled: true, icone: '🎮' }],
+  }), 'utf8');
+  assert.strictEqual(controles.garantirInicializado().origem, 'arquivo');
+  assert.ok(controles.todos().some((c) => c.id === 'pular'), 'não deveria recarregar sozinho');
+  assert.ok(!controles.todos().some((c) => c.id === 'outra'), 'recarregou sem pedir!');
+
+  // ...mas o inicializar() do index.js (depois do wizard) PEGA o novo
+  controles.inicializar();
+  assert.ok(controles.todos().some((c) => c.id === 'outra'), 'inicializar() deveria reler o arquivo');
+});
+
+test('REGRESSÃO v2.9.1: dois ATIVOS com o MESMO NOME não compartilham palavra em silêncio', () => {
+  // antes da v2.9.1 a detecção era por LABEL: nomes iguais escapavam do
+  // conflito e o mapa de aliases escolhia um vencedor na surdina
+  const res = controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: ['pular'] },
+    { label: 'Pular', key: 'f', aliases: ['pular'] },
+  ]);
+  assert.strictEqual(res.ok, false, 'mesma palavra em dois controles ativos (mesmo nome) tem que dar erro');
+  assert.ok(res.erros.some((e) => e.includes('pular')), res.erros);
+});
+
+test('REGRESSÃO v2.9.1: controle DESATIVADO não "protege" a palavra de dois ATIVOS (ordem qualquer)', () => {
+  // ordem 1: o desativado chega primeiro e "guarda" a palavra
+  const ordem1 = controles.validarLista([
+    { label: 'Turbo', key: 't', aliases: ['turbo'], enabled: false },
+    { label: 'Pular', key: 'space', aliases: ['turbo'] },
+    { label: 'Voar', key: 'f', aliases: ['turbo'] },
+  ]);
+  assert.strictEqual(ordem1.ok, false, 'dois ativos na mesma palavra: erro mesmo com desativado antes');
+  assert.ok(ordem1.erros.some((e) => e.includes('turbo')), ordem1.erros);
+
+  // ordem 2: ativos primeiro, desativado no meio
+  const ordem2 = controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: ['turbo'] },
+    { label: 'Turbo', key: 't', aliases: ['turbo'], enabled: false },
+    { label: 'Voar', key: 'f', aliases: ['turbo'] },
+  ]);
+  assert.strictEqual(ordem2.ok, false, 'o erro não pode depender da ordem da lista');
+});
+
+test('REGRESSÃO v2.9.1: acento/caixa não disfarça palavra repetida', () => {
+  const res = controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: ['Espaço'] },
+    { label: 'Correr', key: 'r', aliases: ['espaco'] },
+  ]);
+  assert.strictEqual(res.ok, false, '"Espaço" e "espaco" normalizam para a mesma palavra');
+  assert.ok(res.erros.some((e) => e.includes('espaco')), res.erros);
+});
+
+test('REGRESSÃO v2.9.1: alias GERADO também disputa com alias manual', () => {
+  // gerado primeiro (Pular gera 'pular' porque veio sem palavras),
+  // manual depois → conflito entre ativos é erro
+  const res = controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: [] },
+    { label: 'Voa', key: 'f', aliases: ['pular'] },
+  ]);
+  assert.strictEqual(res.ok, false, 'palavra gerada de um ativo conflita com manual de outro ativo');
+  assert.ok(res.erros.some((e) => e.includes('pular')), res.erros);
+});
+
+test('REGRESSÃO v2.9.1: gerar NÃO rouba palavra de dono ativo (gerado depois do manual)', () => {
+  const res = controles.validarLista([
+    { label: 'Voa', key: 'f', aliases: ['pular'] },
+    { label: 'Pular', key: 'space', aliases: [] }, // geraria 'pular', mas já tem dono ativo
+  ]);
+  assert.strictEqual(res.ok, true, res.erros);
+  const pular = res.lista.find((c) => c.id === 'pular');
+  assert.ok(!pular.aliases.includes('pular'), 'palavra tomada não é reaproveitada');
+  assert.ok(pular.aliases.includes('space'), 'as outras palavras geradas valem');
+});
+
+test('REGRESSÃO v2.9.1: alias de VÁRIAS palavras funciona simples e no hold', () => {
+  controles.restaurarPadrao();
+  // clássicos continuam exatamente iguais
+  assert.deepStrictEqual(parseComando('hold cima 3'), { tipo: 'hold', botao: 'up', duracaoMs: 3000 });
+  assert.deepStrictEqual(parseComando('hold up 500ms'), { tipo: 'hold', botao: 'up', duracaoMs: 500 });
+
+  controles.__definirLista(controles.validarLista([
+    { label: 'Pular', key: 'space', aliases: ['pular', 'jump', 'barra de espaco'] },
+  ]).lista);
+  try {
+    // comando simples com a frase inteira (com acento e espaços extras)
+    assert.deepStrictEqual(parseComando('barra de espaco'), { tipo: 'botao', botao: 'pular' });
+    assert.deepStrictEqual(parseComando('BARRA  DE  ESPAÇO'), { tipo: 'botao', botao: 'pular' });
+
+    // hold com alias multi-palavra + duração
+    const h1 = parseComando('hold barra de espaco 2');
+    assert.strictEqual(h1.tipo, 'hold');
+    assert.strictEqual(h1.botao, 'pular');
+    assert.strictEqual(h1.duracaoMs, 2000);
+
+    // hold com alias multi-palavra sem duração (padrão)
+    assert.strictEqual(parseComando('segurar barra de espaco').tipo, 'hold');
+
+    // hold de palavra única + duração continua ok
+    const h2 = parseComando('hold pular 500ms');
+    assert.deepStrictEqual(h2, { tipo: 'hold', botao: 'pular', duracaoMs: 500 });
+  } finally {
+    controles.restaurarPadrao();
+  }
+});

@@ -18,18 +18,18 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout do codigo
+      - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Configurar Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '18'
 
-      - name: Instalar dependencias
+      - name: Install dependencies
         run: npm install
 
-      - name: Rodar testes
+      - name: Run tests
         run: npm test
 
   build-windows:
@@ -38,29 +38,29 @@ jobs:
     permissions:
       contents: write  # necessário APENAS para criar a Release (softprops/action-gh-release)
     steps:
-      - name: Checkout do codigo
+      - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Configurar Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '18'
 
-      - name: Instalar dependencias
+      - name: Install dependencies
         run: npm install
 
-      - name: Instalar pkg (empacotador)
+      - name: Install pkg (packager)
         run: npm install -g pkg
 
-      - name: Empacotar em .exe
+      - name: Package the .exe
         run: pkg . --targets node18-win-x64 --output PokemonChatPlays.exe --compress GZip
 
-      - name: Extrair versao do package.json
+      - name: Extract version from package.json
         id: versao_pkg
         shell: bash
         run: echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
-      - name: Criar pasta de release
+      - name: Assemble release folder
         run: |
           mkdir release
           copy PokemonChatPlays.exe release\
@@ -69,7 +69,7 @@ jobs:
           copy iniciar.bat release\
           copy LICENSE release\
 
-      - name: Compilar instalador setup.exe (NSIS)
+      - name: Build the NSIS installer
         shell: pwsh
         run: |
           # Resolve o makensis: PATH > caminho padrao do choco > instala
@@ -91,18 +91,18 @@ jobs:
           if (-not (Test-Path "PokemonChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
           copy PokemonChatPlays-Setup.exe release\
 
-      - name: Criar ZIP
+      - name: Create the portable ZIP
         run: |
           cd release
           7z a -tzip PokemonChatPlays-Windows.zip PokemonChatPlays.exe .env.example README.md iniciar.bat LICENSE
 
-      - name: Extrair versao da tag
+      - name: Extract version from tag
         id: versao
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-      - name: Criar Release no GitHub (com tag)
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
@@ -111,39 +111,60 @@ jobs:
             release/PokemonChatPlays-Windows.zip
           name: Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }}
           body: |
-            # Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }} - SindromeGames Edition
+            # Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }} — SindromeGames Edition
 
-            ## Como usar (plug-and-play)
+            Let your Twitch and YouTube chat control Pokémon, emulators, Minecraft, or almost any keyboard-driven game — the classic Twitch Plays experience on your own stream.
 
-            1. Baixe e execute o `PokemonChatPlays-Setup.exe` — instala com atalhos no Menu Iniciar e desinstalador (não pede administrador).
-               - Alternativa portátil: baixe o `PokemonChatPlays-Windows.zip` e descompacte.
-            2. Na primeira execução, o assistente de configuração abre no seu navegador: ligue a Twitch/YouTube, cole suas credenciais e o link da live — e teste a conexão antes de salvar.
-               - Token da Twitch: https://twitchtokengenerator.com/ (pode colar com ou sem o prefixo oauth:)
-               - API Key do YouTube: https://console.cloud.google.com/ (ative a YouTube Data API v3)
-            3. Abra o emulador (VisualBoyAdvance-M) e deixe em foco.
-            4. Pronto! O chat da sua live ja controla o jogo.
+            ## Fully Customizable Chat Controls
 
-            ## Comandos suportados
+            This release turns chat commands into a configurable system — new games and new actions need **zero code changes**:
 
-            | Comando | Acao |
-            |---------|------|
-            | a, b, l, r, start, select | Botoes do controle |
-            | up, down, left, right | Setas |
-            | cima, baixo, esquerda, direita | Setas (PT) |
-            | hold cima / hold baixo 3 / hold up 500ms | SEGURA a tecla por um tempo (novo!) |
-            | segurar cima, segura baixo | Segurar em portugues |
-            | soltar | Solta todas as teclas presas |
-            | !comandos | Lista COMPLETA no chat (bonita e organizada) |
-            | !stats / !top | Estatisticas e ranking dos jogadores |
+            - **Remap built-in controls** — point any action at any keyboard key.
+            - **Add custom actions for any game** — each control is *action → keyboard key → chat aliases*.
+            - **Keyboard key capture** in the setup wizard — press a key and it fills in automatically.
+            - **Automatic PT-BR + English alias suggestions** (`space` → `space`, `espaco`, `barra de espaco`; `up` → `up`, `cima`) — and every alias stays fully editable.
+            - **Twitch and YouTube share one control registry** — configure once, both chats can play.
+            - **Dynamic `!commands` and announcements** — the chat always sees the controls that actually exist.
+            - **Presets are now optional starting templates** (VBA-M, mGBA, DeSmuME, RetroArch) — apply one, then customize freely.
+            - **Persistent custom controls** in `dados/controles.json` — they survive restarts and reinstalls.
+            - **Backward compatible** — existing `.env` / `TECLA_*` configurations keep working unchanged.
 
-            ## Suporte
+            ### Minecraft in two minutes
+
+            In the wizard's 🎮 Chat Controls section:
+
+            | Action | Key | Chat aliases |
+            |--------|-----|--------------|
+            | Jump | Space | `jump`, `space`, `pular`, `espaco` |
+            | Inventory | E | `inventory`, `inventario`, `e` |
+            | Crouch | Shift | `crouch`, `agachar`, `shift` |
+
+            Save, and both chats can use them immediately: `!commands` lists them, democracy mode accepts them as votes, and the OBS overlay shows your action names.
+
+            ## Reliability improvements carried from v2.8.1
+
+            - Hardened local setup-wizard security (host validation, CSRF protection, masked secrets).
+            - CI now runs the full test suite on every push and pull request.
+            - Fixed the YouTube scheduled-live retry timer.
+            - Atomic persistence for stats and configuration files.
+
+            ## Getting started
+
+            1. Download and run **`PokemonChatPlays-Setup.exe`** — installs per-user (no admin required), with Start-menu shortcuts and an uninstaller. *Portable alternative: `PokemonChatPlays-Windows.zip`.*
+            2. On every start, the setup wizard opens in your browser, pre-filled with what you saved before: enable Twitch and/or YouTube, paste your credentials and the live URL, and **test each connection** before saving.
+               - Twitch token: https://twitchtokengenerator.com/ (with or without the `oauth:` prefix)
+               - YouTube API key: https://console.cloud.google.com/ (enable YouTube Data API v3)
+            3. Set your game: paste the path of any executable (emulator, Minecraft, whatever) and the ROM if there is one — the bot launches it, sends keys straight to its window (you stay free in OBS), and reopens it automatically if it closes mid-stream.
+            4. That's it — your chat is playing.
+
+            ## Support
             - Twitch: https://twitch.tv/sindromegames
             - YouTube: https://youtube.com/@SindromeGames
             - Issues: https://github.com/felipinhobxd/Pokemon-Chat-Plays/issues
           draft: false
           prerelease: false
 
-      - name: Upload do artefato (sem tag)
+      - name: Upload artifact (no tag)
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:

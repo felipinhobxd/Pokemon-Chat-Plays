@@ -644,7 +644,19 @@ function salvarConfiguracao(v) {
   }
 
   try {
-    fs.writeFileSync(caminhoEnv(), montarConteudoEnv(finais, lerEnvAtual()), 'utf8');
+    // v2.9.1: gravação ATÔMICA (.tmp + rename) — uma queda no meio da
+    // escrita nunca deixa um .env truncado/meio-escrito (mesmo padrão do
+    // dados/controles.json e do stats.json). Falha no rename preserva o
+    // .env ANTERIOR intacto e limpa o .tmp órfão.
+    const destino = caminhoEnv();
+    const tmp = `${destino}.tmp`;
+    fs.writeFileSync(tmp, montarConteudoEnv(finais, lerEnvAtual()), 'utf8');
+    try {
+      fs.renameSync(tmp, destino);
+    } catch (errRename) {
+      try { fs.unlinkSync(tmp); } catch { /* já não existia */ }
+      throw errRename;
+    }
   } catch (err) {
     return { ok: false, erros: [`Não consegui gravar o .env (${err.message}). Verifique permissões na pasta do app.`] };
   }
@@ -906,6 +918,14 @@ async function tratarRequisicao(req, res) {
  * @returns {Promise<number|null>} porta real
  */
 function iniciar(porta = PORTA_PADRAO) {
+  // v2.9.1: o registro PERSISTIDO (dados/controles.json) precisa estar
+  // carregado ANTES de o wizard apresentar estado — o assistente abre no
+  // boot ANTES do aplicarControles() do index.js. Sem isto, o /api/estado
+  // mostraria o registro derivado do .env e um "Salvar" sem mexer
+  // SOBRESCREVERIA os controles personalizados do usuário pelos padrões do
+  // preset. Idempotente (só a primeira chamada lê o arquivo).
+  controles.garantirInicializado();
+
   if (servidor) return Promise.resolve(portaReal);
 
   return new Promise((resolve) => {
