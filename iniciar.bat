@@ -8,6 +8,13 @@ REM  release) e mantem a janela aberta para voce ver os logs.
 REM  Se o .exe nao existir, ele tenta iniciar via node
 REM  (npm install + npm start).
 REM
+REM  Perfis por jogo:
+REM    iniciar.bat --perfis
+REM      abre o gerenciador para criar/ativar/renomear perfis;
+REM    iniciar.bat --perfil "Pokemon Emerald"
+REM      ativa esse perfil e continua o boot normalmente.
+REM  O perfil ativo fica lembrado em dados\perfis.json.
+REM
 REM  v2.9.3: no modo Node, inicia por src\boot.js para instalar as
 REM  protecoes de runtime antes de conectar o chat (incluindo SaveGuard).
 REM
