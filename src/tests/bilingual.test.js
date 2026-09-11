@@ -100,7 +100,7 @@ test('!comandos mostra os aliases PT-BR/EN que realmente funcionam', () => {
   for (const palavra of ['cima', 'up', 'baixo', 'down', 'esquerda', 'left', 'direita', 'right']) {
     assert.ok(texto.includes(palavra), `!comandos deveria mostrar ${palavra}`);
   }
-  assert.ok(texto.includes('controles não usam !'));
+  assert.ok(texto.includes('controles do jogo não usam !'));
   assert.ok(texto.includes('!commands'));
 
   const up = controles.ativos().find((c) => c.id === 'up');
