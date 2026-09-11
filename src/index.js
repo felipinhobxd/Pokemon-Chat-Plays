@@ -49,6 +49,7 @@ const votacao = require('./utils/votacao');
 const { montarMapeamento } = require('./presets');
 const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
 const { verificarSistema, soltarTodasSync } = teclado;
+const assistente = require('./assistente');
 
 // Silencia avisos experimentais (ex.: "Fetch API is an experimental feature"
 // no Node 18 do .exe) para não poluir o terminal durante a live.
@@ -97,6 +98,7 @@ async function encerrar(sinal) {
     await aguardarComLimite(overlay.parar(), 2000);
     await aguardarComLimite(twitch.parar(), 3000);
     await aguardarComLimite(youtube.parar(), 1000);
+    await aguardarComLimite(assistente.parar(), 1000);
     stats.logResumo();
   } catch (err) {
     logger.erro(`Erro no encerramento: ${err.message}`);
@@ -364,7 +366,20 @@ async function main() {
   logger.info(`Plataformas ativas: ${config.geral.plataformasAtivas.join(', ') || 'nenhuma'}`);
 
   if (!validarConfig()) {
-    process.exit(1);
+    // v2.6: primeiro uso — em vez de morrer com erro, abre o assistente
+    // no navegador; o boot continua sozinho depois de salvar.
+    logger.aviso('[Main] Configuração incompleta — abrindo o assistente de configuração...');
+    const configurado = await assistente.aguardarConfiguracao();
+    if (!configurado) {
+      logger.erro('[Main] Configuração cancelada. Rode o bot de novo quando quiser.');
+      process.exit(1);
+    }
+    // o assistente já recarregou o config; valida de novo por garantia
+    if (!validarConfig()) {
+      logger.erro('[Main] Configuração ainda incompleta após o assistente. Verifique o .env.');
+      process.exit(1);
+    }
+    logger.info('[Main] ✅ Configuração recebida do assistente — continuando o boot...');
   }
 
   // Emulador alvo (v2.4): pergunta o .exe ANTES de mexer em qualquer tecla
@@ -444,4 +459,20 @@ process.on('unhandledRejection', (razao) => {
   logger.erro(`Promessa rejeitada sem tratamento: ${razao?.message || razao}`);
 });
 
-main();
+// --assistente: abre SÓ o assistente de configuração no navegador e sai
+// (v2.6 — atalho do menu Iniciar / iniciar.bat --assistente)
+if (process.argv.includes('--assistente')) {
+  rodarAssistente().catch((err) => {
+    logger.erro(`[Assistente] ${err?.message || err}`);
+    process.exit(1);
+  });
+} else {
+  main();
+}
+
+async function rodarAssistente() {
+  const subiu = await assistente.rodarStandalone();
+  if (!subiu) process.exit(1);
+  // o Ctrl+C já é tratado pelo encerrar() padrão (que para o assistente);
+  // o processo fica vivo até o usuário encerrar pelo navegador.
+}

@@ -50,7 +50,7 @@ try {
   process.exit(1);
 }
 
-console.log('[3/3] Copiando arquivos auxiliares...');
+console.log('[3/4] Copiando arquivos auxiliares...');
 const arquivosCopiar = ['.env.example', 'README.md', 'LICENSE', 'iniciar.bat'];
 for (const arq of arquivosCopiar) {
   const origem = path.join(ROOT, arq);
@@ -61,6 +61,23 @@ for (const arq of arquivosCopiar) {
   }
 }
 
+console.log('[4/4] Gerando instalador setup.exe (opcional — exige NSIS)...');
+try {
+  const { version } = require(path.join(ROOT, 'package.json'));
+  execSync(
+    `makensis -DVERSION=${version} -DFILESDIR=dist installer.nsi`,
+    { stdio: 'inherit', cwd: ROOT }
+  );
+  if (fs.existsSync(path.join(ROOT, 'PokemonChatPlays-Setup.exe'))) {
+    fs.copyFileSync(path.join(ROOT, 'PokemonChatPlays-Setup.exe'), path.join(DIST, 'PokemonChatPlays-Setup.exe'));
+    console.log('  PokemonChatPlays-Setup.exe gerado.');
+  }
+} catch {
+  console.log('  makensis não encontrado — pulando o instalador (o CI gera na release).');
+  console.log('  Instale o NSIS em https://nsis.sourceforge.io/ se quiser gerar localmente.');
+}
+
 console.log('\n[OK] Build concluido!');
 console.log(`Os arquivos estao em: ${DIST}`);
-console.log('Distribua o conteudo da pasta dist junto com o iniciar.bat.');
+console.log('Distribua o PokemonChatPlays-Setup.exe (instalador com atalhos e');
+console.log('desinstalador) ou o conteudo da pasta dist junto com o iniciar.bat.');

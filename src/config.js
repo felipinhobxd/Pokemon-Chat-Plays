@@ -32,13 +32,17 @@ function encontrarEnv() {
 
 const envEncontrado = encontrarEnv();
 
-// Carrega o arquivo .env se existir
+// Carrega o arquivo .env se existir; guarda QUAIS chaves vieram do arquivo
+// para que config.recarregar() consiga trocar valores depois de o assistente
+// regravar o .env (v2.6).
+let chavesDoArquivo = new Set();
 try {
   const dotenv = require('dotenv');
-  if (envEncontrado) {
-    dotenv.config({ path: envEncontrado });
-  } else {
-    dotenv.config(); // fallback: procura no cwd
+  const resultado = envEncontrado
+    ? dotenv.config({ path: envEncontrado })
+    : dotenv.config(); // fallback: procura no cwd
+  if (resultado && resultado.parsed) {
+    chavesDoArquivo = new Set(Object.keys(resultado.parsed));
   }
 } catch (err) {
   // dotenv é opcional caso as variáveis já estejam no ambiente
@@ -81,6 +85,36 @@ function getEnvInt(key, defaultValue) {
   return Number.isNaN(num) ? defaultValue : num;
 }
 
+/**
+ * Normaliza o valor de YOUTUBE_VIDEO_ID (v2.6).
+ * O usuário costuma colar a URL inteira da live — este helper extrai o ID:
+ *   - ID puro: "jfKfPfyJRdk"
+ *   - watch:  "https://www.youtube.com/watch?v=jfKfPfyJRdk" (+ &t=30 etc.)
+ *   - curto:  "https://youtu.be/jfKfPfyJRdk"
+ *   - live:   "https://www.youtube.com/live/jfKfPfyJRdk"
+ *   - shorts/embed: idem
+ * Se não casar com nada, devolve o valor como está (a API rejeitará com
+ * mensagem clara — melhor que mascarar o problema aqui).
+ * @param {string} entrada
+ * @returns {string}
+ */
+function normalizarVideoIdYoutube(entrada) {
+  const bruto = String(entrada || '').trim();
+  if (!bruto) return '';
+  // Já parece um ID puro (sem esquema de URL)
+  if (!bruto.includes('/') && !bruto.includes('?')) return bruto;
+  let m = bruto.match(/[?&]v=([A-Za-z0-9_-]{5,})/);
+  if (m) return m[1];
+  m = bruto.match(/youtu\.be\/([A-Za-z0-9_-]{5,})/);
+  if (m) return m[1];
+  m = bruto.match(/youtube\.com\/(?:live|shorts|embed)\/([A-Za-z0-9_-]{5,})/);
+  if (m) return m[1];
+  // Último recurso: último pedaço do path
+  m = bruto.match(/([A-Za-z0-9_-]{5,})\/?$/);
+  if (m) return m[1];
+  return bruto;
+}
+
 // Verifica se o arquivo .env existe; se não, avisa o usuário
 if (!envEncontrado) {
   console.warn('[AVISO] Arquivo .env nao encontrado.');
@@ -91,7 +125,12 @@ if (!envEncontrado) {
   console.warn('[AVISO]   - ' + path.join(__dirname, '..', '.env'));
 }
 
-const config = {
+/**
+ * Monta o objeto de configuração a partir das variáveis de ambiente.
+ * (v2.6: função para permitir recarregar sem perder referências.)
+ */
+function construirConfig() {
+  return {
   twitch: {
     username: getEnv('TWITCH_BOT_USERNAME'),
     oauthToken: getEnv('TWITCH_OAUTH_TOKEN'),
@@ -100,7 +139,8 @@ const config = {
   youtube: {
     enabled: getEnvBool('YOUTUBE_ENABLED', false),
     apiKey: getEnv('YOUTUBE_API_KEY'),
-    videoId: getEnv('YOUTUBE_VIDEO_ID'),
+    // v2.6: aceita ID puro OU a URL inteira da live colada do navegador
+    videoId: normalizarVideoIdYoutube(getEnv('YOUTUBE_VIDEO_ID')),
   },
   geral: {
     plataformasAtivas: getEnv('ACTIVE_PLATFORMS', 'twitch')
@@ -178,32 +218,89 @@ const config = {
   atualizacao: {
     verificar: getEnvBool('VERIFICAR_ATUALIZACAO', true),
   },
-};
+  };
+}
+
+const config = construirConfig();
 
 /**
- * Valida a configuração de cada plataforma ativa e exibe erros claros.
- * @returns {boolean} true se a configuração estiver OK
+ * Recarrega a configuração a partir de process.env/.env (v2.6).
+ * Usado depois que o assistente grava um .env novo: muta o objeto `config`
+ * PROFUNDAMENTE no lugar (todos os módulos guardam a MESMA referência —
+ * config.youtube, config.geral etc. continuam válidos).
  */
-function validarConfig() {
+function recarregar() {
+  // Remove as chaves que vieram do .env antigo para que valores removidos
+  // no arquivo novo não fiquem "fantasmas" em process.env.
+  for (const chave of chavesDoArquivo) delete process.env[chave];
+  try {
+    const dotenv = require('dotenv');
+    const alvo = encontrarEnv() || caminhoEnv();
+    const resultado = dotenv.config({ path: alvo, override: true });
+    chavesDoArquivo = new Set(
+      resultado && resultado.parsed ? Object.keys(resultado.parsed) : []
+    );
+  } catch {
+    // sem dotenv/.env: fica valendo o que estiver em process.env
+  }
+  atualizarRecursivo(config, construirConfig());
+}
+
+/** Copia `fonte` dentro de `alvo` preservando as referências internas. */
+function atualizarRecursivo(alvo, fonte) {
+  for (const chave of Object.keys(alvo)) {
+    if (!(chave in fonte)) delete alvo[chave];
+  }
+  for (const [chave, valor] of Object.entries(fonte)) {
+    const ambosObjeto =
+      valor && typeof valor === 'object' && !Array.isArray(valor) &&
+      alvo[chave] && typeof alvo[chave] === 'object' && !Array.isArray(alvo[chave]);
+    if (ambosObjeto) atualizarRecursivo(alvo[chave], valor);
+    else alvo[chave] = valor;
+  }
+}
+
+/**
+ * Caminho onde o .env deve ser lido/gravado (v2.6 — usado pelo assistente).
+ */
+function caminhoEnv() {
+  return envEncontrado || path.join(process.cwd(), '.env');
+}
+
+/**
+ * Valida a configuração de cada plataforma ativa e devolve a lista de erros
+ * (sem imprimir nada — o assistente usa isto para validar no navegador).
+ * @returns {string[]}
+ */
+function errosConfig() {
   const erros = [];
   const plataformas = config.geral.plataformasAtivas;
 
   if (plataformas.includes('twitch')) {
-    if (!config.twitch.username) erros.push('• TWITCH_BOT_USERNAME não definido');
-    if (!config.twitch.oauthToken) erros.push('• TWITCH_OAUTH_TOKEN não definido');
-    if (!config.twitch.channel) erros.push('• TWITCH_CHANNEL não definido');
+    if (!config.twitch.username) erros.push('TWITCH_BOT_USERNAME não definido');
+    if (!config.twitch.oauthToken) erros.push('TWITCH_OAUTH_TOKEN não definido');
+    if (!config.twitch.channel) erros.push('TWITCH_CHANNEL não definido');
   }
 
   if (plataformas.includes('youtube')) {
-    if (!config.youtube.apiKey) erros.push('• YOUTUBE_API_KEY não definido');
-    if (!config.youtube.videoId) erros.push('• YOUTUBE_VIDEO_ID não definido');
+    if (!config.youtube.apiKey) erros.push('YOUTUBE_API_KEY não definido');
+    if (!config.youtube.videoId) erros.push('YOUTUBE_VIDEO_ID não definido');
   }
 
+  return erros;
+}
+
+/**
+ * Valida a configuração e exibe erros claros no terminal.
+ * @returns {boolean} true se a configuração estiver OK
+ */
+function validarConfig() {
+  const erros = errosConfig();
   if (erros.length > 0) {
     console.error('\n========================================');
     console.error('ERRO DE CONFIGURAÇÃO:');
     console.error('========================================');
-    erros.forEach((e) => console.error(e));
+    erros.forEach((e) => console.error('• ' + e));
     console.error('\nVerifique seu arquivo .env e tente novamente.\n');
     return false;
   }
@@ -213,4 +310,9 @@ function validarConfig() {
 module.exports = {
   config,
   validarConfig,
+  // v2.6: usados pelo assistente de configuração (src/assistente.js)
+  recarregar,
+  errosConfig,
+  caminhoEnv,
+  normalizarVideoIdYoutube,
 };

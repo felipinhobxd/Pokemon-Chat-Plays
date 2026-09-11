@@ -50,6 +50,11 @@ jobs:
       - name: Empacotar em .exe
         run: pkg . --targets node18-win-x64 --output PokemonChatPlays.exe --compress GZip
 
+      - name: Extrair versao do package.json
+        id: versao_pkg
+        shell: bash
+        run: echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
       - name: Criar pasta de release
         run: |
           mkdir release
@@ -59,10 +64,32 @@ jobs:
           copy iniciar.bat release\
           copy LICENSE release\
 
+      - name: Compilar instalador setup.exe (NSIS)
+        shell: pwsh
+        run: |
+          # Resolve o makensis: PATH > caminho padrao do choco > instala
+          $makensis = Get-Command makensis -ErrorAction SilentlyContinue
+          if (-not $makensis) {
+            $candidato = "C:\Program Files (x86)\NSIS\makensis.exe"
+            if (Test-Path $candidato) {
+              $makensis = $candidato
+            } else {
+              Write-Host "NSIS nao encontrado — instalando via chocolatey..."
+              choco install nsis -y --no-progress
+              if (Test-Path $candidato) { $makensis = $candidato }
+            }
+          }
+          if (-not $makensis) { throw "makensis nao disponivel" }
+          $exe = if ($makensis -is [string]) { $makensis } else { $makensis.Source }
+          & $exe -DVERSION="${{ steps.versao_pkg.outputs.VERSION }}" installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis falhou (exit $LASTEXITCODE)" }
+          if (-not (Test-Path "PokemonChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
+          copy PokemonChatPlays-Setup.exe release\
+
       - name: Criar ZIP
         run: |
           cd release
-          7z a -tzip PokemonChatPlays-Windows.zip *
+          7z a -tzip PokemonChatPlays-Windows.zip PokemonChatPlays.exe .env.example README.md iniciar.bat LICENSE
 
       - name: Extrair versao da tag
         id: versao
@@ -74,20 +101,22 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/PokemonChatPlays-Windows.zip
+          files: |
+            release/PokemonChatPlays-Setup.exe
+            release/PokemonChatPlays-Windows.zip
           name: Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }}
           body: |
             # Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }} - SindromeGames Edition
 
             ## Como usar (plug-and-play)
 
-            1. Baixe e descompacte o arquivo `PokemonChatPlays-Windows.zip`.
-            2. Edite o arquivo `.env` (abra com o Bloco de Notas) e preencha com suas credenciais da Twitch/YouTube.
+            1. Baixe e execute o `PokemonChatPlays-Setup.exe` — instala com atalhos no Menu Iniciar e desinstalador (não pede administrador).
+               - Alternativa portátil: baixe o `PokemonChatPlays-Windows.zip` e descompacte.
+            2. Na primeira execução, o assistente de configuração abre no seu navegador: ligue a Twitch/YouTube, cole suas credenciais e o link da live — e teste a conexão antes de salvar.
                - Token da Twitch: https://twitchtokengenerator.com/ (pode colar com ou sem o prefixo oauth:)
                - API Key do YouTube: https://console.cloud.google.com/ (ative a YouTube Data API v3)
-            3. De um duplo-clique em `iniciar.bat`.
-            4. Abra o emulador (VisualBoyAdvance-M) e deixe em foco.
-            5. Pronto! O chat da sua live ja controla o jogo.
+            3. Abra o emulador (VisualBoyAdvance-M) e deixe em foco.
+            4. Pronto! O chat da sua live ja controla o jogo.
 
             ## Comandos suportados
 

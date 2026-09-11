@@ -5,32 +5,28 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
 [![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-139%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![Tests](https://img.shields.io/badge/tests-159%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
 
 ## Highlights
 
-- **Plug-and-play** — download the zip, fill `.env`, double-click `iniciar.bat`. No Node.js, no build tools.
+- **Plug-and-play** — run `PokemonChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
+- **Setup wizard** — interactive UI in the browser: toggle Twitch/YouTube, paste credentials, **test each connection** before saving. First run opens it automatically (`npm run assistente` to reopen).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
 - **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs.
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
 - **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim.
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 139 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — 159 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
-1. **Download** `PokemonChatPlays-Windows.zip` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) and extract it.
-2. **Copy** `.env.example` to `.env` and fill in your Twitch bot account:
-   ```env
-   TWITCH_BOT_USERNAME=your_bot_account
-   TWITCH_OAUTH_TOKEN=oauth:your_token   # generate at twitchtokengenerator.com
-   TWITCH_CHANNEL=your_channel
-   ```
+1. **Download and run** `PokemonChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `PokemonChatPlays-Windows.zip`.)*
+2. The first run opens the **setup wizard** in your browser: toggle Twitch/YouTube, paste your bot credentials and the live URL — the wizard **tests each connection** before saving.
 3. **Start the emulator** ([VBA-M](https://visualboyadvance.org/) recommended) and load your game.
-4. **Run** `iniciar.bat`. When asked, paste the emulator `.exe` path (it's saved for next time — just press Enter afterwards). The bot connects and announces the commands in chat.
+4. When asked, paste the emulator `.exe` path (it's saved for next time — just press Enter afterwards). The bot connects and announces the commands in chat.
 
 > 🛡️ *Windows says "protected your PC"? The exe has no digital signature — click **More info → Run anyway**.*
 > 🔒 *Never share your `.env` — it contains your bot token.*
@@ -90,12 +86,12 @@ Override any single key with `TECLA_A=x`, `TECLA_SALVAR=shift+f1`, etc. Accepted
 
 ## Configuration (`.env`)
 
-Copy `.env.example` → `.env`. The essentials:
+Copy `.env.example` → `.env` — or just run `npm run assistente` (or the first run of the bot) and fill everything in the browser. The essentials:
 
 | Variable | Default | Description |
 |---|:---:|---|
 | `TWITCH_BOT_USERNAME` / `TWITCH_OAUTH_TOKEN` / `TWITCH_CHANNEL` | — | Twitch bot credentials (token from [twitchtokengenerator.com](https://twitchtokengenerator.com/)) |
-| `YOUTUBE_ENABLED` / `YOUTUBE_API_KEY` / `YOUTUBE_VIDEO_ID` | `false` | Optional YouTube live chat (read-only, API key) |
+| `YOUTUBE_ENABLED` / `YOUTUBE_API_KEY` / `YOUTUBE_VIDEO_ID` | `false` | Optional YouTube live chat (read-only, API key). `YOUTUBE_VIDEO_ID` accepts the **full live URL** — the bot extracts the ID |
 | `ACTIVE_PLATFORMS` | `twitch` | Platforms to connect (`twitch,youtube`) |
 | `COMMAND_COOLDOWN_MS` | `1500` | Per-user cooldown — nobody solo-controls the game |
 | `KEY_PRESS_DURATION_MS` | `230` | How long each key tap lasts |
@@ -115,6 +111,9 @@ See `.env.example` for the full annotated list — every option has a comment ex
 | Keys don't reach the game | Emulator closed? The bot warns when the target window is missing. RetroArch: set `MODO_TECLADO=global` |
 | Arrows move the character diagonally / wrong | Emulator remapped? Fix with `TECLA_UP` etc. |
 | `Login authentication failed` | Regenerate the OAuth token — it expired or belongs to another account |
+| `API key not valid` (YouTube) | Wrong `YOUTUBE_API_KEY` — create one at console.cloud.google.com with the **YouTube Data API v3** enabled |
+| YouTube says quota exceeded | The free daily quota (10k units) reset at midnight Pacific time — the bot backs off and retries automatically |
+| The live hasn't started yet | The bot keeps retrying YouTube every 60 s until the chat is live |
 | Two bots answering | Another instance is running — close the old window |
 
 ## Development (Node.js ≥ 18)
@@ -123,12 +122,13 @@ See `.env.example` for the full annotated list — every option has a comment ex
 npm install     # deps (tmi.js, googleapis, dotenv)
 npm start       # run the bot
 npm run dev     # run with auto-restart on file change
-npm run setup   # interactive .env wizard
-npm test        # 139 offline tests (no emulator/chat needed)
-npm run build   # build the .exe locally (requires pkg)
+npm run assistente   # setup wizard in the browser
+npm run setup   # terminal-only .env wizard (legacy)
+npm test        # 159 offline tests (no emulator/chat needed)
+npm run build   # build the .exe + setup.exe locally (requires pkg; NSIS optional)
 ```
 
-Works on Windows (PowerShell), Linux (xdotool) and macOS (osascript). The `.exe` is built automatically by GitHub Actions on every `v*` tag, after tests pass.
+Works on Windows (PowerShell), Linux (xdotool) and macOS (osascript). GitHub Actions builds `PokemonChatPlays-Setup.exe` (NSIS installer) and the portable zip on every `v*` tag, after tests pass.
 
 <details>
 <summary>Project structure</summary>
@@ -147,7 +147,7 @@ src/
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
 ├── utils/                # logger, stats, cooldown, pause, votes, update check
-└── tests/                # 139 tests (node:test)
+└── tests/                # 159 tests (node:test)
 ```
 
 </details>
