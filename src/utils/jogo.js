@@ -136,6 +136,32 @@ function contarLinhasDeProcesso(saida) {
     .filter((l) => l.trim().startsWith('"')).length;
 }
 
+/**
+ * Escapa metacaracteres de ERE — o `pgrep -f` interpreta o padrão como
+ * REGEX, e caminhos com . \ ( ) [ ] precisam bater LITERALMENTE
+ * (v2.7.1: "vbam.exe" como regex casa "vbamXexe").
+ * @param {string} texto
+ * @returns {string}
+ */
+function escaparEre(texto) {
+  return String(texto || '').replace(/[.+*?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * PIDs que o pgrep listou, SEM o PID do próprio bot — quando o "jogo"
+ * compartilha o binário com o bot (ex.: node em smoke/teste), o padrão
+ * casa o bot também e daria "já está rodando" pra sempre.
+ * @param {string} saida - stdout do pgrep (um PID por linha)
+ * @param {number} pidExcluir - PID a ignorar
+ * @returns {number[]}
+ */
+function pidsDoPgrep(saida, pidExcluir) {
+  return String(saida || '')
+    .split(/\r?\n/)
+    .map((l) => parseInt(l, 10))
+    .filter((n) => Number.isInteger(n) && n > 0 && n !== pidExcluir);
+}
+
 // ---------------------------------------------------------------------------
 // Estado do gerenciador
 // ---------------------------------------------------------------------------
@@ -208,7 +234,9 @@ function jogoEstaRodando() {
       if (process.platform === 'win32') {
         proc = spawn('tasklist', ['/fo', 'csv', '/fi', `IMAGENAME eq ${nome}`], { stdio: ['ignore', 'pipe', 'ignore'] });
       } else if (process.platform === 'linux' || process.platform === 'darwin') {
-        proc = spawn('pgrep', ['-f', normalizarCaminhoJogo(cfg.exe)], { stdio: ['ignore', 'ignore', 'ignore'] });
+        // v2.7.1: escape de ERE (o padrão é regex pro pgrep) + stdout captado
+        // para excluir o PID do próprio bot da lista de casamentos
+        proc = spawn('pgrep', ['-f', escaparEre(normalizarCaminhoJogo(cfg.exe))], { stdio: ['ignore', 'pipe', 'ignore'] });
       } else {
         resolve(null);
         return;
@@ -229,7 +257,9 @@ function jogoEstaRodando() {
       if (process.platform === 'win32') {
         concluir(contarLinhasDeProcesso(saida) >= 2);
       } else {
-        concluir(code === 0);
+        // v2.7.1: conta pelos PIDs listados (código de saída sozinho não
+        // separa "achou só o bot" de "achou o jogo de verdade")
+        concluir(pidsDoPgrep(saida, process.pid).length > 0);
       }
     });
   });
@@ -464,6 +494,8 @@ module.exports = {
   avaliarQueda,
   nomeDoProcesso,
   contarLinhasDeProcesso,
+  escaparEre,
+  pidsDoPgrep,
   // gerenciador
   configurar,
   iniciar,

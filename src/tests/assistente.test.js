@@ -113,6 +113,20 @@ test('montarConteudoEnv: é .env válido (sem valores com quebra de linha)', () 
   }
 });
 
+test('montarConteudoEnv: JOGO_ARGS preserva aspas — args com espaço não corrompem (bug v2.7.0)', () => {
+  const { dividirArgs } = require('../utils/jogo');
+  const args = '-L "C:\\cores com espaço\\mgba.dll" --fullscreen';
+  const conteudo = montarConteudoEnv({ JOGO_ARGS: args });
+  const linha = conteudo.split('\n').find((l) => l.startsWith('JOGO_ARGS='));
+  assert.ok(linha, 'linha JOGO_ARGS sumiu');
+  assert.strictEqual(linha.slice('JOGO_ARGS='.length), args, 'args gravados verbatim (aspas intactas)');
+  // e o lado do lançamento continua parseando certo o valor salvo:
+  assert.deepStrictEqual(
+    dividirArgs(linha.slice('JOGO_ARGS='.length)),
+    ['-L', 'C:\\cores com espaço\\mgba.dll', '--fullscreen']
+  );
+});
+
 // ---------------------------------------------------------------------------
 // v2.7: jogo genérico — exe + ROM + reabrir no .env gerado
 // ---------------------------------------------------------------------------

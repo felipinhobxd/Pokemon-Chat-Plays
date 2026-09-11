@@ -151,6 +151,34 @@ test('contarLinhasDeProcesso: CSV do tasklist — cabeçalho sozinho = parado', 
 });
 
 // ---------------------------------------------------------------------------
+// v2.7.1: helpers do detector Linux/macOS (pgrep)
+// ---------------------------------------------------------------------------
+
+test('escaparEre: metacaracteres de regex viram literais (pgrep -f casa por regex)', () => {
+  // sem escape, "vbam.exe" como ERE casa "vbamXexe"; "C:\Games\(" quebrava
+  assert.strictEqual(jogo.escaparEre('vbam.exe'), 'vbam\\.exe');
+  assert.strictEqual(jogo.escaparEre('C:\\Games\\vbam.exe'), 'C:\\\\Games\\\\vbam\\.exe');
+  assert.strictEqual(jogo.escaparEre('a(b)[c]{d}'), 'a\\(b\\)\\[c\\]\\{d\\}');
+  assert.strictEqual(jogo.escaparEre(''), '');
+  assert.strictEqual(jogo.escaparEre(null), '');
+  // sanity: o escape CASA o caminho original como literal
+  const caminho = '/opt/meu.jogo/vbam.exe';
+  assert.ok(new RegExp(jogo.escaparEre(caminho)).test(caminho));
+  assert.ok(!new RegExp(jogo.escaparEre(caminho)).test('/opt/meuXjogo/vbamYexe'));
+});
+
+test('pidsDoPgrep: lista PIDs, ignora lixo e EXCLUI o próprio bot', () => {
+  const saida = '1234\n5678\n\nnão-é-pid\n';
+  assert.deepStrictEqual(jogo.pidsDoPgrep(saida, 999), [1234, 5678]);
+  // o bot casou o padrão (jogo = mesmo binário): só ele na lista = NÃO rodando
+  assert.deepStrictEqual(jogo.pidsDoPgrep('4242\n', 4242), []);
+  // bot + jogo de verdade na lista = rodando
+  assert.deepStrictEqual(jogo.pidsDoPgrep('4242\n777\n', 4242), [777]);
+  assert.deepStrictEqual(jogo.pidsDoPgrep('', 1), []);
+  assert.deepStrictEqual(jogo.pidsDoPgrep(null, 1), []);
+});
+
+// ---------------------------------------------------------------------------
 // Watchdog de verdade: script node que morre sozinho = "jogo"
 // ---------------------------------------------------------------------------
 

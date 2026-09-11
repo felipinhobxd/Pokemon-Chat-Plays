@@ -462,13 +462,19 @@ function responderJson(res, codigo, obj) {
 function salvarConfiguracao(v) {
   const finais = { ...v };
 
-  // v2.7: caminhos do jogo — tira aspas coladas e quebras de linha (a
+  // v2.7.1: caminhos do jogo — tira aspas coladas e quebras de linha (a
   // colagem do Windows e do chat às vezes traz sujeira)
-  const { normalizarCaminhoJogo, dividirArgs } = require('./utils/jogo');
+  const { normalizarCaminhoJogo } = require('./utils/jogo');
   for (const chave of ['EMULADOR_EXE', 'JOGO_ROM']) {
     finais[chave] = normalizarCaminhoJogo(finais[chave]);
   }
-  finais.JOGO_ARGS = dividirArgs(finais.JOGO_ARGS).join(' ');
+  // JOGO_ARGS: o wizard NÃO tem campo para ela — vazio significa MANTER o
+  // valor atual do .env (não apagar configs manuais, ex.: "-L core.dll" do
+  // RetroArch). O valor só é higienizado (CR/LF fora) PRESERVANDO aspas:
+  // parse+join corromperia argumentos com espaço no caminho no ciclo
+  // salvar → relançar (bug v2.7.0 achado na revisão da rodada 4).
+  const limparArgs = (t) => String(t || '').replace(/[\r\n]+/g, ' ').trim();
+  finais.JOGO_ARGS = limparArgs(finais.JOGO_ARGS) || limparArgs(config.jogo.args);
   finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
 
   // Segredo vazio = manter o atual (o navegador nunca recebe o valor real)

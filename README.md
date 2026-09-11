@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
 [![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-185%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![Tests](https://img.shields.io/badge/tests-188%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
@@ -20,7 +20,7 @@
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
 - **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim.
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 185 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — 188 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
@@ -139,7 +139,7 @@ npm start       # run the bot
 npm run dev     # run with auto-restart on file change
 npm run assistente   # setup wizard in the browser
 npm run setup   # terminal-only .env wizard (legacy)
-npm test        # 185 offline tests (no emulator/chat needed)
+npm test        # 188 offline tests (no emulator/chat needed)
 npm run build   # build the .exe + setup.exe locally (requires pkg; NSIS optional)
 ```
 
@@ -162,7 +162,7 @@ src/
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
 ├── utils/                # logger, stats, cooldown, pause, votes, update check, game manager
-└── tests/                # 185 tests (node:test)
+└── tests/                # 188 tests (node:test)
 ```
 
 </details>
