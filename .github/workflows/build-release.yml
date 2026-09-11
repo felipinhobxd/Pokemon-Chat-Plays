@@ -3,62 +3,138 @@ name: Build and Release - ChatPlays
 on:
   push:
     tags:
-      - 'v*'  # dispara quando uma tag v* é criada (ex: git tag v2.1.0)
-  workflow_dispatch:  # permite rodar manualmente
+      - 'v*'
+    branches:
+      - 'release/v*'
+  workflow_dispatch:
 
-# Permissões MÍNIMAS por job (v2.8.1): o job de testes só precisa ler; só o
-# job de release (que cria a Release no GitHub) precisa escrever. O antigo
-# `packages: write` global não era usado por nada — removido.
 permissions:
   contents: read
 
 jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.release_meta.outputs.SHA }}
+      tag: ${{ steps.release_meta.outputs.TAG }}
+      version: ${{ steps.release_meta.outputs.VERSION }}
+      do_release: ${{ steps.release_meta.outputs.DO_RELEASE }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SHA="${GITHUB_SHA}"
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          DO_RELEASE=false
+
+          if [[ "${GITHUB_REF}" == refs/heads/release/v* ]]; then
+            TAG="${GITHUB_REF#refs/heads/release/}"
+            VERSION="${TAG#v}"
+            DO_RELEASE=true
+
+            git fetch origin main
+            MAIN_SHA="$(git rev-parse origin/main)"
+            if [[ "${MAIN_SHA}" != "${GITHUB_SHA}" ]]; then
+              echo "main changed after the release branch was created; refusing to release blindly."
+              echo "release branch: ${GITHUB_SHA}"
+              echo "current main:    ${MAIN_SHA}"
+              exit 1
+            fi
+
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "Tag ${TAG} already exists; refusing to overwrite it."
+              exit 1
+            fi
+
+            git checkout -B __chatplays_release origin/main
+            npm version "${VERSION}" --no-git-tag-version
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json
+            git commit -m "release: ChatPlays ${TAG}"
+
+            SHA="$(git rev-parse HEAD)"
+            git push origin HEAD:main
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+            DO_RELEASE=true
+          fi
+
+          echo "SHA=${SHA}" >> "${GITHUB_OUTPUT}"
+          echo "TAG=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "DO_RELEASE=${DO_RELEASE}" >> "${GITHUB_OUTPUT}"
+
   testar:
+    needs: preparar
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Checkout code
+      - name: Checkout exact release SHA
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preparar.outputs.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '18'
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests
         run: npm test
 
+      - name: Security audit
+        run: npm audit --audit-level=high
+
   build-windows:
-    needs: testar
+    needs: [preparar, testar]
     runs-on: windows-latest
     permissions:
-      contents: write  # necessário APENAS para criar a Release (softprops/action-gh-release)
+      contents: write
     steps:
-      - name: Checkout code
+      - name: Checkout exact release SHA
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preparar.outputs.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '18'
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install pkg (packager)
         run: npm install -g pkg
 
       - name: Package the .exe
         run: pkg . --targets node18-win-x64 --output ChatPlays.exe --compress GZip
-
-      - name: Extract version from package.json
-        id: versao_pkg
-        shell: bash
-        run: echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Assemble release folder
         run: |
@@ -72,21 +148,20 @@ jobs:
       - name: Build the NSIS installer
         shell: pwsh
         run: |
-          # Resolve o makensis: PATH > caminho padrao do choco > instala
           $makensis = Get-Command makensis -ErrorAction SilentlyContinue
           if (-not $makensis) {
             $candidato = "C:\Program Files (x86)\NSIS\makensis.exe"
             if (Test-Path $candidato) {
               $makensis = $candidato
             } else {
-              Write-Host "NSIS nao encontrado — instalando via chocolatey..."
+              Write-Host "NSIS nao encontrado - instalando via chocolatey..."
               choco install nsis -y --no-progress
               if (Test-Path $candidato) { $makensis = $candidato }
             }
           }
           if (-not $makensis) { throw "makensis nao disponivel" }
           $exe = if ($makensis -is [string]) { $makensis } else { $makensis.Source }
-          & $exe -DVERSION="${{ steps.versao_pkg.outputs.VERSION }}" installer.nsi
+          & $exe -DVERSION="${{ needs.preparar.outputs.version }}" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis falhou (exit $LASTEXITCODE)" }
           if (-not (Test-Path "ChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
           copy ChatPlays-Setup.exe release\
@@ -96,53 +171,37 @@ jobs:
           cd release
           7z a -tzip ChatPlays-Windows.zip ChatPlays.exe .env.example README.md iniciar.bat LICENSE
 
-      - name: Extract version from tag
-        id: versao
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: needs.preparar.outputs.do_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.preparar.outputs.tag }}
+          target_commitish: ${{ needs.preparar.outputs.sha }}
+          name: ChatPlays ${{ needs.preparar.outputs.tag }}
           files: |
             release/ChatPlays-Setup.exe
             release/ChatPlays-Windows.zip
-          name: ChatPlays ${{ steps.versao.outputs.VERSION }}
           body: |
-            ## ChatPlays ${{ steps.versao.outputs.VERSION }}
+            ## ChatPlays ${{ needs.preparar.outputs.tag }}
 
-            ### ChatPlays rebrand
+            ### Fixes
 
-            Pokemon Chat Plays is now **ChatPlays**, reflecting support for almost any keyboard-driven game.
-
-            * Renamed application, installer, executable, portable archive, documentation and GitHub-facing branding.
-            * New assets:
-              * `ChatPlays-Setup.exe`
-              * `ChatPlays-Windows.zip`
-            * Existing Pokemon Chat Plays installations upgrade in place.
-            * Legacy install information and executable fallback are intentionally preserved for compatibility.
-            * The updater now uses the new `felipinhobxd/ChatPlays` repository directly.
-
-            ### Reliability fixes
-
-            * Fixed a keyboard queue edge case that could discard a hold `keyup` and leave a game key stuck under heavy chat load.
-            * Improved overlay shutdown by closing persistent browser/OBS connections.
-            * Hardened `.env` generation against pasted CR/LF characters.
-            * Added runtime user data and temporary secret files to `.gitignore`.
-            * Improved regression-test cleanup so failed overlay tests cannot hang the suite.
+            * Fixed `save` / `salvar` occasionally being interpreted as Load in Windows window mode.
+            * Added fail-safe savestate handling: if ChatPlays cannot confirm a safe save, it sends nothing instead of risking a Load.
+            * Protects older configurations where Save and Load were accidentally mapped to the same function key.
+            * Portuguese and English game controls remain interchangeable (`cima`/`up`, `direita`/`right`, etc.).
+            * Improved `!comandos` so the command list reflects the PT-BR/EN aliases that actually work.
 
             ### Validation
 
-            * 292 automated tests
-            * 0 npm audit vulnerabilities
-            * Windows build validated
+            * Automated test suite passed.
+            * `npm audit` passed.
+            * Windows executable, installer and portable ZIP built in GitHub Actions.
           draft: false
           prerelease: false
 
-      - name: Upload artifact (no tag)
-        if: github.ref == 'refs/heads/main'
+      - name: Upload artifact (manual build)
+        if: needs.preparar.outputs.do_release != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ChatPlays-Windows

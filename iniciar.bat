@@ -8,6 +8,9 @@ REM  release) e mantem a janela aberta para voce ver os logs.
 REM  Se o .exe nao existir, ele tenta iniciar via node
 REM  (npm install + npm start).
 REM
+REM  v2.9.3: no modo Node, inicia por src\boot.js para instalar as
+REM  protecoes de runtime antes de conectar o chat (incluindo SaveGuard).
+REM
 REM  v2.9.2: o app foi renomeado de "Pokemon Chat Plays" para
 REM  "ChatPlays" — o .exe antigo (PokemonChatPlays.exe) ainda e
 REM  aceito como fallback para pastas portable migradas a mao.
@@ -80,7 +83,7 @@ echo.
 
 echo Iniciando bot...
 echo.
-node src/index.js %*
+node src/boot.js %*
 
 :fim
 echo.

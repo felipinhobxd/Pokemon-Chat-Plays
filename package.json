@@ -2,7 +2,7 @@
   "name": "chatplays",
   "version": "2.9.2",
   "description": "Let Twitch and YouTube chat control emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
-  "main": "src/index.js",
+  "main": "src/boot.js",
   "bin": {
     "chatplays": "src/index.js"
   },
@@ -14,8 +14,8 @@
     "outputPath": "dist"
   },
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "node src/boot.js",
+    "dev": "node --watch src/boot.js",
     "test": "node scripts/run-tests.js",
     "setup": "node scripts/setup.js",
     "assistente": "node src/assistente.js",
