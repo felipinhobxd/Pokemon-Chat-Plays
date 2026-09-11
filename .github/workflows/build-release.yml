@@ -111,57 +111,33 @@ jobs:
             release/ChatPlays-Windows.zip
           name: ChatPlays ${{ steps.versao.outputs.VERSION }}
           body: |
-            # ChatPlays ${{ steps.versao.outputs.VERSION }} — SindromeGames Edition
+            ## ChatPlays ${{ steps.versao.outputs.VERSION }}
 
-            Let your Twitch and YouTube chat control almost any keyboard-driven game — Pokémon on an emulator, Minecraft, whatever — the classic Twitch Plays experience on your own stream.
+            ### ChatPlays rebrand
 
-            ## Fully Customizable Chat Controls
+            Pokemon Chat Plays is now **ChatPlays**, reflecting support for almost any keyboard-driven game.
 
-            This release turns chat commands into a configurable system — new games and new actions need **zero code changes**:
+            * Renamed application, installer, executable, portable archive, documentation and GitHub-facing branding.
+            * New assets:
+              * `ChatPlays-Setup.exe`
+              * `ChatPlays-Windows.zip`
+            * Existing Pokemon Chat Plays installations upgrade in place.
+            * Legacy install information and executable fallback are intentionally preserved for compatibility.
+            * The updater now uses the new `felipinhobxd/ChatPlays` repository directly.
 
-            - **Remap built-in controls** — point any action at any keyboard key.
-            - **Add custom actions for any game** — each control is *action → keyboard key → chat aliases*.
-            - **Keyboard key capture** in the setup wizard — press a key and it fills in automatically.
-            - **Automatic PT-BR + English alias suggestions** (`space` → `space`, `espaco`, `barra de espaco`; `up` → `up`, `cima`) — and every alias stays fully editable.
-            - **Twitch and YouTube share one control registry** — configure once, both chats can play.
-            - **Dynamic `!commands` and announcements** — the chat always sees the controls that actually exist.
-            - **Presets are now optional starting templates** (VBA-M, mGBA, DeSmuME, RetroArch) — apply one, then customize freely.
-            - **Persistent custom controls** in `dados/controles.json` — they survive restarts and reinstalls.
-            - **Backward compatible** — existing `.env` / `TECLA_*` configurations keep working unchanged.
+            ### Reliability fixes
 
-            ### Minecraft in two minutes
+            * Fixed a keyboard queue edge case that could discard a hold `keyup` and leave a game key stuck under heavy chat load.
+            * Improved overlay shutdown by closing persistent browser/OBS connections.
+            * Hardened `.env` generation against pasted CR/LF characters.
+            * Added runtime user data and temporary secret files to `.gitignore`.
+            * Improved regression-test cleanup so failed overlay tests cannot hang the suite.
 
-            In the wizard's 🎮 Chat Controls section:
+            ### Validation
 
-            | Action | Key | Chat aliases |
-            |--------|-----|--------------|
-            | Jump | Space | `jump`, `space`, `pular`, `espaco` |
-            | Inventory | E | `inventory`, `inventario`, `e` |
-            | Crouch | Shift | `crouch`, `agachar`, `shift` |
-
-            Save, and both chats can use them immediately: `!commands` lists them, democracy mode accepts them as votes, and the OBS overlay shows your action names.
-
-            ## Reliability improvements carried from v2.8.1
-
-            - Hardened local setup-wizard security (host validation, CSRF protection, masked secrets).
-            - CI now runs the full test suite on every push and pull request.
-            - Fixed the YouTube scheduled-live retry timer.
-            - Atomic persistence for stats and configuration files.
-
-            ## Getting started
-
-            1. Download and run **`ChatPlays-Setup.exe`** — installs per-user (no admin required), with Start-menu shortcuts and an uninstaller. *Portable alternative: `ChatPlays-Windows.zip`.*
-               - Upgrading from an older *Pokemon Chat Plays* install? The installer upgrades it in place — no duplicate install, and old shortcuts are cleaned up automatically.
-            2. On every start, the setup wizard opens in your browser, pre-filled with what you saved before: enable Twitch and/or YouTube, paste your credentials and the live URL, and **test each connection** before saving.
-               - Twitch token: https://twitchtokengenerator.com/ (with or without the `oauth:` prefix)
-               - YouTube API key: https://console.cloud.google.com/ (enable YouTube Data API v3)
-            3. Set your game: paste the path of any executable (emulator, Minecraft, whatever) and the ROM if there is one — the bot launches it, sends keys straight to its window (you stay free in OBS), and reopens it automatically if it closes mid-stream.
-            4. That's it — your chat is playing.
-
-            ## Support
-            - Twitch: https://twitch.tv/sindromegames
-            - YouTube: https://youtube.com/@SindromeGames
-            - Issues: https://github.com/felipinhobxd/ChatPlays/issues
+            * 292 automated tests
+            * 0 npm audit vulnerabilities
+            * Windows build validated
           draft: false
           prerelease: false
 
