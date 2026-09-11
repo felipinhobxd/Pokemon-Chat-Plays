@@ -620,3 +620,35 @@ test('wizard save → restart: controles do Minecraft voltam idênticos do arqui
     controles.restaurarPadrao();
   }
 });
+
+// ---------------------------------------------------------------------------
+// v2.9.2 — REGRESSÃO: valores com quebra de linha nunca geram chaves-fantasma
+//
+// O formato .env é uma chave=valor POR LINHA: um "\n" colado no meio de um
+// valor (via API/colagem) faria o dotenv parsear a segunda metade como
+// chaves NOVAS — .env corrompido na próxima inicialização. O gerador do
+// assistente higieniza CR/LF em TODO valor (caminhos e JOGO_ARGS já eram
+// higienizados assim desde a v2.7.1).
+// ---------------------------------------------------------------------------
+
+test('montarConteudoEnv: quebra de linha em valor não vira chave-fantasma no .env (v2.9.2)', () => {
+  const conteudo = montarConteudoEnv({
+    TWITCH_BOT_USERNAME: 'bot\nEVIL_KEY=injetada',
+    TWITCH_OAUTH_TOKEN: 'oauth:to\nken',
+    TWITCH_CHANNEL: 'canal\r\nOUTRA=1',
+  });
+  const linhas = conteudo.split('\n');
+  for (const linha of linhas) {
+    if (linha.startsWith('TWITCH_BOT_USERNAME=')) {
+      assert.strictEqual(linha, 'TWITCH_BOT_USERNAME=bot EVIL_KEY=injetada');
+    }
+    if (linha.startsWith('TWITCH_CHANNEL=')) {
+      assert.strictEqual(linha, 'TWITCH_CHANNEL=canal OUTRA=1');
+    }
+  }
+  // nenhuma linha do arquivo pode ser uma chave injetada de valor solto
+  assert.ok(!linhas.some((l) => /^EVIL_KEY=/.test(l)), 'EVIL_KEY não pode virar chave');
+  assert.ok(!linhas.some((l) => /^OUTRA=/.test(l)), 'OUTRA não pode virar chave');
+  // token: a quebra some sem quebrar o formato
+  assert.ok(conteudo.includes('TWITCH_OAUTH_TOKEN=oauth:to ken'), 'token sanitizado em uma linha');
+});

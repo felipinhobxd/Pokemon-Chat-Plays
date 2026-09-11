@@ -164,14 +164,18 @@ const PADROES = {
  * @returns {string}
  */
 function montarConteudoEnv(v, envAtual = '') {
+  // valores de UMA linha: o formato .env não suporta multiline, e um \n
+  // colado no meio de um valor geraria chaves-fantasma nas linhas seguintes
+  // (o dotenv as parsearia como chaves novas). CR/LF viram espaço — mesma
+  // higienização que caminhos e JOGO_ARGS já faziam desde a v2.7.1.
   const val = (chave) => {
-    const digitado = String(v[chave] ?? '').trim();
+    const digitado = String(v[chave] ?? '').replace(/[\r\n]+/g, ' ').trim();
     return digitado !== '' ? digitado : PADROES[chave] || '';
   };
 
   const linhas = [
     '# ============================================================',
-    '# Pokemon Chat Plays — .env gerado pelo assistente de configuração',
+    '# ChatPlays — .env gerado pelo assistente de configuração',
     `# Gerado em ${new Date().toLocaleString('pt-BR')}`,
     '# ============================================================',
     '# Dica: abra o iniciar.bat — o assistente abre sempre, preenchido.',

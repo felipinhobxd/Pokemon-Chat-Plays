@@ -105,32 +105,38 @@ test('servidor HTTP serve a página e a API de estado', async () => {
   assert.ok(Number.isInteger(porta) && porta > 0, 'porta efêmera atribuída');
   assert.strictEqual(overlay.url(), `http://localhost:${porta}`);
 
-  const raiz = await fetch(`http://127.0.0.1:${porta}/`);
-  assert.strictEqual(raiz.status, 200);
-  assert.match(raiz.headers.get('content-type') || '', /text\/html/);
-  const html = await raiz.text();
-  assert.ok(html.includes('POKÉMON'), 'página com o título do projeto');
-  assert.ok(html.includes('Últimas ações'), 'página em português');
-  assert.ok(html.includes('/api/estado'), 'página consulta a API');
+  // try/finally: uma asserção que falhe no meio não pode deixar o servidor
+  // HTTP aberto — o handle pendurado travava a suíte INTEIRA (o runner
+  // esperava o processo filho sem fim). parar() é idempotente.
+  try {
+    const raiz = await fetch(`http://127.0.0.1:${porta}/`);
+    assert.strictEqual(raiz.status, 200);
+    assert.match(raiz.headers.get('content-type') || '', /text\/html/);
+    const html = await raiz.text();
+    assert.ok(html.includes('<title>ChatPlays'), 'página com o título do projeto');
+    assert.ok(html.includes('Últimas ações'), 'página em português');
+    assert.ok(html.includes('/api/estado'), 'página consulta a API');
 
-  overlay.registrarAcao('tester', 'b', 'tap');
-  const api = await fetch(`http://127.0.0.1:${porta}/api/estado`);
-  assert.strictEqual(api.status, 200);
-  assert.match(api.headers.get('content-type') || '', /application\/json/);
-  const dados = await api.json();
-  assert.ok(Array.isArray(dados.acoes));
-  assert.strictEqual(dados.acoes[0].usuario, 'tester');
-  assert.strictEqual(dados.acoes[0].botao, 'b');
+    overlay.registrarAcao('tester', 'b', 'tap');
+    const api = await fetch(`http://127.0.0.1:${porta}/api/estado`);
+    assert.strictEqual(api.status, 200);
+    assert.match(api.headers.get('content-type') || '', /application\/json/);
+    const dados = await api.json();
+    assert.ok(Array.isArray(dados.acoes));
+    assert.strictEqual(dados.acoes[0].usuario, 'tester');
+    assert.strictEqual(dados.acoes[0].botao, 'b');
 
-  const naoExiste = await fetch(`http://127.0.0.1:${porta}/qualquer-coisa`);
-  assert.strictEqual(naoExiste.status, 404);
+    const naoExiste = await fetch(`http://127.0.0.1:${porta}/qualquer-coisa`);
+    assert.strictEqual(naoExiste.status, 404);
 
-  await overlay.parar();
-  assert.strictEqual(overlay.url(), null);
-  // depois de parar, pode subir de novo
-  const porta2 = await overlay.iniciar(0);
-  assert.ok(Number.isInteger(porta2) && porta2 > 0);
-  await overlay.parar();
+    await overlay.parar();
+    assert.strictEqual(overlay.url(), null);
+    // depois de parar, pode subir de novo
+    const porta2 = await overlay.iniciar(0);
+    assert.ok(Number.isInteger(porta2) && porta2 > 0);
+  } finally {
+    await overlay.parar();
+  }
 });
 
 // ---------------------------------------------------------------------------

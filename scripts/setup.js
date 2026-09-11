@@ -31,7 +31,7 @@ function perguntar(pergunta, padrao = '') {
 
 async function main() {
   console.log('\n==========================================');
-  console.log(' Configuracao do Pokemon Chat Plays');
+  console.log(' Configuracao do ChatPlays');
   console.log('==========================================\n');
 
   if (fs.existsSync(ENV_FILE)) {

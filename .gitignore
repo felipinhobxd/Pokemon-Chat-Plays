@@ -6,6 +6,12 @@ yarn-error.log*
 
 # Arquivo de configuração com segredos (NUNCA commitar)
 .env
+# Transitório da gravação atômica do .env (contém segredos até o rename)
+.env.tmp
+
+# Dados gerados em runtime pelo bot (stats, controles, emulador — são do
+# usuário, não do repositório; criados quando se roda o bot a partir do clone)
+dados/
 
 # Arquivos do sistema operacional
 .DS_Store

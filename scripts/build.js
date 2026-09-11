@@ -1,5 +1,5 @@
 /**
- * Script auxiliar para empacotar o Pokemon Chat Plays em um .exe
+ * Script auxiliar para empacotar o ChatPlays em um .exe
  * usando o pacote "pkg".
  *
  * Uso (local, no Windows):
@@ -20,7 +20,7 @@ const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 
 console.log('==========================================');
-console.log(' Build Pokemon Chat Plays - .exe');
+console.log(' Build ChatPlays - .exe');
 console.log('==========================================');
 
 // Cria pasta dist
@@ -39,9 +39,9 @@ try {
 
 console.log('[2/3] Empacotando em .exe (Windows x64)...');
 try {
-  // pkg . --targets node18-win-x64 --output dist/PokemonChatPlays.exe
+  // pkg . --targets node18-win-x64 --output dist/ChatPlays.exe
   execSync(
-    'pkg . --targets node18-win-x64 --output dist/PokemonChatPlays.exe --compress GZip',
+    'pkg . --targets node18-win-x64 --output dist/ChatPlays.exe --compress GZip',
     { stdio: 'inherit', cwd: ROOT }
   );
   console.log('  OK');
@@ -68,9 +68,9 @@ try {
     `makensis -DVERSION=${version} -DFILESDIR=dist installer.nsi`,
     { stdio: 'inherit', cwd: ROOT }
   );
-  if (fs.existsSync(path.join(ROOT, 'PokemonChatPlays-Setup.exe'))) {
-    fs.copyFileSync(path.join(ROOT, 'PokemonChatPlays-Setup.exe'), path.join(DIST, 'PokemonChatPlays-Setup.exe'));
-    console.log('  PokemonChatPlays-Setup.exe gerado.');
+  if (fs.existsSync(path.join(ROOT, 'ChatPlays-Setup.exe'))) {
+    fs.copyFileSync(path.join(ROOT, 'ChatPlays-Setup.exe'), path.join(DIST, 'ChatPlays-Setup.exe'));
+    console.log('  ChatPlays-Setup.exe gerado.');
   }
 } catch {
   console.log('  makensis não encontrado — pulando o instalador (o CI gera na release).');
@@ -79,5 +79,5 @@ try {
 
 console.log('\n[OK] Build concluido!');
 console.log(`Os arquivos estao em: ${DIST}`);
-console.log('Distribua o PokemonChatPlays-Setup.exe (instalador com atalhos e');
+console.log('Distribua o ChatPlays-Setup.exe (instalador com atalhos e');
 console.log('desinstalador) ou o conteudo da pasta dist junto com o iniciar.bat.');

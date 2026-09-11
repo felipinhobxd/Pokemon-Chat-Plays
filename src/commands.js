@@ -1,5 +1,5 @@
 /**
- * Parser central de comandos do chat (Pokemon Chat Plays).
+ * Parser central de comandos do chat (ChatPlays).
  *
  * v2.9: os BOTÕES não são mais uma lista fixa — vivem no REGISTRO de
  * controles (src/controles.js), alimentado pelo .env (compatibilidade com

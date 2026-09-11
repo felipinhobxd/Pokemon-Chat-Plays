@@ -1,18 +1,18 @@
-# Pokémon Chat Plays
+# ChatPlays
 
 > **Let your Twitch/YouTube chat play the game.** Turns live chat messages into real key presses — Pokémon on an emulator, Minecraft, or almost any keyboard-driven game. The classic Twitch Plays experience, running on your own stream.
 
-[![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
-[![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
+[![Release](https://img.shields.io/github/v/release/felipinhobxd/ChatPlays?label=release)](https://github.com/felipinhobxd/ChatPlays/releases)
+[![License](https://img.shields.io/github/license/felipinhobxd/ChatPlays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-279%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![Tests](https://img.shields.io/badge/tests-292%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
 
 ## Highlights
 
-- **Plug-and-play** — run `PokemonChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
+- **Plug-and-play** — run `ChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
@@ -21,11 +21,11 @@
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
 - **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim (custom controls too, when the key is holdable).
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 279 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — 292 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
-1. **Download and run** `PokemonChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `PokemonChatPlays-Windows.zip`.)*
+1. **Download and run** `ChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/ChatPlays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `ChatPlays-Windows.zip`.)* Upgrading from an older *Pokemon Chat Plays* install? It upgrades in place — no duplicates, old shortcuts are cleaned up automatically.
 2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*). Saved keys come back **masked** (`••••••••abcd`): leave the field as-is to keep the saved value, clear it to remove, paste a new one to replace.
 3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game** for you.
 4. In the wizard's **🎮 Chat Controls** card, check the action → key → chat-word mapping. Apply a **template** (VBA-M, mGBA, DeSmuME, RetroArch) as a starting point and then customize freely: capture keys with the ⌨ button, add controls like `Pular → Space → pular, jump`, disable what the game doesn't use.
@@ -155,11 +155,11 @@ npm start       # run the bot
 npm run dev     # run with auto-restart on file change
 npm run assistente   # setup wizard in the browser
 npm run setup   # terminal-only .env wizard (legacy)
-npm test        # 279 offline tests (no emulator/chat needed)
+npm test        # 292 offline tests (no emulator/chat needed)
 npm run build   # build the .exe + setup.exe locally (requires pkg; NSIS optional)
 ```
 
-Works on Windows (PowerShell), Linux (xdotool) and macOS (osascript). GitHub Actions builds `PokemonChatPlays-Setup.exe` (NSIS installer) and the portable zip on every `v*` tag, after tests pass.
+Works on Windows (PowerShell), Linux (xdotool) and macOS (osascript). GitHub Actions builds `ChatPlays-Setup.exe` (NSIS installer) and the portable zip on every `v*` tag, after tests pass.
 
 <details>
 <summary>Project structure</summary>
@@ -179,7 +179,7 @@ src/
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
 ├── utils/                # logger, stats, cooldown, pause, votes, update check, game manager
-└── tests/                # 279 tests (node:test)
+└── tests/                # 292 tests (node:test)
 ```
 
 </details>

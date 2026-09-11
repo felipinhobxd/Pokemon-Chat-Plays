@@ -272,6 +272,9 @@ function parar() {
     servidor = null;
     portaReal = null;
     srv.close(() => resolve());
+    // v2.9.2: conexões keep-alive pendentes (navegador do OBS) não podem
+    // segurar o close — mesmo padrão do assistente desde a v2.8.1
+    srv.closeAllConnections?.();
   });
 }
 
@@ -289,7 +292,7 @@ const PAGINA = [
   '<html lang="pt-BR">',
   '<head>',
   '<meta charset="UTF-8">',
-  '<title>Pokemon Chat Plays — Overlay</title>',
+  '<title>ChatPlays — Overlay</title>',
   '<style>',
   '* { margin: 0; padding: 0; box-sizing: border-box; }',
   'html, body { width: 100%; height: 100%; overflow: hidden; }',
@@ -426,7 +429,7 @@ const PAGINA = [
   '<div class="reconectando" id="reconectando">⟳ reconectando ao overlay...</div>',
   '<div class="grade">',
   '  <div class="painel cabecalho">',
-  '    <div class="logo">🎮 POKÉMON <span>CHAT PLAYS</span></div>',
+  '    <div class="logo">🎮 CHAT<span>PLAYS</span></div>',
   '    <div class="badge-versao" id="versao"></div>',
   '    <div class="pontinhos">',
   '      <div class="ponto" id="pt-twitch"><div class="bolinha"></div>TWITCH</div>',

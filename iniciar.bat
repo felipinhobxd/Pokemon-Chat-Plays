@@ -1,12 +1,16 @@
 @echo off
 REM ============================================================
-REM  Pokemon Chat Plays - Inicializador para Windows
+REM  ChatPlays - Inicializador para Windows
 REM  SindromeGames Edition
 REM ============================================================
-REM  Este .bat inicia o PokemonChatPlays.exe (procure ele na
-REM  pasta do release) e mantem a janela aberta para voce ver
-REM  os logs. Se o .exe nao existir, ele tenta iniciar via
-REM  node (npm install + npm start).
+REM  Este .bat inicia o ChatPlays.exe (procure ele na pasta do
+REM  release) e mantem a janela aberta para voce ver os logs.
+REM  Se o .exe nao existir, ele tenta iniciar via node
+REM  (npm install + npm start).
+REM
+REM  v2.9.2: o app foi renomeado de "Pokemon Chat Plays" para
+REM  "ChatPlays" — o .exe antigo (PokemonChatPlays.exe) ainda e
+REM  aceito como fallback para pastas portable migradas a mao.
 REM
 REM  v2.8: ao abrir o iniciar.bat, o bot SEMPRE abre o assistente de
 REM  configuracao no navegador — e tudo que voce salvou antes ja vem
@@ -16,18 +20,26 @@ REM  Argumentos sao repassados: --direto pula o assistente e inicia
 REM  direto (config ja salva); --assistente abre so o assistente.
 REM ============================================================
 
-title Pokemon Chat Plays - SindromeGames
+title ChatPlays - SindromeGames
 cd /d "%~dp0"
 
 echo.
 echo ==========================================
-echo   Pokemon Chat Plays - SindromeGames
+echo   ChatPlays - SindromeGames
 echo ==========================================
 echo.
 
-REM Verifica se o .exe existe (release baixado)
+REM Verifica se o .exe existe (release baixado) — nome novo primeiro,
+REM nome antigo (Pokemon Chat Plays) como fallback de migracao
+if exist "ChatPlays.exe" (
+    echo Iniciando ChatPlays.exe...
+    echo.
+    ChatPlays.exe %*
+    goto fim
+)
+
 if exist "PokemonChatPlays.exe" (
-    echo Iniciando PokemonChatPlays.exe...
+    echo Iniciando PokemonChatPlays.exe ^(versao antiga — baixe o release novo para renomear^)...
     echo.
     PokemonChatPlays.exe %*
     goto fim

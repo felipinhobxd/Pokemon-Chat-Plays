@@ -15,7 +15,9 @@
 
 const logger = require('./logger');
 
-const REPO = 'felipinhobxd/Pokemon-Chat-Plays';
+// Renomeado de Pokemon-Chat-Plays para ChatPlays (a API do GitHub segue
+// redirecionando o nome antigo, mas consultamos o novo direto).
+const REPO = 'felipinhobxd/ChatPlays';
 const URL_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const TIMEOUT_MS = 6000;
 
@@ -55,7 +57,7 @@ async function verificarAtualizacao(versaoAtual) {
   try {
     const resposta = await fetch(URL_API, {
       headers: {
-        'User-Agent': 'PokemonChatPlays',
+        'User-Agent': 'ChatPlays',
         Accept: 'application/vnd.github+json',
       },
       signal: AbortSignal.timeout(TIMEOUT_MS),

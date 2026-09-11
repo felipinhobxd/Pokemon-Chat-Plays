@@ -1,10 +1,10 @@
 {
-  "name": "pokemon-chat-plays",
+  "name": "chatplays",
   "version": "2.9.1",
-  "description": "Let Twitch and YouTube chat control Pokemon, emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
+  "description": "Let Twitch and YouTube chat control emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
   "main": "src/index.js",
   "bin": {
-    "pokemon-chat-plays": "src/index.js"
+    "chatplays": "src/index.js"
   },
   "pkg": {
     "assets": [
@@ -22,11 +22,13 @@
     "build": "node scripts/build.js"
   },
   "keywords": [
-    "pokemon",
+    "chatplays",
     "twitch",
     "youtube",
     "chat-plays",
     "tpp",
+    "twitch-plays",
+    "pokemon",
     "hold",
     "segurar",
     "bot",

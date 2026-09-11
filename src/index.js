@@ -1,5 +1,5 @@
 /**
- * Pokemon Chat Plays
+ * ChatPlays
  * Ponto de entrada principal.
  *
  * Conecta o(s) cliente(s) (Twitch e/ou YouTube) e gerencia o ciclo de vida
@@ -429,7 +429,7 @@ function verificarAtualizacao() {
 async function main() {
   const versaoEspacada = `v${VERSAO}`.padEnd(10);
   logger.info('╔══════════════════════════════════════════╗');
-  logger.info(`║   🎮  POKÉMON CHAT PLAYS  ${versaoEspacada.padEnd(11)}  ║`);
+  logger.info(`║   🎮  CHATPLAYS  ${versaoEspacada.padEnd(24)}  ║`);
   logger.info('║   SindromeGames Edition                  ║');
   logger.info('╚══════════════════════════════════════════╝');
   logger.info(`Plataformas ativas: ${config.geral.plataformasAtivas.join(', ') || 'nenhuma'}`);

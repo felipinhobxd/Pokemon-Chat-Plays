@@ -329,12 +329,23 @@ const FILA_MAX = 25;
  * Enfileira uma ação de teclado. Ações são executadas UMA POR VEZ, em ordem,
  * para garantir que keydown/keyup não se invertam entre comandos.
  * @param {(concluir: () => void) => void} acao - Função que roda o processo
+ * @param {boolean} [descartavel=false] - true para ações AUTOCONTIDAS (toque
+ *   completo down+up): se a fila encher, estas podem ser descartadas. Um
+ *   keydown/keyup AVULSO jamais é descartado — perder o keyup de um hold
+ *   deixaria a tecla PRESA no jogo até o "soltar" (v2.9.2).
  */
-function enfileirar(acao) {
+function enfileirar(acao, descartavel = false) {
+  acao.descartavel = Boolean(descartavel);
   if (filaAcoes.length >= FILA_MAX) {
-    const descartada = filaAcoes.shift();
-    logger.aviso('[Teclado] Fila cheia — ação antiga descartada para não atrasar o jogo.');
-    void descartada;
+    // fila cheia: descarta o TOQUE completo mais antigo (autossuficiente —
+    // down e up num só processo, nada fica pendurado). Sem toque na fila,
+    // ela cresce além do teto mesmo: o limite físico é o número de teclas
+    // (cada hold gera no máximo um keydown + um keyup pendentes).
+    const idx = filaAcoes.findIndex((a) => a.descartavel);
+    if (idx >= 0) {
+      filaAcoes.splice(idx, 1);
+      logger.aviso('[Teclado] Fila cheia — toque antigo descartado para não atrasar o jogo.');
+    }
   }
   filaAcoes.push(acao);
   processarFila();
@@ -1036,6 +1047,8 @@ function keyUp(tecla) {
 function tocarTecla(tecla, durMs) {
   const duracao = durMs ?? duracaoPadraoMs();
   const plat = process.platform;
+  // descartável=true: toque down+up autocontido — se a fila encher, este
+  // pode ser descartado sem deixar tecla presa
   enfileirar((concluir) => {
     if (plat === 'win32') {
       const vk = vkWindows(tecla);
@@ -1078,7 +1091,7 @@ function tocarTecla(tecla, durMs) {
     } else {
       concluir();
     }
-  });
+  }, true);
 }
 
 /**
@@ -1092,6 +1105,8 @@ function tocarTecla(tecla, durMs) {
 function tocarCombinacao(modificadores, tecla, durMs) {
   const duracao = durMs ?? duracaoPadraoMs();
   const plat = process.platform;
+  // descartável=true: mods down -> tecla down -> tecla up -> mods up num
+  // SÓ processo — autossuficiente, nada fica pendurado se for descartado
   enfileirar((concluir) => {
     if (plat === 'win32') {
       const vk = vkWindows(tecla);
@@ -1142,7 +1157,7 @@ function tocarCombinacao(modificadores, tecla, durMs) {
     } else {
       concluir();
     }
-  });
+  }, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1456,5 +1471,11 @@ module.exports = {
     resolverTecla,
     linhaSequenciaJanela,
     linhaSequenciaGlobal,
+    // --- v2.9.2: política de descarte da fila (regressão de tecla presa) ---
+    fila: {
+      enfileirar,
+      limpar: () => { filaAcoes.length = 0; processandoAcao = false; },
+      inspecao: () => filaAcoes.map((a) => (a.descartavel ? 'toque' : 'tecla')),
+    },
   },
 };

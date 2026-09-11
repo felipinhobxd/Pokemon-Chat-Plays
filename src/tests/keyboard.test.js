@@ -212,3 +212,81 @@ test('shift funciona nos 3 backends (DeSmuME/RetroArch usam no Select)', () => {
   assert.strictEqual(keycodeMac('shift'), 56, 'keycode macOS');
   assert.strictEqual(nomeXdotool('shift'), 'Shift_L', 'keysym Linux');
 });
+
+// ---------------------------------------------------------------------------
+// v2.9.2 — REGRESSÃO: fila cheia NUNCA descarta keydown/keyup avulso
+//
+// Cenário real: backend lento (PowerShell em modo compatível ~1,5s/ação, ou
+// worker travado) + chat rápido → a fila bate no teto (FILA_MAX=25). O
+// comportamento antigo descartava a ação MAIS ANTIGA às cegas — se essa era
+// o keyup de um hold expirado, a tecla ficava PRESA no jogo indefinidamente
+// (até o "soltar" ou a pausa). Agora só TOQUES completos (down+up num só
+// processo, autossuficientes) podem ser descartados.
+// ---------------------------------------------------------------------------
+
+test('fila cheia descarta TOQUES antigos, nunca keydown/keyup (v2.9.2)', () => {
+  const fila = __test.fila;
+  fila.limpar();
+  try {
+    // 1ª ação entra em "execução" e nunca conclui — simula o backend lento
+    fila.enfileirar((concluir) => { /* worker lento: nunca responde */ });
+
+    // 12 ações de tecla avulsas (keydown/keyup de holds)
+    for (let i = 0; i < 12; i++) fila.enfileirar((concluir) => { /* pendente */ }, false);
+    // 12 toques completos (descartáveis)
+    for (let i = 0; i < 12; i++) fila.enfileirar((concluir) => { /* pendente */ }, true);
+    // fila = 24 < 25: mais 3 toques — o teto é atingido e 2 toques saem
+    for (let i = 0; i < 3; i++) fila.enfileirar((concluir) => { /* pendente */ }, true);
+
+    const inspecao = fila.inspecao();
+    assert.strictEqual(inspecao.length, 25, 'fila estabiliza no teto');
+    assert.strictEqual(
+      inspecao.filter((x) => x === 'tecla').length,
+      12,
+      'nenhum keydown/keyup foi descartado'
+    );
+    assert.strictEqual(
+      inspecao.filter((x) => x === 'toque').length,
+      13,
+      'apenas toques completos foram descartados/substituídos'
+    );
+  } finally {
+    fila.limpar();
+  }
+});
+
+test('fila só de keydown/keyup cresce além do teto sem descartar NADA (tecla presa = inaceitável)', () => {
+  const fila = __test.fila;
+  fila.limpar();
+  try {
+    fila.enfileirar((concluir) => { /* em execução (backend lento) */ });
+    // 30 ações não-descartáveis: o teto NÃO pode jogar nenhuma fora —
+    // cada keyup perdido deixaria uma tecla presa no jogo
+    for (let i = 0; i < 30; i++) fila.enfileirar((concluir) => { /* pendente */ }, false);
+    const inspecao = fila.inspecao();
+    assert.strictEqual(inspecao.length, 30, 'nenhuma ação de tecla descartada');
+    assert.ok(inspecao.every((x) => x === 'tecla'));
+  } finally {
+    fila.limpar();
+  }
+});
+
+test('ligação de produção: executarBotao gera ação descartável; segurar/soltar, não (v2.9.2)', () => {
+  const fila = __test.fila;
+  fila.limpar();
+  tecladoModulo.configurarMapeamento({ up: 'up' }, { substituir: true });
+  try {
+    // trava o processador (backend lento): as ações a seguir são ENFILEIRADAS
+    // sem nunca rodar — nenhum PowerShell/xdotool é disparado no teste
+    fila.enfileirar((concluir) => { /* backend lento: nunca responde */ });
+
+    tecladoModulo.executarBotao('up');        // tocarTecla → descartável
+    tecladoModulo.segurar('up', 60000, 't');  // keyDown → NÃO descartável
+    tecladoModulo.soltarTodas();              // keyUp → NÃO descartável
+
+    assert.deepStrictEqual(fila.inspecao(), ['toque', 'tecla', 'tecla']);
+  } finally {
+    tecladoModulo.soltarTodas(); // solta timers/estado do segurar
+    fila.limpar();
+  }
+});

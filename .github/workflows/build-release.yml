@@ -1,4 +1,4 @@
-name: Build e Release - Pokemon Chat Plays
+name: Build and Release - ChatPlays
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
         run: npm install -g pkg
 
       - name: Package the .exe
-        run: pkg . --targets node18-win-x64 --output PokemonChatPlays.exe --compress GZip
+        run: pkg . --targets node18-win-x64 --output ChatPlays.exe --compress GZip
 
       - name: Extract version from package.json
         id: versao_pkg
@@ -63,7 +63,7 @@ jobs:
       - name: Assemble release folder
         run: |
           mkdir release
-          copy PokemonChatPlays.exe release\
+          copy ChatPlays.exe release\
           copy .env.example release\
           copy README.md release\
           copy iniciar.bat release\
@@ -88,13 +88,13 @@ jobs:
           $exe = if ($makensis -is [string]) { $makensis } else { $makensis.Source }
           & $exe -DVERSION="${{ steps.versao_pkg.outputs.VERSION }}" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis falhou (exit $LASTEXITCODE)" }
-          if (-not (Test-Path "PokemonChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
-          copy PokemonChatPlays-Setup.exe release\
+          if (-not (Test-Path "ChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
+          copy ChatPlays-Setup.exe release\
 
       - name: Create the portable ZIP
         run: |
           cd release
-          7z a -tzip PokemonChatPlays-Windows.zip PokemonChatPlays.exe .env.example README.md iniciar.bat LICENSE
+          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe .env.example README.md iniciar.bat LICENSE
 
       - name: Extract version from tag
         id: versao
@@ -107,13 +107,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/PokemonChatPlays-Setup.exe
-            release/PokemonChatPlays-Windows.zip
-          name: Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }}
+            release/ChatPlays-Setup.exe
+            release/ChatPlays-Windows.zip
+          name: ChatPlays ${{ steps.versao.outputs.VERSION }}
           body: |
-            # Pokemon Chat Plays ${{ steps.versao.outputs.VERSION }} — SindromeGames Edition
+            # ChatPlays ${{ steps.versao.outputs.VERSION }} — SindromeGames Edition
 
-            Let your Twitch and YouTube chat control Pokémon, emulators, Minecraft, or almost any keyboard-driven game — the classic Twitch Plays experience on your own stream.
+            Let your Twitch and YouTube chat control almost any keyboard-driven game — Pokémon on an emulator, Minecraft, whatever — the classic Twitch Plays experience on your own stream.
 
             ## Fully Customizable Chat Controls
 
@@ -150,7 +150,8 @@ jobs:
 
             ## Getting started
 
-            1. Download and run **`PokemonChatPlays-Setup.exe`** — installs per-user (no admin required), with Start-menu shortcuts and an uninstaller. *Portable alternative: `PokemonChatPlays-Windows.zip`.*
+            1. Download and run **`ChatPlays-Setup.exe`** — installs per-user (no admin required), with Start-menu shortcuts and an uninstaller. *Portable alternative: `ChatPlays-Windows.zip`.*
+               - Upgrading from an older *Pokemon Chat Plays* install? The installer upgrades it in place — no duplicate install, and old shortcuts are cleaned up automatically.
             2. On every start, the setup wizard opens in your browser, pre-filled with what you saved before: enable Twitch and/or YouTube, paste your credentials and the live URL, and **test each connection** before saving.
                - Twitch token: https://twitchtokengenerator.com/ (with or without the `oauth:` prefix)
                - YouTube API key: https://console.cloud.google.com/ (enable YouTube Data API v3)
@@ -160,7 +161,7 @@ jobs:
             ## Support
             - Twitch: https://twitch.tv/sindromegames
             - YouTube: https://youtube.com/@SindromeGames
-            - Issues: https://github.com/felipinhobxd/Pokemon-Chat-Plays/issues
+            - Issues: https://github.com/felipinhobxd/ChatPlays/issues
           draft: false
           prerelease: false
 
@@ -168,6 +169,6 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: PokemonChatPlays-Windows
-          path: release/PokemonChatPlays-Windows.zip
+          name: ChatPlays-Windows
+          path: release/ChatPlays-Windows.zip
           retention-days: 30
