@@ -28,7 +28,7 @@ const msg = require('./messages');
  */
 const ultimaResposta = new Map();
 const RESPOSTA_COOLDOWN_MS = {
-  comandos: 8000, // lista completa é grande: 8s entre repetições
+  comandos: 8000,
   hold: 8000,
   stats: 5000,
   top: 5000,
@@ -36,19 +36,13 @@ const RESPOSTA_COOLDOWN_MS = {
   'hold-uso': 4000,
   'hold-confirmado': 1500,
   'soltar-confirmado': 1500,
-  // v2.5
   uptime: 8000,
   recorde: 8000,
   modo: 4000,
   'modo-bloqueado': 8000,
+  'modo-voto': 1200,
 };
 
-/**
- * Verifica se pode responder um tipo de mensagem agora
- * (e registra a resposta para iniciar o cooldown).
- * @param {string} tipo
- * @returns {boolean}
- */
 function podeResponder(tipo) {
   const agora = Date.now();
   const ultimo = ultimaResposta.get(tipo) || 0;
@@ -58,51 +52,26 @@ function podeResponder(tipo) {
   return true;
 }
 
-/** Reseta o anti-flood de um tipo (usado pelo anúncio automático). */
 function resetarCooldownResposta(tipo) {
   ultimaResposta.delete(tipo);
 }
 
-/**
- * Limpa todo o estado do anti-flood (útil para o anúncio automático
- * e para isolar testes).
- */
 function resetarAntiFlood() {
   ultimaResposta.clear();
 }
 
-/**
- * O streamer (dono do canal) não sofre cooldown — para poder testar
- * o jogo sozinho sem ser travado pelo anti-spam.
- * @param {string} usuario
- * @returns {boolean}
- */
 function ehStreamer(usuario) {
   const canal = String(config.twitch.channel || '').toLowerCase().trim();
   return Boolean(canal) && String(usuario || '').toLowerCase().trim() === canal;
 }
 
-/**
- * Verifica o cooldown de um usuário (streamer é isento).
- * @param {string} usuario
- * @returns {{permitido: boolean, motivo?: string}}
- */
 function verificarCooldown(usuario) {
   if (ehStreamer(usuario)) return { permitido: true };
   return cooldown.podeExecutar(usuario);
 }
 
-/** Última vez que logamos um comando bloqueado pela pausa (evita spam no terminal). */
 let ultimoLogPausa = 0;
 
-/**
- * Comandos de jogo (botão/hold/soltar/dialogo) são bloqueados quando o streamer
- * pausou o chat (F9). Comandos de informação (!comandos, !stats...) seguem
- * funcionando para o chat não ficar no escuro.
- * @param {string} usuario
- * @param {string} comando
- * @returns {boolean} true se deve ignorar o comando
- */
 function bloqueadoPelaPausa(usuario, comando) {
   if (!pausa.estaPausado()) return false;
   const agora = Date.now();
@@ -113,12 +82,6 @@ function bloqueadoPelaPausa(usuario, comando) {
   return true;
 }
 
-/**
- * Envia uma resposta com fallback seguro quando não há como responder.
- * @param {Function|null} responder
- * @param {string} texto
- * @param {string} prioridade - 'alta' (nunca descarta) | 'baixa' (descartável)
- */
 function responderSeguro(responder, texto, prioridade) {
   if (typeof responder === 'function') {
     responder(texto, prioridade);
@@ -127,14 +90,6 @@ function responderSeguro(responder, texto, prioridade) {
   }
 }
 
-/**
- * Processa uma mensagem de chat de qualquer plataforma.
- * @param {object} params
- * @param {string} params.plataforma - 'twitch' | 'youtube'
- * @param {string} params.usuario - Nome do autor
- * @param {string} params.texto - Mensagem bruta
- * @param {Function|null} [params.responder] - (texto, prioridade) => void
- */
 function processarMensagem({ plataforma, usuario, texto, responder }) {
   // `dialogo` é uma macro de gameplay, não um controle simples: por 5s ela
   // toca o botão A repetidamente. Fica fora do registro configurável para não
@@ -143,7 +98,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
   if (!parsed) return;
 
   switch (parsed.tipo) {
-    // ------------------------------------------------------------- comandos !
     case 'info': {
       logger.info(`[Chat] Comando !${parsed.comando} pedido por @${usuario} (${plataforma})`);
       switch (parsed.comando) {
@@ -170,7 +124,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
             responderSeguro(responder, msg.msgTop(stats.resumo()), 'alta');
           }
           break;
-        // ------------------------------------------------------- v2.5
         case 'uptime':
           if (podeResponder('uptime')) {
             responderSeguro(responder, msg.msgUptime(stats.resumo()), 'alta');
@@ -182,28 +135,40 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
           }
           break;
         case 'modo': {
-          // !democracia / !anarquia (explícitos) ou !votacao (alterna).
-          // O dono do canal troca na hora ('streamer-cmd' passa direto);
-          // o resto do chat respeita o intervalo mínimo (anti flip-flop
-          // aplicada DENTRO do votacao.definirModo)
-          const destino = parsed.bruto === 'anarquia' ? 'anarquia' : parsed.bruto === 'democracia' ? 'democracia' : null;
-          const origem = ehStreamer(usuario) ? `streamer-cmd @${usuario}` : `chat @${usuario}`;
-          const resultado = destino
-            ? votacao.definirModo(destino, origem)
-            : votacao.alternarModo(origem);
+          // v2.9.4+: comandos de modo enviados pelo CHAT são votos.
+          // Uma única pessoa nunca troca o modo. Cada usuário tem um voto
+          // recente e a troca só ocorre com maioria estrita (mínimo 2 pessoas).
+          // !votacao continua como atalho para votar no modo oposto ao atual.
+          const destino = parsed.bruto === 'anarquia'
+            ? 'anarquia'
+            : parsed.bruto === 'democracia'
+              ? 'democracia'
+              : (votacao.modoAtual() === 'anarquia' ? 'democracia' : 'anarquia');
+
+          const eleitor = `${plataforma}:${String(usuario || '').toLowerCase()}`;
+          const resultado = votacao.votarModo(destino, eleitor);
+
           if (resultado.mudou) {
             if (podeResponder('modo')) {
-              const texto = votacao.modoAtual() === 'democracia'
+              const resposta = votacao.modoAtual() === 'democracia'
                 ? msg.msgModoDemocracia()
                 : msg.msgModoAnarquia();
-              responderSeguro(responder, texto, 'alta');
+              responderSeguro(responder, resposta, 'alta');
             }
-          } else if (resultado.motivo === 'troca recente' && podeResponder('modo-bloqueado')) {
-            responderSeguro(
-              responder,
-              msg.msgModoTrocaBloqueada(Math.ceil((resultado.esperaMs || 0) / 1000)),
-              'baixa'
+          } else {
+            logger.info(
+              `[Votação] @${usuario} votou ${destino.toUpperCase()} — `
+              + `${resultado.votos}/${resultado.necessario} para maioria `
+              + `(${resultado.totalVotantes} votante(s)).`
             );
+            if (podeResponder('modo-voto')) {
+              const rotulo = destino === 'democracia' ? 'DEMOCRACIA' : 'ANARQUIA';
+              responderSeguro(
+                responder,
+                `🗳️ @${usuario} votou ${rotulo} — ${resultado.votos}/${resultado.necessario} para maioria`,
+                'baixa'
+              );
+            }
           }
           break;
         }
@@ -213,7 +178,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ------------------------------------------------------------- saudação
     case 'ola': {
       if (podeResponder('ola')) {
         responderSeguro(responder, msg.msgBoasVindas(usuario), 'alta');
@@ -221,7 +185,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ---------------------------------------------------------- hold inválido
     case 'hold-invalido': {
       if (config.geral.confirmarComandos && podeResponder('hold-uso')) {
         responderSeguro(responder, msg.msgUsoHold(usuario), 'alta');
@@ -229,7 +192,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ------------------------------------------------------------- soltar
     case 'soltar': {
       if (bloqueadoPelaPausa(usuario, 'soltar')) return;
       dialogo.parar();
@@ -242,7 +204,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ------------------------------------------------------------- hold
     case 'hold': {
       if (bloqueadoPelaPausa(usuario, `hold ${parsed.botao}`)) return;
       const verificacao = verificarCooldown(usuario);
@@ -252,7 +213,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         }
         return;
       }
-      // v2.5: em democracia, o hold vale como VOTO no botão (não segura)
       if (votacao.modoAtual() === 'democracia') {
         votacao.votar(parsed.botao, usuario);
         return;
@@ -269,7 +229,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ------------------------------------------------------------ diálogo
     case 'dialogo': {
       if (bloqueadoPelaPausa(usuario, 'dialogo')) return;
       const verificacao = verificarCooldown(usuario);
@@ -280,8 +239,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         return;
       }
 
-      // Democracia não pode ser burlada por uma macro de 5s: o comando vale
-      // como um voto no A. Em anarquia, executa a macro completa.
       if (votacao.modoAtual() === 'democracia') {
         votacao.votar('a', usuario);
         return;
@@ -300,7 +257,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       return;
     }
 
-    // ------------------------------------------------------------- botão
     case 'botao': {
       if (bloqueadoPelaPausa(usuario, parsed.botao)) return;
       const verificacao = verificarCooldown(usuario);
@@ -310,8 +266,6 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         }
         return;
       }
-      // v2.5: em democracia o comando vira VOTO — o mais votado executa
-      // no fim da janela (o feed do overlay mostra a votação ao vivo)
       if (votacao.modoAtual() === 'democracia') {
         votacao.votar(parsed.botao, usuario);
         return;
