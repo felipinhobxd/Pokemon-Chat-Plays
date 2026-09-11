@@ -1,12 +1,16 @@
 /**
  * Testes do assistente de configuração (v2.6) — helpers puros:
  * mascaramento de segredos e geração do .env completo.
+ * v2.7: campos do jogo (exe + ROM + reabrir) e verificação de caminhos.
  */
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const { montarConteudoEnv, mascararSegredo } = require('../assistente');
+const { montarConteudoEnv, mascararSegredo, verificarCaminhosJogo } = require('../assistente');
 
 // ---------------------------------------------------------------------------
 // mascararSegredo — segredos NUNCA voltam inteiros ao navegador
@@ -107,4 +111,94 @@ test('montarConteudoEnv: é .env válido (sem valores com quebra de linha)', () 
       assert.ok(!/\r|\n/.test(linha.slice(linha.indexOf('=') + 1)), 'valor multilinha?!');
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// v2.7: jogo genérico — exe + ROM + reabrir no .env gerado
+// ---------------------------------------------------------------------------
+
+test('montarConteudoEnv: jogo configurado entra completo no .env', () => {
+  const conteudo = montarConteudoEnv({
+    EMULADOR_EXE: 'C:\\Users\\Admin\\Downloads\\visualboyadvance-m-Win-x86_64\\visualboyadvance-m.exe',
+    JOGO_ROM: 'C:\\Users\\Admin\\Downloads\\Pokemon - Esmeralda.gba',
+    JOGO_AUTO_REINICIAR: 'true',
+  });
+  assert.ok(conteudo.includes('EMULADOR_EXE=C:\\Users\\Admin\\Downloads\\visualboyadvance-m-Win-x86_64\\visualboyadvance-m.exe'));
+  assert.ok(conteudo.includes('JOGO_ROM=C:\\Users\\Admin\\Downloads\\Pokemon - Esmeralda.gba'));
+  assert.ok(conteudo.includes('JOGO_AUTO_REINICIAR=true'));
+  // limites do watchdog também entram (defaults válidos)
+  assert.ok(conteudo.includes('JOGO_REINICIAR_DELAY_MS=3000'));
+  assert.ok(conteudo.includes('JOGO_TENTATIVAS_MAX=5'));
+  assert.ok(conteudo.includes('JOGO_ARGS='));
+});
+
+test('montarConteudoEnv: reabrir desligado vira false (toggle do wizard)', () => {
+  const conteudo = montarConteudoEnv({ JOGO_AUTO_REINICIAR: 'false' });
+  assert.ok(conteudo.includes('JOGO_AUTO_REINICIAR=false'));
+});
+
+test('montarConteudoEnv: EMULADOR_EXE do .env VELHO não vira custom duplicada', () => {
+  const envVelho = 'EMULADOR_EXE=C:\\velho\\vbam.exe\nJOGO_ROM=C:\\velha\\rom.gba\nMINHA_CUSTOM=1\n';
+  const conteudo = montarConteudoEnv({ EMULADOR_EXE: 'C:\\novo\\vbam.exe' }, envVelho);
+  assert.ok(conteudo.includes('EMULADOR_EXE=C:\\novo\\vbam.exe'), 'novo valor ganha');
+  assert.ok(!conteudo.includes('C:\\velho'), 'velho não duplica');
+  assert.ok(!conteudo.includes('C:\\velha'), 'rom velha não duplica');
+  assert.ok(conteudo.includes('MINHA_CUSTOM=1'), 'custom de verdade preservada');
+});
+
+// ---------------------------------------------------------------------------
+// verificarCaminhosJogo — o "🔍 Verificar caminhos" do wizard
+// ---------------------------------------------------------------------------
+
+test('verificarCaminhosJogo: exe e ROM existentes → ok com tamanhos', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-assist-'));
+  const exe = path.join(dir, 'vbam.exe');
+  const rom = path.join(dir, 'Pokemon - Esmeralda.gba');
+  fs.writeFileSync(exe, 'x'.repeat(2048));
+  fs.writeFileSync(rom, 'y'.repeat(16 * 1024 * 1024));
+
+  const r = verificarCaminhosJogo({ exe, rom });
+  assert.ok(r.ok, r.mensagem);
+  assert.ok(r.exe.ok && r.exe.tamanho === 2048);
+  assert.ok(r.rom.ok && r.rom.tamanho === 16 * 1024 * 1024);
+  assert.ok(r.mensagem.includes('vbam.exe'));
+  assert.ok(r.mensagem.includes('Pokemon - Esmeralda.gba'));
+});
+
+test('verificarCaminhosJogo: caminho inexistente → não ok e mensagem diz qual', () => {
+  const r = verificarCaminhosJogo({ exe: 'C:\\nao\\existe.exe', rom: '' });
+  assert.ok(!r.ok);
+  assert.ok(r.mensagem.includes('não achei o executável'));
+});
+
+test('verificarCaminhosJogo: ROM inexistente também é erro', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-assist2-'));
+  const exe = path.join(dir, 'mgba.exe');
+  fs.writeFileSync(exe, 'z');
+  const r = verificarCaminhosJogo({ exe, rom: 'C:\\sumiu\\rom.gba' });
+  assert.ok(!r.ok);
+  assert.ok(r.mensagem.includes('não achei a ROM'));
+});
+
+test('verificarCaminhosJogo: nada configurado é OK (jogo é opcional)', () => {
+  const r = verificarCaminhosJogo({ exe: '', rom: '' });
+  assert.ok(r.ok);
+  assert.strictEqual(r.exe, null);
+  assert.strictEqual(r.rom, null);
+  assert.ok(r.mensagem.includes('Sem jogo configurado'));
+});
+
+test('verificarCaminhosJogo: aspas e sujeira da colagem são limpas antes', () => {
+  const r = verificarCaminhosJogo({ exe: '  "C:\\definitivo\\nao.txt"\r\n', rom: '' });
+  assert.ok(!r.ok);
+  assert.ok(r.mensagem.includes('C:\\definitivo\\nao.txt'), 'mensagem usa o caminho limpo');
+});
+
+test('verificarCaminhosJogo: exe sem extensão de programa vira aviso, não erro', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-assist3-'));
+  const exe = path.join(dir, 'meujogo'); // sem .exe
+  fs.writeFileSync(exe, 'w');
+  const r = verificarCaminhosJogo({ exe, rom: '' });
+  assert.ok(r.ok, 'sem extensão continua OK');
+  assert.ok(r.mensagem.includes('atenção'), 'mas chama atenção');
 });

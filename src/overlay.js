@@ -42,6 +42,8 @@ const estado = {
   acoes: [],
   // v2.4: alvo do teclado (modo janela)
   alvo: { ativo: false, nome: '' },
+  // v2.7: status do jogo gerenciado (aberto/vigiado pelo bot)
+  jogo: { ativo: false, nome: '', rom: '', rodando: false, reabrindo: false, reinicios: 0, desistiu: false },
   // v2.5: tecla de pausa do streamer (texto do LED) + último toque por
   // botão (para o gamepad acender na página)
   teclaPausa: 'f9',
@@ -103,6 +105,27 @@ function setAlvo(exe) {
 }
 
 /**
+ * Define o status do jogo gerenciado (v2.7 — aberto/vigiado pelo bot).
+ * Aceita o objeto de jogo.status() do utils/jogo (cam extras são ignorados).
+ * @param {object|null} st - { ativo, nome, rom, rodando, reabrindo, reinicios, desistiu }
+ */
+function setJogo(st) {
+  const s = st && typeof st === 'object' ? st : {};
+  // mostra só o NOME da ROM (romNome do jogo.status(), ou basename)
+  const romNome = s.romNome
+    || String(s.rom || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+  estado.jogo = {
+    ativo: Boolean(s.ativo || s.exe),
+    nome: String(s.nome || s.exe || ''),
+    rom: romNome,
+    rodando: Boolean(s.rodando),
+    reabrindo: Boolean(s.reabrindo),
+    reinicios: Number(s.reinicios) || 0,
+    desistiu: Boolean(s.desistiu),
+  };
+}
+
+/**
  * Registra uma ação do chat no feed do overlay.
  * @param {string} usuario - Quem mandou
  * @param {string|null} botao - Botão canônico (up, a, start...) ou null
@@ -154,6 +177,7 @@ function snapshot() {
     uptimeMs,
     acoes: estado.acoes,
     alvo: { ...estado.alvo },
+    jogo: { ...estado.jogo },
     seguradas,
     toques: { ...estado.toques },
     votacao,
@@ -454,6 +478,7 @@ const PAGINA = [
   '      <div class="chips" id="seguradas"><span class="vazio">nada preso</span></div>',
   '    </div>',
   '    <div class="painel rodape" style="margin-top:auto">',
+  '      <span id="jogo" style="display:none" title="status do jogo"></span>',
   '      <span id="alvo" title="para onde as teclas do chat estão indo">⌨️ teclado global</span>',
   '      <span id="total">0 comandos</span>',
   '      <span id="uptime">0min</span>',
@@ -599,6 +624,27 @@ const PAGINA = [
   '    alvoEl.textContent = "⌨️ teclado global";',
   '    alvoEl.title = "teclas do chat indo para a janela em foco";',
   '  }',
+  '  // ---- jogo gerenciado (v2.7): rodando / reabrindo / desistiu ----',
+  '  var jogoEl = document.getElementById("jogo");',
+  '  if (d.jogo && d.jogo.ativo && d.jogo.nome) {',
+  '    jogoEl.style.display = "";',
+  '    var nomeJ = d.jogo.rom ? d.jogo.rom : d.jogo.nome;',
+  '    if (d.jogo.desistiu) {',
+  '      jogoEl.textContent = "⛔ " + nomeJ + " fechou";',
+  '      jogoEl.title = "o jogo fecha na hora e o bot parou de reabrir — confira ROM/executável";',
+  '      jogoEl.style.color = "#f87171";',
+  '    } else if (d.jogo.reabrindo || !d.jogo.rodando) {',
+  '      jogoEl.textContent = "🔄 reabrindo " + nomeJ + "...";',
+  '      jogoEl.title = "o jogo fechou — o bot está reabrindo com a mesma ROM";',
+  '      jogoEl.style.color = "#fbbf24";',
+  '    } else {',
+  '      jogoEl.textContent = "🎮 " + nomeJ + (d.jogo.reinicios > 0 ? " (" + d.jogo.reinicios + " reinício(s))" : "");',
+  '      jogoEl.title = "jogo aberto e vigiado pelo bot" + (d.jogo.rom ? " — ROM: " + d.jogo.rom : "") + " — reabre sozinho se fechar";',
+  '      jogoEl.style.color = "#86efac";',
+  '    }',
+  '  } else {',
+  '    jogoEl.style.display = "none";',
+  '  }',
   '}',
   'var falhas = 0;',
   'function ciclar() {',
@@ -628,6 +674,7 @@ module.exports = {
   setConexao,
   setVersao,
   setAlvo,
+  setJogo,
   setTeclaPausa,
   configurarProvedores,
   PAGINA,

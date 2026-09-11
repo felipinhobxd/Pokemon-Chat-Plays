@@ -164,6 +164,7 @@ function construirConfig() {
     // --- Novidade v2.4: modo janela (teclas só no emulador) ---
     // EMULADOR_EXE: caminho do .exe do emulador — define o alvo das teclas.
     // Vazio = o bot PERGUNTA no terminal ao iniciar (e lembra a resposta).
+    // v2.7: também é o programa que o bot ABRE/monitora (veja config.jogo).
     emuladorExe: getEnv('EMULADOR_EXE'),
     // MODO_TECLADO: janela (padrão — teclas vão SÓ para a janela do
     // emulador) | global (comportamento antigo — teclas vão p/ janela em foco)
@@ -183,6 +184,30 @@ function construirConfig() {
       salvar: getEnv('TECLA_SALVAR'),
       carregar: getEnv('TECLA_CARREGAR'),
     },
+  },
+  // --- Novidades v2.7: gerenciador de jogo (abrir + vigiar + reabrir) ---
+  // O EMULADOR_EXE (config.teclado.emuladorExe) define QUAL programa é o
+  // jogo; estas chaves dizem COMO o bot lida com ele:
+  //   - boot: se o jogo não estiver rodando, o bot ABRE sozinho (com a ROM);
+  //   - watchdog: se o jogo fechar no meio da live, reabre com a mesma ROM.
+  jogo: {
+    // JOGO_ROM: caminho da ROM passada como argumento ao abrir o emulador
+    // (ex.: Pokemon Esmeralda.gba). Vazio = abre só o .exe (jogos como
+    // Minecraft não usam ROM).
+    rom: getEnv('JOGO_ROM'),
+    // JOGO_ARGS: argumentos extras separados por espaço (ex.: retroarch
+    // precisa de "-L core.dll"). Vazio = nenhum.
+    args: getEnv('JOGO_ARGS'),
+    // JOGO_AUTO_REINICIAR: reabre o jogo se ele fechar/cair (true|false)
+    autoReiniciar: getEnvBool('JOGO_AUTO_REINICIAR', true),
+    // espera antes de reabrir (ms) — dá tempo do sistema limpar o processo
+    reiniciarDelayMs: getEnvInt('JOGO_REINICIAR_DELAY_MS', 3000),
+    // reaberturas MÁXIMAS em sequência quando o jogo morre rápido (crash
+    // loop: ROM errada, exe quebrado...). Depois disso o bot desiste e avisa.
+    tentativasMax: getEnvInt('JOGO_TENTATIVAS_MAX', 5),
+    // uma rodada que viveu mais que isto reseta o contador de tentativas
+    // (queda de jogo saudável = crash legítimo, pode reabrir de novo)
+    vidaMinimaMs: getEnvInt('JOGO_VIDA_MINIMA_MS', 15000),
   },
   // --- Novidades v2.5: tecla de pausa configurável ---
   pausa: {

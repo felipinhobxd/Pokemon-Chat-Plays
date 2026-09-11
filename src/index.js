@@ -45,6 +45,7 @@ const pausa = require('./utils/pausa');
 const overlay = require('./overlay');
 const atualizacao = require('./utils/atualizacao');
 const emulador = require('./utils/emulador');
+const jogo = require('./utils/jogo');
 const votacao = require('./utils/votacao');
 const { montarMapeamento } = require('./presets');
 const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
@@ -90,6 +91,8 @@ async function encerrar(sinal) {
   try {
     // Primeiro solta as teclas (um jogo com tecla presa é péssimo)
     soltarTodasSync();
+    // Para a vigilância do jogo (NÃO fecha o jogo — ele é do streamer)
+    jogo.parar();
     // Depois salva o histórico de stats na hora (autosave é de 30s)
     stats.salvar();
     pausa.pararWatcher();
@@ -111,28 +114,37 @@ async function encerrar(sinal) {
  * Ordem: MODO_TECLADO=global (força antigo) > EMULADOR_EXE do .env >
  * prompt no terminal (com Enter mantendo o último salvo).
  * Define o modo no controlador de teclado e reflete na overlay.
+ * v2.7: além do alvo das teclas, devolve o exe resolvido para o
+ * gerenciador de jogo (abrir/vigiar/reabrir) — os papéis são separados:
+ * teclado global não impede o bot de abrir o jogo.
+ * @returns {string|null} caminho do exe resolvido (null = sem alvo)
  */
+let exeDoJogo = null;
+
 async function configurarAlvoDoEmulador() {
   const arquivoSalvo = path.resolve(process.cwd(), 'dados', 'emulador.json');
 
-  // 1) .env força o comportamento antigo — nem pergunta
+  // 1) .env força o comportamento antigo — nem pergunta (o jogo ainda
+  //    pode ser gerenciado: teclado global ≠ não abrir o jogo)
   if (config.teclado.modo === 'global') {
+    exeDoJogo = emulador.normalizarCaminhoExe(config.teclado.emuladorExe) || null;
     teclado.configurarAlvoJanela(null);
     overlay.setAlvo(null);
     logger.aviso('[Teclado] MODO_TECLADO=global no .env — teclas vão para a janela EM FOCO (comportamento antigo).');
-    return;
+    return exeDoJogo;
   }
 
   // 2) .env já define o caminho — usa direto
   const doEnv = emulador.normalizarCaminhoExe(config.teclado.emuladorExe);
   if (doEnv) {
+    exeDoJogo = doEnv;
     teclado.configurarAlvoJanela(doEnv);
     overlay.setAlvo(doEnv);
     logger.info(`[Teclado] 🎯 EMULADOR_EXE do .env: ${doEnv}`);
     if (!emulador.arquivoExiste(doEnv)) {
       logger.aviso('[Teclado] ⚠️ Esse arquivo não existe agora — o bot avisa se não achar o emulador rodando.');
     }
-    return;
+    return exeDoJogo;
   }
 
   const salvo = emulador.carregarSalvo(arquivoSalvo);
@@ -140,21 +152,23 @@ async function configurarAlvoDoEmulador() {
   // 3) sem terminal interativo (serviço/CI): usa o salvo ou cai no global
   if (!process.stdin.isTTY) {
     if (salvo) {
+      exeDoJogo = salvo;
       teclado.configurarAlvoJanela(salvo);
       overlay.setAlvo(salvo);
       logger.info(`[Teclado] 🎯 Emulador salvo: ${salvo} — teclas do chat vão DIRETO para a janela dele.`);
     } else {
+      exeDoJogo = null;
       teclado.configurarAlvoJanela(null);
       overlay.setAlvo(null);
       logger.aviso('[Teclado] Sem terminal interativo e sem emulador salvo — modo global (janela em foco).');
     }
-    return;
+    return exeDoJogo;
   }
 
   // 4) pergunta o .exe (pedido do streamer: "antes de iniciar pede o .exe")
   const pergunta = [
     '🎮 Para o chat controlar SÓ O JOGO (você fica livre mexendo no OBS),',
-    '   cole o caminho do .exe do emulador. Ex.: C:\\Emuladores\\visualboyadvance-m.exe',
+    '   cole o caminho do .exe do jogo. Ex.: C:\\Emuladores\\visualboyadvance-m.exe',
     salvo
       ? `   Enter = manter "${salvo}" · ou cole outro caminho · "global" = modo antigo:`
       : '   Enter = modo global (teclas vão para a janela em foco) · ou cole um caminho:',
@@ -167,6 +181,7 @@ async function configurarAlvoDoEmulador() {
     emulador.salvarAlvo(arquivoSalvo, decisao.exe);
   }
 
+  exeDoJogo = decisao.exe;
   teclado.configurarAlvoJanela(decisao.exe);
   overlay.setAlvo(decisao.exe);
 
@@ -180,6 +195,47 @@ async function configurarAlvoDoEmulador() {
     logger.info('[Teclado] Modo GLOBAL: as teclas do chat vão para a janela EM FOCO (igual às versões antigas).');
     logger.info('[Teclado] Dica: reinicie e cole o caminho do .exe do emulador para ativar o modo janela.');
   }
+  return exeDoJogo;
+}
+
+/**
+ * Gerenciador de jogo (v2.7): abre o jogo com a ROM, vigia e REABRE se
+ * fechar. Sem exe configurado, não faz nada (o streamer abre o jogo na mão,
+ * como sempre funcionou).
+ */
+function iniciarGerenciadorJogo() {
+  if (!exeDoJogo) return;
+
+  jogo.configurar({
+    exe: exeDoJogo,
+    rom: config.jogo.rom,
+    args: config.jogo.args,
+    autoReiniciar: config.jogo.autoReiniciar,
+    delayMs: config.jogo.reiniciarDelayMs,
+    tentativasMax: config.jogo.tentativasMax,
+    vidaMinimaMs: config.jogo.vidaMinimaMs,
+    aoEvento: (ev) => {
+      // reflete na overlay (rodapé: 🎮 rodando / 🔄 reabrindo)
+      overlay.setJogo(jogo.status());
+      if (ev.tipo === 'reaberto') {
+        logger.info('[Jogo] ✅ Jogo reaberto — a live continua!');
+      }
+    },
+  });
+
+  overlay.setJogo({ ...jogo.status(), rodando: false, reabrindo: false });
+
+  jogo
+    .iniciar()
+    .then((r) => {
+      overlay.setJogo(jogo.status());
+      if (!r.ok && r.modo === 'off') {
+        logger.aviso('[Jogo] ⚠️ Não consegui abrir o jogo — confira o caminho do .exe (o bot segue funcionando normalmente).');
+      }
+    })
+    .catch((err) => {
+      logger.aviso(`[Jogo] ⚠️ Vigília do jogo não subiu (${err?.message || err}).`);
+    });
 }
 
 /**
@@ -387,6 +443,9 @@ async function main() {
 
   // Teclas customizáveis (v2.3) — antes de qualquer coisa tocar no teclado
   aplicarMapeamentoTeclas();
+
+  // Jogo (v2.7): abre com a ROM + watchdog que reabre se fechar
+  iniciarGerenciadorJogo();
 
   // Histórico de estatísticas (v2.3)
   configurarStatsPersistentes();

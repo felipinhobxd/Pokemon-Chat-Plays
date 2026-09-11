@@ -76,6 +76,10 @@ const PADROES = {
   CONFIRM_COMMANDS: 'true',
   EMULADOR_PRESET: 'vbam',
   MODO_TECLADO: 'janela',
+  JOGO_AUTO_REINICIAR: 'true',
+  JOGO_REINICIAR_DELAY_MS: '3000',
+  JOGO_TENTATIVAS_MAX: '5',
+  JOGO_VIDA_MINIMA_MS: '15000',
   TECLA_PAUSA: 'f9',
   MODO_INICIAL: 'anarquia',
   VOTACAO_INTERVALO_MS: '10000',
@@ -142,9 +146,22 @@ function montarConteudoEnv(v, envAtual = '') {
     `HOLD_MAX_MS=${val('HOLD_MAX_MS')}`,
     `CONFIRM_COMMANDS=${val('CONFIRM_COMMANDS')}`,
     '',
-    '# ----- EMULADOR / TECLADO -----',
+    '# ----- EMULADOR / JOGO (v2.7) -----',
     '# Presets: vbam, mgba, desmume, retroarch',
     `EMULADOR_PRESET=${val('EMULADOR_PRESET')}`,
+    '# Caminho completo do .exe do jogo/emulador (qualquer programa serve:',
+    '# VBA-M, mGBA, RetroArch, Minecraft...). Vazio = o bot pergunta no terminal.',
+    `EMULADOR_EXE=${val('EMULADOR_EXE')}`,
+    '# ROM aberta junto com o emulador (vazio para jogos sem ROM)',
+    `JOGO_ROM=${val('JOGO_ROM')}`,
+    '# Reabrir o jogo sozinho se ele fechar/cair no meio da live',
+    `JOGO_AUTO_REINICIAR=${val('JOGO_AUTO_REINICIAR') || 'true'}`,
+    '# Espera antes de reabrir (ms) e limites anti crash-loop',
+    `JOGO_REINICIAR_DELAY_MS=${val('JOGO_REINICIAR_DELAY_MS')}`,
+    `JOGO_TENTATIVAS_MAX=${val('JOGO_TENTATIVAS_MAX')}`,
+    `JOGO_VIDA_MINIMA_MS=${val('JOGO_VIDA_MINIMA_MS')}`,
+    '# Argumentos extras ao abrir (ex.: retroarch: -L core.dll)',
+    `JOGO_ARGS=${val('JOGO_ARGS')}`,
     '# janela = teclas só no emulador | global = janela em foco',
     `MODO_TECLADO=${val('MODO_TECLADO')}`,
     '# Tecla do streamer que pausa/libera o chat',
@@ -172,7 +189,7 @@ function montarConteudoEnv(v, envAtual = '') {
     ...Object.keys(PADROES),
     'TWITCH_BOT_USERNAME', 'TWITCH_OAUTH_TOKEN', 'TWITCH_CHANNEL',
     'YOUTUBE_ENABLED', 'YOUTUBE_API_KEY', 'YOUTUBE_VIDEO_ID',
-    'ACTIVE_PLATFORMS',
+    'ACTIVE_PLATFORMS', 'EMULADOR_EXE', 'JOGO_ROM', 'JOGO_ARGS',
   ]);
   const custom = [];
   for (const linha of String(envAtual || '').split(/\r?\n/)) {
@@ -195,6 +212,72 @@ function lerEnvAtual() {
   }
 }
 
+/**
+ * Verifica os caminhos do jogo preenchidos no wizard (PURO — testável com
+ * arquivos temporários). Não executa nada, só checa existência/tamanho.
+ * @param {object} p - { exe, rom }
+ * @returns {{ok: boolean, exe: object|null, rom: object|null, mensagem: string}}
+ */
+function verificarCaminhosJogo({ exe, rom } = {}) {
+  const { normalizarCaminhoJogo, nomeDoProcesso } = require('./utils/jogo');
+  const exeLimpo = normalizarCaminhoJogo(exe);
+  const romLimpa = normalizarCaminhoJogo(rom);
+
+  if (!exeLimpo && !romLimpa) {
+    return {
+      ok: true,
+      exe: null,
+      rom: null,
+      mensagem: 'Sem jogo configurado — o bot não vai abrir nem monitorar nenhum programa (também funciona assim).',
+    };
+  }
+
+  const info = (caminho) => {
+    try {
+      const st = fs.statSync(caminho);
+      return { ok: st.isFile(), tamanho: st.size };
+    } catch {
+      return { ok: false, tamanho: 0 };
+    }
+  };
+
+  const exeInfo = exeLimpo ? { caminho: exeLimpo, ...info(exeLimpo) } : null;
+  const romInfo = romLimpa ? { caminho: romLimpa, ...info(romLimpa) } : null;
+
+  const problemas = [];
+  const avisos = [];
+  if (exeInfo && !exeInfo.ok) problemas.push(`não achei o executável "${exeLimpo}"`);
+  if (romInfo && !romInfo.ok) problemas.push(`não achei a ROM "${romLimpa}"`);
+  if (exeInfo && exeInfo.ok && !/\.(exe|bat|cmd|lnk|app|sh|jar)$/i.test(exeLimpo)) {
+    // aviso, não erro — pode ser um executável sem extensão conhecida
+    avisos.push(`"${nomeDoProcesso(exeLimpo)}" não tem extensão de programa — confira se é mesmo o executável`);
+  }
+
+  const kb = (n) => `${Math.max(1, Math.round(n / 1024))} KB`;
+  const partes = [];
+  if (exeInfo?.ok) partes.push(`executável "${nomeDoProcesso(exeLimpo)}" encontrado (${kb(exeInfo.tamanho)})`);
+  if (romInfo?.ok) partes.push(`ROM "${nomeDoProcesso(romLimpa)}" encontrada (${kb(romInfo.tamanho)})`);
+
+  const criticos = [];
+  if (exeInfo && !exeInfo.ok) criticos.push('exe');
+  if (romInfo && !romInfo.ok) criticos.push('rom');
+
+  let mensagem;
+  if (criticos.length > 0) {
+    mensagem = `✖ ${problemas.join(' · ')}`;
+  } else {
+    mensagem = `✔ ${partes.join(' · ')}`;
+    if (avisos.length) mensagem += ` — atenção: ${avisos.join(' · ')}`;
+  }
+
+  return {
+    ok: criticos.length === 0,
+    exe: exeInfo,
+    rom: romInfo,
+    mensagem,
+  };
+}
+
 /** Valores atuais (SEM segredos em claro) para pré-preencher o wizard. */
 function estadoAtual() {
   const plataformas = config.geral.plataformasAtivas;
@@ -212,6 +295,10 @@ function estadoAtual() {
       KEY_PRESS_DURATION_MS: String(config.geral.tempoPressionarTeclaMs),
       EMULADOR_PRESET: config.teclado.preset,
       MODO_TECLADO: config.teclado.modo,
+      // v2.7: jogo genérico (path do .exe + ROM + reabrir sozinho)
+      EMULADOR_EXE: config.teclado.emuladorExe,
+      JOGO_ROM: config.jogo.rom,
+      JOGO_AUTO_REINICIAR: String(config.jogo.autoReiniciar),
       TECLA_PAUSA: config.pausa.tecla,
       MODO_INICIAL: config.votacao.modoInicial,
       OVERLAY_PORTA: String(config.overlay.porta),
@@ -375,6 +462,15 @@ function responderJson(res, codigo, obj) {
 function salvarConfiguracao(v) {
   const finais = { ...v };
 
+  // v2.7: caminhos do jogo — tira aspas coladas e quebras de linha (a
+  // colagem do Windows e do chat às vezes traz sujeira)
+  const { normalizarCaminhoJogo, dividirArgs } = require('./utils/jogo');
+  for (const chave of ['EMULADOR_EXE', 'JOGO_ROM']) {
+    finais[chave] = normalizarCaminhoJogo(finais[chave]);
+  }
+  finais.JOGO_ARGS = dividirArgs(finais.JOGO_ARGS).join(' ');
+  finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
+
   // Segredo vazio = manter o atual (o navegador nunca recebe o valor real)
   if (!String(finais.TWITCH_OAUTH_TOKEN || '').trim()) {
     finais.TWITCH_OAUTH_TOKEN = config.twitch.oauthToken;
@@ -401,11 +497,21 @@ function salvarConfiguracao(v) {
 
   recarregar();
   const erros = errosConfig();
+  const { nomeDoProcesso } = require('./utils/jogo');
   return {
     ok: erros.length === 0,
     erros,
     arquivo: caminhoEnv(),
     overlay: config.overlay.ativa ? `http://localhost:${config.overlay.porta}` : null,
+    // v2.7: info do jogo p/ a tela de sucesso ("o bot abre sozinho...")
+    jogo: finais.EMULADOR_EXE
+      ? {
+          exe: finais.EMULADOR_EXE,
+          nome: nomeDoProcesso(finais.EMULADOR_EXE),
+          rom: finais.JOGO_ROM ? nomeDoProcesso(finais.JOGO_ROM) : '',
+          autoReiniciar: finais.JOGO_AUTO_REINICIAR !== 'false',
+        }
+      : null,
   };
 }
 
@@ -419,6 +525,41 @@ function origemPermitida(req) {
   const origem = req.headers.origin;
   if (!origem) return true; // curl / node / mesmo servidor
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/$|$)/i.test(origem);
+}
+
+/**
+ * Abre o jogo na hora (botão "abrir agora" do wizard) — lançamento
+ * best-effort, sem vigilância: serve para o usuário VER o jogo abrir.
+ * @param {object} p - { exe, rom, args }
+ * @returns {{ok: boolean, mensagem: string}}
+ */
+function abrirJogoAgora({ exe, rom, args } = {}) {
+  const jogo = require('./utils/jogo');
+  const { file, args: lista, cwd } = jogo.montarLinhaComando({ exe, rom, args });
+  if (!file) return { ok: false, mensagem: 'Preencha o caminho do executável antes de abrir.' };
+
+  const checado = verificarCaminhosJogo({ exe: file, rom });
+  if (checado.exe && !checado.exe.ok) {
+    return { ok: false, mensagem: checado.mensagem };
+  }
+
+  try {
+    const filho = spawn(file, lista, {
+      cwd: cwd || undefined,
+      stdio: 'ignore',
+      detached: true, // sobrevive ao assistente fechar
+    });
+    // ENOENT tardio (arquivo sumido entre o check e o spawn) não pode
+    // virar uncaughtException — engole e deixa o usuário tentar de novo
+    filho.on('error', () => {});
+    filho.unref();
+    return {
+      ok: true,
+      mensagem: `Abri "${jogo.nomeDoProcesso(file)}"${rom ? ` com ${jogo.nomeDoProcesso(rom)}` : ''} — olha aí na tela! 🎮`,
+    };
+  } catch (err) {
+    return { ok: false, mensagem: `Não consegui abrir (${err.message}).` };
+  }
 }
 
 /** Roteamento do assistente. */
@@ -462,6 +603,29 @@ async function tratarRequisicao(req, res) {
       const resultado = await testarYoutube({
         apiKey: body.YOUTUBE_API_KEY || config.youtube.apiKey,
         videoId: body.YOUTUBE_VIDEO_ID || config.youtube.videoId,
+      });
+      responderJson(res, 200, resultado);
+      return;
+    }
+
+    // v2.7: confere se os caminhos do jogo existem neste PC
+    if (req.method === 'POST' && url === '/api/verificar-jogo') {
+      const body = await lerBody(req);
+      const resultado = verificarCaminhosJogo({
+        exe: body.EMULADOR_EXE ?? config.teclado.emuladorExe,
+        rom: body.JOGO_ROM ?? config.jogo.rom,
+      });
+      responderJson(res, 200, resultado);
+      return;
+    }
+
+    // v2.7: abre o jogo AGORA (exe + ROM) — teste prático do lançamento
+    if (req.method === 'POST' && url === '/api/abrir-jogo') {
+      const body = await lerBody(req);
+      const resultado = abrirJogoAgora({
+        exe: body.EMULADOR_EXE ?? config.teclado.emuladorExe,
+        rom: body.JOGO_ROM ?? config.jogo.rom,
+        args: body.JOGO_ARGS ?? config.jogo.args,
       });
       responderJson(res, 200, resultado);
       return;
@@ -647,4 +811,6 @@ module.exports = {
   montarConteudoEnv,
   mascararSegredo,
   salvarConfiguracao,
+  verificarCaminhosJogo,
+  abrirJogoAgora,
 };

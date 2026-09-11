@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/Pokemon-Chat-Plays?label=release)](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases)
 [![License](https://img.shields.io/github/license/felipinhobxd/Pokemon-Chat-Plays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-159%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![Tests](https://img.shields.io/badge/tests-185%20%E2%9C%94-brightgreen)](#development-nodejs--18)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
@@ -13,20 +13,21 @@
 ## Highlights
 
 - **Plug-and-play** — run `PokemonChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
-- **Setup wizard** — interactive UI in the browser: toggle Twitch/YouTube, paste credentials, **test each connection** before saving. First run opens it automatically (`npm run assistente` to reopen).
+- **Setup wizard** — interactive UI in the browser: toggle Twitch/YouTube, paste credentials, **test each connection** before saving, and set the **game path + ROM** with a one-click launch. First run opens it automatically (`npm run assistente` to reopen).
+- **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
 - **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs.
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
 - **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim.
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 159 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — 185 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
 1. **Download and run** `PokemonChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `PokemonChatPlays-Windows.zip`.)*
 2. The first run opens the **setup wizard** in your browser: toggle Twitch/YouTube, paste your bot credentials and the live URL — the wizard **tests each connection** before saving.
-3. **Start the emulator** ([VBA-M](https://visualboyadvance.org/) recommended) and load your game.
-4. When asked, paste the emulator `.exe` path (it's saved for next time — just press Enter afterwards). The bot connects and announces the commands in chat.
+3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game for you**.
+4. Start the bot — it **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
 
 > 🛡️ *Windows says "protected your PC"? The exe has no digital signature — click **More info → Run anyway**.*
 > 🔒 *Never share your `.env` — it contains your bot token.*
@@ -84,6 +85,17 @@ Override any single key with `TECLA_A=x`, `TECLA_SALVAR=shift+f1`, etc. Accepted
 
 > ⚠️ **RetroArch** reads the keyboard by polling, not messages — use `MODO_TECLADO=global` for it.
 
+## Game manager (open · watch · reopen)
+
+Set `EMULADOR_EXE` (the wizard does it for you) and the bot takes care of the game itself:
+
+- **On boot** — game not running? The bot opens it: `spawn(exe, [ROM, ...args])`. Already running? It just **attaches** (no second instance) and watches it.
+- **Watchdog** — the game closes mid-stream → the bot waits `JOGO_REINICIAR_DELAY_MS` (3 s) and **reopens it with the same ROM**. The OBS overlay shows 🎮 running / 🔄 reopening live.
+- **Crash-loop guard** — if the game dies "instantly" (under `JOGO_VIDA_MINIMA_MS`, 5 times in a row — wrong ROM, broken exe…), the bot **gives up** and warns instead of reopening forever. A run that lasted longer resets the counter, so real mid-stream crashes always get a reopen.
+- **Ctrl+C never kills your game** — the watchdog stops, the game stays.
+
+It works with anything you can launch: `EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe` + `JOGO_ROM=C:\Games\Pokemon - Emerald.gba`, a launcher `.bat`, a `.jar`… For extra flags (RetroArch cores etc.) use `JOGO_ARGS`.
+
 ## Configuration (`.env`)
 
 Copy `.env.example` → `.env` — or just run `npm run assistente` (or the first run of the bot) and fill everything in the browser. The essentials:
@@ -96,6 +108,8 @@ Copy `.env.example` → `.env` — or just run `npm run assistente` (or the firs
 | `COMMAND_COOLDOWN_MS` | `1500` | Per-user cooldown — nobody solo-controls the game |
 | `KEY_PRESS_DURATION_MS` | `230` | How long each key tap lasts |
 | `EMULADOR_PRESET` / `EMULADOR_EXE` / `MODO_TECLADO` | `vbam` / *(ask at boot)* / `janela` | Emulator layout, target exe and key delivery mode |
+| `JOGO_ROM` / `JOGO_ARGS` / `JOGO_AUTO_REINICIAR` | — / — / `true` | Game manager: ROM opened with the exe, extra launch args, auto-reopen on crash |
+| `JOGO_REINICIAR_DELAY_MS` / `JOGO_TENTATIVAS_MAX` / `JOGO_VIDA_MINIMA_MS` | `3000` / `5` / `15000` | Reopen delay and crash-loop limits |
 | `MODO_INICIAL` / `VOTACAO_INTERVALO_MS` / `VOTACAO_TROCA_MIN_MS` | `anarquia` / `10000` / `30000` | Democracy settings |
 | `TECLA_PAUSA` / `TECLA_MODO` | `f9` / `f8` | Streamer hotkeys (`off` disables) |
 | `OVERLAY_ATIVA` / `OVERLAY_PORTA` | `true` / `8899` | OBS overlay server |
@@ -108,7 +122,8 @@ See `.env.example` for the full annotated list — every option has a comment ex
 | Symptom | Fix |
 |---|---|
 | Windows blocked the exe | More info → Run anyway (no digital signature) |
-| Keys don't reach the game | Emulator closed? The bot warns when the target window is missing. RetroArch: set `MODO_TECLADO=global` |
+| Keys don't reach the game | Emulator closed? The bot warns when the target window is missing — and with `EMULADOR_EXE` set it **reopens the game for you**. RetroArch: set `MODO_TECLADO=global` |
+| Bot stopped reopening the game | Crash-loop guard kicked in: the game died instantly 5× in a row. Check the ROM path (`JOGO_ROM`) and whether the emulator opens it manually |
 | Arrows move the character diagonally / wrong | Emulator remapped? Fix with `TECLA_UP` etc. |
 | `Login authentication failed` | Regenerate the OAuth token — it expired or belongs to another account |
 | `API key not valid` (YouTube) | Wrong `YOUTUBE_API_KEY` — create one at console.cloud.google.com with the **YouTube Data API v3** enabled |
@@ -124,7 +139,7 @@ npm start       # run the bot
 npm run dev     # run with auto-restart on file change
 npm run assistente   # setup wizard in the browser
 npm run setup   # terminal-only .env wizard (legacy)
-npm test        # 159 offline tests (no emulator/chat needed)
+npm test        # 185 offline tests (no emulator/chat needed)
 npm run build   # build the .exe + setup.exe locally (requires pkg; NSIS optional)
 ```
 
@@ -146,8 +161,8 @@ src/
 │   ├── keyboard.js       # key injection (worker, PostMessage, combos)
 │   ├── twitch.js         # tmi.js client + send queue
 │   └── youtube.js        # YouTube Data API polling
-├── utils/                # logger, stats, cooldown, pause, votes, update check
-└── tests/                # 159 tests (node:test)
+├── utils/                # logger, stats, cooldown, pause, votes, update check, game manager
+└── tests/                # 185 tests (node:test)
 ```
 
 </details>
