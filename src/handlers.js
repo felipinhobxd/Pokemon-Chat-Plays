@@ -16,6 +16,7 @@ const stats = require('./utils/stats');
 const teclado = require('./controllers/keyboard');
 const pausa = require('./utils/pausa');
 const votacao = require('./utils/votacao');
+const dialogo = require('./utils/dialogo');
 const overlay = require('./overlay');
 const { parseComando } = require('./commands');
 const msg = require('./messages');
@@ -95,7 +96,7 @@ function verificarCooldown(usuario) {
 let ultimoLogPausa = 0;
 
 /**
- * Comandos de jogo (botão/hold/soltar) são bloqueados quando o streamer
+ * Comandos de jogo (botão/hold/soltar/dialogo) são bloqueados quando o streamer
  * pausou o chat (F9). Comandos de informação (!comandos, !stats...) seguem
  * funcionando para o chat não ficar no escuro.
  * @param {string} usuario
@@ -135,7 +136,10 @@ function responderSeguro(responder, texto, prioridade) {
  * @param {Function|null} [params.responder] - (texto, prioridade) => void
  */
 function processarMensagem({ plataforma, usuario, texto, responder }) {
-  const parsed = parseComando(texto);
+  // `dialogo` é uma macro de gameplay, não um controle simples: por 5s ela
+  // toca o botão A repetidamente. Fica fora do registro configurável para não
+  // transformar a macro numa tecla única por engano.
+  const parsed = dialogo.ehComando(texto) ? { tipo: 'dialogo' } : parseComando(texto);
   if (!parsed) return;
 
   switch (parsed.tipo) {
@@ -228,6 +232,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
     // ------------------------------------------------------------- soltar
     case 'soltar': {
       if (bloqueadoPelaPausa(usuario, 'soltar')) return;
+      dialogo.parar();
       const quantidade = teclado.soltarTodas();
       stats.registrar('soltar', plataforma, usuario);
       overlay.registrarAcao(usuario, null, 'soltar');
@@ -260,6 +265,37 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
           responderSeguro(responder, msg.msgHoldConfirmado(usuario, parsed.botao, parsed.duracaoMs), 'baixa');
         }
+      }
+      return;
+    }
+
+    // ------------------------------------------------------------ diálogo
+    case 'dialogo': {
+      if (bloqueadoPelaPausa(usuario, 'dialogo')) return;
+      const verificacao = verificarCooldown(usuario);
+      if (!verificacao.permitido) {
+        if (config.geral.debug) {
+          logger.debug(`[Chat] @${usuario} bloqueado no dialogo: ${verificacao.motivo}`);
+        }
+        return;
+      }
+
+      // Democracia não pode ser burlada por uma macro de 5s: o comando vale
+      // como um voto no A. Em anarquia, executa a macro completa.
+      if (votacao.modoAtual() === 'democracia') {
+        votacao.votar('a', usuario);
+        return;
+      }
+
+      const iniciou = dialogo.iniciar({
+        executar: () => teclado.executarBotao('a'),
+        estaPausado: () => pausa.estaPausado(),
+      });
+      if (iniciou) {
+        cooldown.registrarExecucao(usuario);
+        stats.registrar('dialogo', plataforma, usuario);
+        overlay.registrarAcao(usuario, 'a', 'dialogo', dialogo.DURACAO_MS);
+        logger.comando(`[Chat] 💬 @${usuario} iniciou DIALOGO — pressionando A repetidamente por 5s.`);
       }
       return;
     }
