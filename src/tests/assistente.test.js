@@ -1,7 +1,8 @@
 /**
  * Testes do assistente de configuração (v2.6) — helpers puros:
- * mascaramento de segredos e geração do .env completo.
- * v2.7: campos do jogo (exe + ROM + reabrir) e verificação de caminhos.
+ * geração do .env completo e verificação de caminhos.
+ * v2.7: campos do jogo (exe + ROM + reabrir).
+ * v2.8: segredos voltam preenchidos — resolverSegredos/estadoAtual.
  */
 
 const test = require('node:test');
@@ -10,30 +11,183 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { montarConteudoEnv, mascararSegredo, verificarCaminhosJogo } = require('../assistente');
+const {
+  montarConteudoEnv,
+  resolverSegredos,
+  estadoAtual,
+  avaliarSalvamento,
+  salvarConfiguracao,
+  verificarCaminhosJogo,
+} = require('../assistente');
+const { errosConfig, caminhoEnv } = require('../config');
 
 // ---------------------------------------------------------------------------
-// mascararSegredo — segredos NUNCA voltam inteiros ao navegador
+// resolverSegredos — o que vem pré-preenchido é gravado como está (v2.8)
 // ---------------------------------------------------------------------------
 
-test('mascararSegredo: vazio vazio, curto vira bolinhas', () => {
-  assert.strictEqual(mascararSegredo(''), '');
-  assert.strictEqual(mascararSegredo(null), '');
-  assert.strictEqual(mascararSegredo('abc'), '••••');
-  assert.strictEqual(mascararSegredo('12345678'), '••••••••');
+test('resolverSegredos: token sem oauth: ganha o prefixo sozinho', () => {
+  assert.strictEqual(resolverSegredos({ TWITCH_OAUTH_TOKEN: 'abc123' }).TWITCH_OAUTH_TOKEN, 'oauth:abc123');
+  assert.strictEqual(resolverSegredos({ TWITCH_OAUTH_TOKEN: 'OAUTH:abc' }).TWITCH_OAUTH_TOKEN, 'OAUTH:abc');
+  assert.strictEqual(resolverSegredos({ TWITCH_OAUTH_TOKEN: 'oauth:xyz' }).TWITCH_OAUTH_TOKEN, 'oauth:xyz');
 });
 
-test('mascararSegredo: longo mostra 4+4 com prefixo oauth: preservado', () => {
-  assert.strictEqual(mascararSegredo('abcdefghijk'), 'abcd••••hijk');
-  assert.strictEqual(mascararSegredo('oauth:abcdefghijk'), 'oauth:abcd••••hijk');
-  assert.strictEqual(mascararSegredo('OAUTH:abcdefghijk'), 'oauth:abcd••••hijk');
+test('resolverSegredos: vazio agora significa apagar de verdade (prefill)', () => {
+  const r = resolverSegredos({ TWITCH_OAUTH_TOKEN: '  ', YOUTUBE_API_KEY: '' });
+  assert.strictEqual(r.TWITCH_OAUTH_TOKEN, '');
+  assert.strictEqual(r.YOUTUBE_API_KEY, '');
 });
 
-test('mascararSegredo: nunca devolve o segredo inteiro', () => {
-  const segredo = 'AIzaSyA-very-secret-key-9876543210';
-  const mascara = mascararSegredo(segredo);
-  assert.ok(!mascara.includes('very-secret'), 'meio do segredo não pode vazar');
-  assert.notStrictEqual(mascara, segredo);
+test('resolverSegredos: espaços nas pontas são limpos, chave mantida intacta', () => {
+  const r = resolverSegredos({ TWITCH_OAUTH_TOKEN: '  tok  ', YOUTUBE_API_KEY: ' AIza... ' });
+  assert.strictEqual(r.TWITCH_OAUTH_TOKEN, 'oauth:tok');
+  assert.strictEqual(r.YOUTUBE_API_KEY, 'AIza...');
+});
+
+// ---------------------------------------------------------------------------
+// estadoAtual — TUDO que foi salvo antes volta para o wizard (v2.8)
+// ---------------------------------------------------------------------------
+
+function cfgFake(extras = {}) {
+  return {
+    geral: { plataformasAtivas: ['twitch', 'youtube'], cooldownMs: 1500, tempoPressionarTeclaMs: 230 },
+    twitch: { username: 'meubot', oauthToken: 'oauth:tok', channel: 'sindrome' },
+    youtube: { apiKey: 'AIza123', videoId: 'jfKfPfyJRdk' },
+    teclado: { preset: 'vbam', modo: 'janela', emuladorExe: 'C:\\jogo\\vbam.exe' },
+    jogo: { rom: 'C:\\roms\\Emeralda.gba', autoReiniciar: true },
+    pausa: { tecla: 'f9' },
+    votacao: { modoInicial: 'anarquia' },
+    overlay: { porta: 8899, ativa: true },
+    ...extras,
+  };
+}
+
+test('estadoAtual: devolve os segredos INTEIROS para o prefill (pedido v2.8)', () => {
+  const d = estadoAtual(cfgFake());
+  assert.strictEqual(d.valores.TWITCH_OAUTH_TOKEN, 'oauth:tok');
+  assert.strictEqual(d.valores.YOUTUBE_API_KEY, 'AIza123');
+  assert.strictEqual(d.valores.TWITCH_BOT_USERNAME, 'meubot');
+  assert.strictEqual(d.valores.TWITCH_CHANNEL, 'sindrome');
+  assert.strictEqual(d.valores.YOUTUBE_VIDEO_ID, 'jfKfPfyJRdk');
+  // jogo/ROM também voltam (v2.7)
+  assert.strictEqual(d.valores.EMULADOR_EXE, 'C:\\jogo\\vbam.exe');
+  assert.strictEqual(d.valores.JOGO_ROM, 'C:\\roms\\Emeralda.gba');
+});
+
+test('estadoAtual: não existe mais bloco de máscaras (removido na v2.8)', () => {
+  const d = estadoAtual(cfgFake());
+  assert.strictEqual(d.mascaras, undefined);
+});
+
+test('estadoAtual: configurado reflete errosConfig da cfg recebida', () => {
+  const ok = estadoAtual(cfgFake());
+  assert.strictEqual(ok.configurado, true);
+
+  const semToken = cfgFake();
+  semToken.twitch = { username: 'meubot', oauthToken: '', channel: 'sindrome' };
+  const ruim = estadoAtual(semToken);
+  assert.strictEqual(ruim.configurado, false);
+});
+
+// ---------------------------------------------------------------------------
+// errosConfig(cfg) — validação de valores que ainda não estão no config global
+// ---------------------------------------------------------------------------
+
+test('errosConfig: aceita cfg explícita (sem tocar no .env do processo)', () => {
+  const cfg = {
+    geral: { plataformasAtivas: ['youtube'] },
+    twitch: { username: '', oauthToken: '', channel: '' },
+    youtube: { apiKey: '', videoId: '' },
+  };
+  // twitch inativa → credenciais vazias não são erro; youtube ativo → são
+  assert.deepStrictEqual(errosConfig(cfg), [
+    'YOUTUBE_API_KEY não definido',
+    'YOUTUBE_VIDEO_ID não definido',
+  ]);
+});
+
+test('montarConteudoEnv: segredo vazio agora APAGA de verdade (v2.8 — prefill)', () => {
+  const conteudo = montarConteudoEnv({
+    TWITCH_BOT_USERNAME: 'b',
+    TWITCH_OAUTH_TOKEN: '',
+    TWITCH_CHANNEL: 'c',
+  });
+  assert.ok(conteudo.includes('TWITCH_OAUTH_TOKEN='));
+  assert.ok(!conteudo.includes('TWITCH_OAUTH_TOKEN=oauth:'));
+});
+
+// ---------------------------------------------------------------------------
+// avaliarSalvamento/salvarConfiguracao — valida ANTES de gravar (v2.8)
+// ---------------------------------------------------------------------------
+
+test('avaliarSalvamento: body completo vira finais normalizados e ok', () => {
+  const r = avaliarSalvamento({
+    twitchAtivo: true,
+    youtubeAtivo: true,
+    jogoAutoReiniciar: true,
+    TWITCH_BOT_USERNAME: 'bot',
+    TWITCH_OAUTH_TOKEN: 'sem-prefixo',
+    TWITCH_CHANNEL: '#canal',
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
+  });
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.erros, []);
+  assert.strictEqual(r.finais.TWITCH_OAUTH_TOKEN, 'oauth:sem-prefixo');
+  assert.strictEqual(r.finais.YOUTUBE_VIDEO_ID, 'jfKfPfyJRdk');
+  assert.strictEqual(r.finais.ACTIVE_PLATFORMS, 'twitch,youtube');
+  assert.strictEqual(r.finais.YOUTUBE_ENABLED, 'true');
+});
+
+test('salvarConfiguracao: twitch ativo com token VAZIO NÃO grava o .env (v2.8)', () => {
+  const caminho = caminhoEnv();
+  const antes = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
+
+  const r = salvarConfiguracao({
+    twitchAtivo: true,
+    youtubeAtivo: false,
+    TWITCH_BOT_USERNAME: 'bot',
+    TWITCH_OAUTH_TOKEN: '   ',
+    TWITCH_CHANNEL: 'canal',
+  });
+
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.erros.some((e) => e.includes('TWITCH_OAUTH_TOKEN')), r.erros);
+
+  // o .env anterior (com os segredos intactos) não pode ter sido tocado
+  const depois = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
+  assert.strictEqual(depois, antes, '.env foi gravado/apagado com config inválida!');
+});
+
+test('salvarConfiguracao: página sem prefill NÃO apaga chaves salvas (regressão v2.8)', () => {
+  const caminho = caminhoEnv();
+  const antes = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
+
+  // simula o body de uma página que NUNCA carregou o prefill: tudo vazio
+  const r = salvarConfiguracao({ twitchAtivo: true, youtubeAtivo: false });
+
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.erros.length >= 3, 'deveria listar os campos faltando');
+  const depois = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
+  assert.strictEqual(depois, antes, '.env destruído por body vazio!');
+});
+
+test('avaliarSalvamento: twitch DESATIVADO permite segredo vazio (remoção consciente)', () => {
+  const r = avaliarSalvamento({
+    twitchAtivo: false,
+    youtubeAtivo: true,
+    TWITCH_OAUTH_TOKEN: '',
+    YOUTUBE_API_KEY: 'AIza1',
+    YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.finais.ACTIVE_PLATFORMS, 'youtube');
+  assert.strictEqual(r.finais.TWITCH_OAUTH_TOKEN, '');
+});
+
+test('avaliarSalvamento: nenhuma plataforma ligada é bloqueado com erro claro', () => {
+  const r = avaliarSalvamento({ twitchAtivo: false, youtubeAtivo: false });
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.erros.some((e) => e.includes('Nenhuma plataforma')), r.erros);
 });
 
 // ---------------------------------------------------------------------------

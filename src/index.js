@@ -31,6 +31,8 @@
  * Uso:
  *   npm start
  *   node src/index.js
+ *   (v2.8: toda inicialização abre o assistente no navegador — painel
+ *    preenchido com tudo que foi salvo; --direto pula e inicia direto)
  */
 
 const path = require('path');
@@ -421,21 +423,34 @@ async function main() {
   logger.info('╚══════════════════════════════════════════╝');
   logger.info(`Plataformas ativas: ${config.geral.plataformasAtivas.join(', ') || 'nenhuma'}`);
 
-  if (!validarConfig()) {
-    // v2.6: primeiro uso — em vez de morrer com erro, abre o assistente
-    // no navegador; o boot continua sozinho depois de salvar.
-    logger.aviso('[Main] Configuração incompleta — abrindo o assistente de configuração...');
-    const configurado = await assistente.aguardarConfiguracao();
-    if (!configurado) {
-      logger.erro('[Main] Configuração cancelada. Rode o bot de novo quando quiser.');
+  // v2.8: o iniciar.bat abre o assistente em TODO boot — é o painel de
+  // controle do bot. Tudo que foi salvo antes volta preenchido (inclusive
+  // as chaves); o streamer revisa, ajusta o que quiser e clica em Iniciar.
+  // Escape hatch para lives longas/servidor: --direto pula o assistente
+  // (mas se a config estiver inválida, ele abre do mesmo jeito).
+  const pularAssistente =
+    process.argv.includes('--direto') || process.argv.includes('--sem-assistente');
+  if (!pularAssistente || !validarConfig()) {
+    logger.info('[Main] Abrindo o assistente de configuração (o que você salvou já vem preenchido)...');
+    const prosseguir = await assistente.aguardarConfiguracao();
+    if (!prosseguir) {
+      logger.erro('[Main] Você fechou o assistente sem iniciar. Rode o bot de novo quando quiser.');
       process.exit(1);
     }
-    // o assistente já recarregou o config; valida de novo por garantia
+    // Salvou → o assistente já recarregou o config; "iniciar sem salvar" →
+    // segue com o .env atual. Nos dois casos valida antes de conectar.
     if (!validarConfig()) {
-      logger.erro('[Main] Configuração ainda incompleta após o assistente. Verifique o .env.');
+      logger.erro('[Main] Configuração incompleta — preencha os campos que faltam no assistente.');
       process.exit(1);
     }
-    logger.info('[Main] ✅ Configuração recebida do assistente — continuando o boot...');
+    const desfecho = assistente.comoProsseguiu();
+    if (desfecho === 'salvou') {
+      logger.info('[Main] ✅ Configuração salva pelo assistente — continuando o boot...');
+    } else if (desfecho === 'iniciou-direto') {
+      logger.info('[Main] ✅ Iniciando sem alterações — continuando o boot...');
+    } else {
+      logger.info('[Main] ✅ Assistente concluído — continuando o boot...');
+    }
   }
 
   // Emulador alvo (v2.4): pergunta o .exe ANTES de mexer em qualquer tecla

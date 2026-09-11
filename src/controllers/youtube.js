@@ -148,7 +148,7 @@ async function descobrirLiveChatId() {
       ok: false,
       motivo:
         `A live "${titulo}" já foi encerrada. Cada live nova tem um ID novo — ` +
-        'atualize o YOUTUBE_VIDEO_ID no .env (ou rode o assistente: npm run assistente).',
+        'atualize o YOUTUBE_VIDEO_ID (abra o iniciar.bat — o assistente abre preenchido).',
     };
   }
 

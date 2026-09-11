@@ -8,8 +8,9 @@
 ;     (sem pedir administrador — igual ao instalador "user" do VS Code).
 ;   - Atalho/lançamento via iniciar.bat: mantém a janela do terminal
 ;     aberta com os logs do bot (essencial numa live).
-;   - Na 1ª execução sem .env, o próprio bot abre o assistente de
-;     configuração no navegador — nada de Bloco de Notas.
+;   - Ao abrir o iniciar.bat, o assistente de configuração abre no
+;     navegador SEMPRE, preenchido com tudo que foi salvo antes
+;     (bot, chaves, caminhos do jogo) — nada de Bloco de Notas.
 ;   - O desinstalador NÃO apaga .env nem dados/ (são do usuário).
 ; ============================================================
 

@@ -295,21 +295,24 @@ function caminhoEnv() {
 /**
  * Valida a configuração de cada plataforma ativa e devolve a lista de erros
  * (sem imprimir nada — o assistente usa isto para validar no navegador).
+ * Aceita um objeto de config opcional para os testes/assistente validarem
+ * valores que ainda não estão no config global (v2.8).
+ * @param {object} [cfg] - defaults para o `config` global
  * @returns {string[]}
  */
-function errosConfig() {
+function errosConfig(cfg = config) {
   const erros = [];
-  const plataformas = config.geral.plataformasAtivas;
+  const plataformas = cfg.geral.plataformasAtivas;
 
   if (plataformas.includes('twitch')) {
-    if (!config.twitch.username) erros.push('TWITCH_BOT_USERNAME não definido');
-    if (!config.twitch.oauthToken) erros.push('TWITCH_OAUTH_TOKEN não definido');
-    if (!config.twitch.channel) erros.push('TWITCH_CHANNEL não definido');
+    if (!cfg.twitch.username) erros.push('TWITCH_BOT_USERNAME não definido');
+    if (!cfg.twitch.oauthToken) erros.push('TWITCH_OAUTH_TOKEN não definido');
+    if (!cfg.twitch.channel) erros.push('TWITCH_CHANNEL não definido');
   }
 
   if (plataformas.includes('youtube')) {
-    if (!config.youtube.apiKey) erros.push('YOUTUBE_API_KEY não definido');
-    if (!config.youtube.videoId) erros.push('YOUTUBE_VIDEO_ID não definido');
+    if (!cfg.youtube.apiKey) erros.push('YOUTUBE_API_KEY não definido');
+    if (!cfg.youtube.videoId) erros.push('YOUTUBE_VIDEO_ID não definido');
   }
 
   return erros;

@@ -9,14 +9,23 @@
  *   - TESTA a conexão de cada plataforma antes de salvar;
  *   - salva o .env pronto e o bot continua o boot sozinho.
  *
+ * v2.8: o iniciar.bat abre o assistente em TODO boot (não só no 1º uso) —
+ * e TUDO que foi salvo antes volta preenchido, inclusive as chaves. É o
+ * "painel de controle" do bot: revisar, ajustar e apertar Iniciar.
+ *
  * Dois modos:
- *   - 'primeiro-uso': o index.js chama aguardarConfiguracao() quando a
- *     config é inválida — o bot fica esperando o wizard salvar.
+ *   - 'boot': o index.js chama aguardarConfiguracao() em toda inicialização
+ *     (com --direto, só quando a config está inválida) — o bot espera o
+ *     wizard salvar ou "iniciar sem salvar".
  *   - 'standalone': `npm run assistente` (ou node src/assistente.js)
  *     abre o wizard fora do boot, para reconfigurar quando quiser.
  *
- * Segurança: escuta apenas 127.0.0.1, segredos NUNCA voltam ao navegador
- * (apenas mascarados) e a página não usa recursos externos.
+ * Segurança: escuta apenas 127.0.0.1, requisições cross-origin são barradas
+ * (anti-CSRF por Origin) e a página não usa recursos externos. Os segredos
+ * salvos VOLTAM preenchidos para o navegador (pedido do fluxo v2.8: o que
+ * você digitou antes continua nos campos) — a página só é servida para a
+ * própria máquina e o .env já é um arquivo de texto plano no disco, então
+ * isso não expõe nada que já não estivesse exposto localmente.
  */
 
 const http = require('http');
@@ -40,27 +49,32 @@ const { version: VERSAO } = require('../package.json');
 
 let servidor = null;
 let portaReal = null;
-let modo = 'standalone'; // 'standalone' | 'primeiro-uso'
-let aoFinalizar = null; // (primeiro-uso) resolve(true) ao salvar com sucesso
-let aoDesistir = null; // (primeiro-uso) resolve(false) ao sair sem salvar
+let modo = 'standalone'; // 'standalone' | 'boot'
+let aoFinalizar = null; // (boot) resolve(true) ao salvar OU ao "iniciar sem salvar"
+let aoDesistir = null; // (boot) resolve(false) ao sair sem iniciar
+let ultimoDesfecho = null; // 'salvou' | 'iniciou-direto' | null (v2.8)
 
 // ---------------------------------------------------------------------------
 // Helpers puros (testáveis sem servidor)
 // ---------------------------------------------------------------------------
 
 /**
- * Mascarar um segredo para exibição no navegador.
- * "oauth:abcdefghijk" -> "oauth:abcd••••hijk" (curtos viram só bolinhas).
- * @param {string} valor
- * @returns {string}
+ * Resolve os segredos vindos do wizard (v2.8).
+ * Os campos agora VÊM pré-preenchidos com o que está no .env — então um
+ * campo vazio significa "apagar de verdade" (se a plataforma ativa exigir
+ * o valor, o errosConfig() do salvar reclama na hora, sem perda silenciosa).
+ * Token sem o prefixo "oauth:" ganha o prefixo sozinho.
+ * @param {object} v - valores brutos do body
+ * @returns {{TWITCH_OAUTH_TOKEN: string, YOUTUBE_API_KEY: string}}
  */
-function mascararSegredo(valor) {
-  const bruto = String(valor || '').trim();
-  if (!bruto) return '';
-  const prefixo = bruto.toLowerCase().startsWith('oauth:') ? 'oauth:' : '';
-  const limpo = prefixo ? bruto.slice(6) : bruto;
-  if (limpo.length <= 8) return prefixo + '•'.repeat(Math.max(4, limpo.length));
-  return `${prefixo}${limpo.slice(0, 4)}••••${limpo.slice(-4)}`;
+function resolverSegredos(v = {}) {
+  const token = String(v.TWITCH_OAUTH_TOKEN || '').trim();
+  const apiKey = String(v.YOUTUBE_API_KEY || '').trim();
+  return {
+    TWITCH_OAUTH_TOKEN:
+      token && !token.toLowerCase().startsWith('oauth:') ? 'oauth:' + token : token,
+    YOUTUBE_API_KEY: apiKey,
+  };
 }
 
 /** Valores padrão das chaves não obrigatórias do .env gerado. */
@@ -111,7 +125,7 @@ function montarConteudoEnv(v, envAtual = '') {
     '# Pokemon Chat Plays — .env gerado pelo assistente de configuração',
     `# Gerado em ${new Date().toLocaleString('pt-BR')}`,
     '# ============================================================',
-    '# Dica: rode "npm run assistente" para reabrir a interface gráfica.',
+    '# Dica: abra o iniciar.bat — o assistente abre sempre, preenchido.',
     '',
     '# ----- TWITCH -----',
     '# Conta do bot + token OAuth (gere em https://twitchtokengenerator.com,',
@@ -278,35 +292,38 @@ function verificarCaminhosJogo({ exe, rom } = {}) {
   };
 }
 
-/** Valores atuais (SEM segredos em claro) para pré-preencher o wizard. */
-function estadoAtual() {
-  const plataformas = config.geral.plataformasAtivas;
+/**
+ * Valores atuais para PRÉ-PREENCHER o wizard (v2.8: TUDO, inclusive os
+ * segredos — o que você digitou antes continua nos campos). Recebe cfg
+ * opcional para os testes exercitarem sem depender de .env real.
+ */
+function estadoAtual(cfg = config) {
+  const plataformas = cfg.geral.plataformasAtivas;
   return {
     versao: VERSAO,
     modo,
-    configurado: errosConfig().length === 0,
+    configurado: errosConfig(cfg).length === 0,
     twitchAtivo: plataformas.includes('twitch'),
     youtubeAtivo: plataformas.includes('youtube'),
     valores: {
-      TWITCH_BOT_USERNAME: config.twitch.username,
-      TWITCH_CHANNEL: config.twitch.channel,
-      YOUTUBE_VIDEO_ID: config.youtube.videoId,
-      COMMAND_COOLDOWN_MS: String(config.geral.cooldownMs),
-      KEY_PRESS_DURATION_MS: String(config.geral.tempoPressionarTeclaMs),
-      EMULADOR_PRESET: config.teclado.preset,
-      MODO_TECLADO: config.teclado.modo,
+      TWITCH_BOT_USERNAME: cfg.twitch.username,
+      TWITCH_CHANNEL: cfg.twitch.channel,
+      // v2.8: segredos voltam INTEIROS (prefill completo)
+      TWITCH_OAUTH_TOKEN: cfg.twitch.oauthToken,
+      YOUTUBE_API_KEY: cfg.youtube.apiKey,
+      YOUTUBE_VIDEO_ID: cfg.youtube.videoId,
+      COMMAND_COOLDOWN_MS: String(cfg.geral.cooldownMs),
+      KEY_PRESS_DURATION_MS: String(cfg.geral.tempoPressionarTeclaMs),
+      EMULADOR_PRESET: cfg.teclado.preset,
+      MODO_TECLADO: cfg.teclado.modo,
       // v2.7: jogo genérico (path do .exe + ROM + reabrir sozinho)
-      EMULADOR_EXE: config.teclado.emuladorExe,
-      JOGO_ROM: config.jogo.rom,
-      JOGO_AUTO_REINICIAR: String(config.jogo.autoReiniciar),
-      TECLA_PAUSA: config.pausa.tecla,
-      MODO_INICIAL: config.votacao.modoInicial,
-      OVERLAY_PORTA: String(config.overlay.porta),
-      OVERLAY_ATIVA: String(config.overlay.ativa),
-    },
-    mascaras: {
-      TWITCH_OAUTH_TOKEN: mascararSegredo(config.twitch.oauthToken),
-      YOUTUBE_API_KEY: mascararSegredo(config.youtube.apiKey),
+      EMULADOR_EXE: cfg.teclado.emuladorExe,
+      JOGO_ROM: cfg.jogo.rom,
+      JOGO_AUTO_REINICIAR: String(cfg.jogo.autoReiniciar),
+      TECLA_PAUSA: cfg.pausa.tecla,
+      MODO_INICIAL: cfg.votacao.modoInicial,
+      OVERLAY_PORTA: String(cfg.overlay.porta),
+      OVERLAY_ATIVA: String(cfg.overlay.ativa),
     },
   };
 }
@@ -458,8 +475,20 @@ function responderJson(res, codigo, obj) {
   res.end(corpo);
 }
 
-/** Grava o .env com os valores do wizard e recarrega a config. */
-function salvarConfiguracao(v) {
+/**
+ * Monta os valores FINAIS do .env a partir do body do wizard e valida TUDO
+ * antes de qualquer gravação (v2.8). Puro — testável sem servidor.
+ *
+ * Por que validar antes de gravar: com o prefill completo, campo vazio
+ * significa "apagar de verdade". Se a página do wizard não carregou o
+ * prefill (fetch falhou, aba antiga) e o usuário salva mesmo assim, o .env
+ * anterior ficaria INTACTO em vez de perder os segredos — o usuário vê o
+ * erro, recarrega a página e o prefill volta.
+ *
+ * @param {object} v - body bruto do POST /api/salvar
+ * @returns {{ok: boolean, erros: string[], finais: object}}
+ */
+function avaliarSalvamento(v = {}) {
   const finais = { ...v };
 
   // v2.7.1: caminhos do jogo — tira aspas coladas e quebras de linha (a
@@ -477,15 +506,11 @@ function salvarConfiguracao(v) {
   finais.JOGO_ARGS = limparArgs(finais.JOGO_ARGS) || limparArgs(config.jogo.args);
   finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
 
-  // Segredo vazio = manter o atual (o navegador nunca recebe o valor real)
-  if (!String(finais.TWITCH_OAUTH_TOKEN || '').trim()) {
-    finais.TWITCH_OAUTH_TOKEN = config.twitch.oauthToken;
-  } else if (!String(finais.TWITCH_OAUTH_TOKEN).toLowerCase().startsWith('oauth:')) {
-    finais.TWITCH_OAUTH_TOKEN = 'oauth:' + String(finais.TWITCH_OAUTH_TOKEN).trim();
-  }
-  if (!String(finais.YOUTUBE_API_KEY || '').trim()) {
-    finais.YOUTUBE_API_KEY = config.youtube.apiKey;
-  }
+  // v2.8: segredos vêm PRÉ-PREENCHIDOS (o que foi salvo antes está no
+  // campo). Vazio = apagar de verdade — validado ANTES de gravar.
+  const segredos = resolverSegredos(finais);
+  finais.TWITCH_OAUTH_TOKEN = segredos.TWITCH_OAUTH_TOKEN;
+  finais.YOUTUBE_API_KEY = segredos.YOUTUBE_API_KEY;
 
   // Plataformas ativas vêm dos toggles
   const plataformas = [];
@@ -495,6 +520,35 @@ function salvarConfiguracao(v) {
   finais.YOUTUBE_ENABLED = plataformas.includes('youtube') ? 'true' : 'false';
   finais.YOUTUBE_VIDEO_ID = normalizarVideoIdYoutube(finais.YOUTUBE_VIDEO_ID);
 
+  // valida a config FUTURA (a que vai para o .env) — sem tocar na atual
+  const erros = errosConfig({
+    geral: { plataformasAtivas: plataformas },
+    twitch: {
+      username: String(finais.TWITCH_BOT_USERNAME || '').trim(),
+      oauthToken: finais.TWITCH_OAUTH_TOKEN,
+      channel: String(finais.TWITCH_CHANNEL || '').trim(),
+    },
+    youtube: {
+      apiKey: finais.YOUTUBE_API_KEY,
+      videoId: finais.YOUTUBE_VIDEO_ID,
+    },
+  });
+  if (plataformas.length === 0) {
+    erros.push('Nenhuma plataforma ativa — ligue pelo menos Twitch ou YouTube');
+  }
+
+  return { ok: erros.length === 0, erros, finais };
+}
+
+/** Grava o .env com os valores do wizard e recarrega a config (v2.8: só grava config válida). */
+function salvarConfiguracao(v) {
+  const { ok, erros, finais } = avaliarSalvamento(v);
+  if (!ok) {
+    // NÃO grava nada: o .env anterior (com os segredos intactos) continua
+    // válido — a página mostra o erro e o usuário completa/recarrega.
+    return { ok: false, erros };
+  }
+
   try {
     fs.writeFileSync(caminhoEnv(), montarConteudoEnv(finais, lerEnvAtual()), 'utf8');
   } catch (err) {
@@ -502,11 +556,10 @@ function salvarConfiguracao(v) {
   }
 
   recarregar();
-  const erros = errosConfig();
   const { nomeDoProcesso } = require('./utils/jogo');
   return {
-    ok: erros.length === 0,
-    erros,
+    ok: true,
+    erros: [],
     arquivo: caminhoEnv(),
     overlay: config.overlay.ativa ? `http://localhost:${config.overlay.porta}` : null,
     // v2.7: info do jogo p/ a tela de sucesso ("o bot abre sozinho...")
@@ -637,15 +690,34 @@ async function tratarRequisicao(req, res) {
       return;
     }
 
+    // v2.8: "Iniciar sem salvar" — o boot segue com o .env atual do jeito
+    // que está (o wizard é painel de controle, não obrigação de editar)
+    if (req.method === 'POST' && url === '/api/iniciar') {
+      if (modo !== 'boot' || !aoFinalizar) {
+        responderJson(res, 200, { ok: false, mensagem: 'disponível só durante o boot do bot' });
+        return;
+      }
+      responderJson(res, 200, { ok: true, continuara: true });
+      const avisar = aoFinalizar;
+      aoFinalizar = null;
+      aoDesistir = null;
+      ultimoDesfecho = 'iniciou-direto';
+      avisar();
+      setTimeout(() => { parar(); }, 400);
+      return;
+    }
+
     if (req.method === 'POST' && url === '/api/salvar') {
       const body = await lerBody(req);
       const resultado = salvarConfiguracao(body);
 
       if (resultado.ok) {
         logger.info(`[Assistente] ✅ Configuração salva em ${resultado.arquivo}`);
-        if (modo === 'primeiro-uso' && aoFinalizar) {
+        if (modo === 'boot' && aoFinalizar) {
           const avisar = aoFinalizar;
           aoFinalizar = null;
+          aoDesistir = null;
+          ultimoDesfecho = 'salvou';
           // Responde primeiro, fecha o servidor logo depois
           responderJson(res, 200, { ...resultado, continuara: true });
           avisar();
@@ -661,7 +733,7 @@ async function tratarRequisicao(req, res) {
 
     if (req.method === 'POST' && url === '/api/encerrar') {
       responderJson(res, 200, { ok: true });
-      if (modo === 'primeiro-uso' && aoDesistir) {
+      if (modo === 'boot' && aoDesistir) {
         const avisar = aoDesistir;
         aoDesistir = null;
         avisar();
@@ -745,12 +817,13 @@ function abrirNavegador(endereco) {
 }
 
 /**
- * Fluxo de primeiro uso: sobe o wizard, abre o navegador e espera o
- * usuário salvar (resolve true) ou desistir (resolve false).
+ * Fluxo de boot (v2.8): sobe o wizard, abre o navegador e espera o usuário
+ * salvar, apertar "iniciar sem salvar" (resolve true) ou sair (resolve false).
  * @returns {Promise<boolean>}
  */
 async function aguardarConfiguracao() {
-  modo = 'primeiro-uso';
+  modo = 'boot';
+  ultimoDesfecho = null;
   const porta = await iniciar(PORTA_PADRAO);
   if (!porta) {
     logger.erro('[Assistente] Sem o assistente não dá para configurar automaticamente.');
@@ -762,13 +835,14 @@ async function aguardarConfiguracao() {
   logger.info('╔══════════════════════════════════════════════════════╗');
   logger.info('║  🛠  ASSISTENTE DE CONFIGURAÇÃO                      ║');
   logger.info(`║  ${endereco}                    ║`);
-  logger.info('║  (Ctrl+C sai sem configurar)                         ║');
+  logger.info('║  O que você salvou antes já vem preenchido.        ║');
+  logger.info('║  (Ctrl+C cancela sem iniciar o bot)                ║');
   logger.info('╚══════════════════════════════════════════════════════╝');
   const abriu = abrirNavegador(endereco);
   if (!abriu) {
     logger.info('Abra o endereço acima no seu navegador para configurar o bot.');
   }
-  logger.info('Aguardando você salvar... (a janela do terminal pode ficar minimizada)');
+  logger.info('Aguardando você salvar ou clicar em "Iniciar sem salvar"... (o terminal pode ficar minimizado)');
 
   return new Promise((resolve) => {
     aoFinalizar = () => resolve(true);
@@ -813,9 +887,13 @@ module.exports = {
   url: () => (portaReal ? `http://localhost:${portaReal}` : null),
   aguardarConfiguracao,
   rodarStandalone,
+  // v2.8: como o wizard resolveu o boot ('salvou' | 'iniciou-direto' | null)
+  comoProsseguiu: () => ultimoDesfecho,
   // puros — testáveis sem servidor
   montarConteudoEnv,
-  mascararSegredo,
+  resolverSegredos,
+  estadoAtual,
+  avaliarSalvamento,
   salvarConfiguracao,
   verificarCaminhosJogo,
   abrirJogoAgora,
