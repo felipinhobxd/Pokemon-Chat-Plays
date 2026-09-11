@@ -4,7 +4,10 @@
  * externos: funciona offline e dentro do .exe empacotado.
  *
  * Segurança: nenhum dado do usuário ou do servidor vira HTML — tudo é
- * inserido via textContent / .value (sem innerHTML de dados).
+ * inserido via textContent / .value (sem innerHTML de dados). Os segredos
+ * salvos voltam para os campos MASCARADOS (v2.8.1): o valor em claro nunca
+ * é entregue ao navegador; deixar a máscara como está = manter o valor
+ * salvo no .env (o servidor reconhece e resolve).
  */
 
 const PAGINA = [
@@ -54,6 +57,7 @@ const PAGINA = [
   '.campo .dica a { color: #7dd3fc; }',
   '.linha { display: flex; gap: 14px; } .linha .campo { flex: 1; }',
   '.hint-id { font-size: 12px; margin-top: 5px; color: #86efac; display: none; }',
+  '.hint-salvo { font-size: 12px; margin-top: 5px; color: #86efac; display: none; }',
   '.caminho input { font-family: Consolas, monospace; font-size: 13px; }',
   '.linha-toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; margin-top: 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }',
   '.linha-toggle .titulo { font-size: 14px; font-weight: 600; }',
@@ -164,6 +168,7 @@ const PAGINA = [
   '      <label for="f-token">Token OAuth do bot</label>',
   '      <input id="f-token" type="password" placeholder="oauth:..." autocomplete="off">',
   '      <button class="olho" id="olho-token" type="button" title="mostrar/ocultar">👁</button>',
+  '      <div class="hint-salvo" id="hint-token">✔ há um token salvo — deixe como está para manter (apague e salve para remover)</div>',
   '      <div class="dica">Gere em <a href="https://twitchtokengenerator.com/" target="_blank" rel="noopener">twitchtokengenerator.com</a> → botão <b>Bot Chat Token</b> → copie o <b>Access token</b>. Cole com ou sem o "oauth:".</div>',
   '    </div>',
   '    <div class="acoes-plat">',
@@ -181,6 +186,7 @@ const PAGINA = [
   '      <label for="f-ytkey">Chave de API do YouTube</label>',
   '      <input id="f-ytkey" type="password" placeholder="AIza..." autocomplete="off">',
   '      <button class="olho" id="olho-ytkey" type="button" title="mostrar/ocultar">👁</button>',
+  '      <div class="hint-salvo" id="hint-ytkey">✔ há uma chave salva — deixe como está para manter (apague e salve para remover)</div>',
   '      <div class="dica">Crie grátis no <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>: crie um projeto → ative a <b>YouTube Data API v3</b> → Credenciais → Chave de API.</div>',
   '    </div>',
   '    <div class="campo">',
@@ -352,9 +358,14 @@ const PAGINA = [
   '    $("f-exe").value = v.EMULADOR_EXE || "";',
   '    $("f-rom").value = v.JOGO_ROM || "";',
   '    $("tg-reabrir").checked = v.JOGO_AUTO_REINICIAR !== "false";',
-  '    // v2.8: o que foi salvo antes volta PREENCHIDO — inclusive as chaves',
+  '    // v2.8.1: segredos voltam MASCARADOS (••••••••abcd) — o valor em claro',
+  '    // nunca vai para o navegador; a máscara intacta no submit = manter',
   '    $("f-token").value = v.TWITCH_OAUTH_TOKEN || "";',
   '    $("f-ytkey").value = v.YOUTUBE_API_KEY || "";',
+  '    var hintToken = $("hint-token");',
+  '    if (hintToken) hintToken.style.display = v.temTokenTwitch ? "block" : "none";',
+  '    var hintYtkey = $("hint-ytkey");',
+  '    if (hintYtkey) hintYtkey.style.display = v.temChaveYoutube ? "block" : "none";',
   '    var st = $("status");',
   '    st.className = "status " + (d.configurado ? "on" : "");',
   '    txt($("status-txt"), d.configurado ? "configuração atual válida" : "configuração incompleta");',

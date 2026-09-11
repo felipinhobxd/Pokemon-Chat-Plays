@@ -119,3 +119,55 @@ test('JSON com valores absurdos é sanitizado no carregamento', () => {
   assert.strictEqual(s.total, 0, 'total inválido vira 0');
   assert.strictEqual(s.holds, 2);
 });
+
+// ---------------------------------------------------------------------------
+// v2.8.1 — gravação atômica: um crash no meio da escrita nunca zera o
+// histórico (antes era writeFileSync direto: arquivo truncado → parse
+// falha → ranking do streamer sumia sem aviso).
+// ---------------------------------------------------------------------------
+
+test('salvar é atômico: JSON válido no arquivo final e NÃO sobra .tmp (v2.8.1)', () => {
+  const dir = dirTemp();
+  const arquivo = path.join(dir, 'stats.json');
+
+  const s1 = new StatsManager();
+  s1.configurarArquivo(arquivo);
+  for (let i = 0; i < 10; i++) s1.registrar('up', 'twitch', 'jogadora');
+  s1.salvar();
+
+  // arquivo final íntegro e parseável...
+  const bruto = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+  assert.strictEqual(bruto.total, 10);
+  // ...sem lixo temporário ao lado
+  assert.strictEqual(fs.existsSync(arquivo + '.tmp'), false, '.tmp ficou para trás?');
+
+  // salvar DE NOVO por cima também é limpo (rename sobre arquivo existente)
+  s1.registrar('a', 'twitch', 'jogadora');
+  s1.salvar();
+  assert.strictEqual(fs.existsSync(arquivo + '.tmp'), false);
+  const bruto2 = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+  assert.strictEqual(bruto2.total, 11);
+});
+
+test('salvar não destrói um histórico existente quando o disco falha no .tmp', () => {
+  const dir = dirTemp();
+  const arquivo = path.join(dir, 'stats.json');
+
+  // histórico já salvo e válido
+  const s1 = new StatsManager();
+  s1.configurarArquivo(arquivo);
+  s1.registrar('up', 'twitch', 'ana');
+  s1.salvar();
+  const antes = fs.readFileSync(arquivo, 'utf8');
+
+  // sabota a escrita do .tmp: um DIRETÓRIO com o mesmo nome faz o writeFileSync
+  // falhar sem nunca tocar o arquivo original
+  fs.mkdirSync(arquivo + '.tmp');
+
+  const s2 = new StatsManager();
+  s2.configurarArquivo(arquivo);
+  s2.registrar('down', 'twitch', 'bia');
+  const salvou = s2.salvar();
+  assert.strictEqual(salvou, false, 'falha é reportada');
+  assert.strictEqual(fs.readFileSync(arquivo, 'utf8'), antes, 'histórico anterior INTACTO');
+});

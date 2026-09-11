@@ -10,7 +10,7 @@
 ;     aberta com os logs do bot (essencial numa live).
 ;   - Ao abrir o iniciar.bat, o assistente de configuração abre no
 ;     navegador SEMPRE, preenchido com tudo que foi salvo antes
-;     (bot, chaves, caminhos do jogo) — nada de Bloco de Notas.
+;     (bot, chaves mascaradas, caminhos do jogo) — nada de Bloco de Notas.
 ;   - O desinstalador NÃO apaga .env nem dados/ (são do usuário).
 ; ============================================================
 

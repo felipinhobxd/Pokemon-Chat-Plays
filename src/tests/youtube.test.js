@@ -73,3 +73,52 @@ test('interpretarErroApi: erro desconhecido não explode e carrega a mensagem', 
   assert.strictEqual(r.tipo, 'desconhecido');
   assert.ok(r.mensagem.includes('algo muito estranho'));
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSÃO v2.8.1 — timer de "live agendada / ainda não começou"
+//
+// O agendarAguardarLive() chamava `agendarAguardarLiveTimer.unref?.()` —
+// variável INEXISTENTE (o nome certo é aguardarLiveTimer). O ReferenceError
+// era engolido pelo catch do iniciar() e logado como "Erro inesperado do
+// YouTube" em cada retentativa; o unref nunca era aplicado.
+// ---------------------------------------------------------------------------
+
+test('aguardarLive: agendar o retry da live agendada não lança ReferenceError (regressão v2.8.1)', async () => {
+  const youtube = require('../controllers/youtube');
+  const { agendarAguardarLive, timersAtivos } = youtube.__test;
+
+  // iniciar() com config vazia retorna cedo, mas zera paradoPeloUsuario —
+  // é o único caminho público que rearma o agendador após um parar()
+  await youtube.iniciar();
+
+  // o bug explodia AQUI, na última linha da função, depois de criar o timer
+  assert.doesNotThrow(() => {
+    agendarAguardarLive();
+  }, 'agendarAguardarLive lançava ReferenceError (agendarAguardarLiveTimer)');
+
+  // o timer de retry NASCEU (60s) e ficou unref (não segura o processo)
+  const { aguardarLiveTimer } = timersAtivos();
+  assert.ok(aguardarLiveTimer, 'timer de retry agendado');
+  assert.strictEqual(
+    aguardarLiveTimer.hasRef(),
+    false,
+    'timer unref — sem o unref, um bot só-YouTube aguardando a live começar prende o evento loop'
+  );
+
+  // limpeza: parar() cancela o timer
+  youtube.parar();
+  assert.strictEqual(timersAtivos().aguardarLiveTimer, null);
+});
+
+test('aguardarLive: chamar duas vezes não duplica o timer (guard de reentrada)', async () => {
+  const youtube = require('../controllers/youtube');
+  const { agendarAguardarLive, timersAtivos } = youtube.__test;
+  await youtube.iniciar(); // rearma paradoPeloUsuario
+  // dois agendamentos seguidos: o segundo deve ser no-op
+  agendarAguardarLive();
+  agendarAguardarLive();
+  const { aguardarLiveTimer } = timersAtivos();
+  assert.ok(aguardarLiveTimer, 'timer único agendado');
+  youtube.parar();
+  assert.strictEqual(timersAtivos().aguardarLiveTimer, null);
+});

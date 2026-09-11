@@ -2,7 +2,7 @@
  * Testes do assistente de configuração (v2.6) — helpers puros:
  * geração do .env completo e verificação de caminhos.
  * v2.7: campos do jogo (exe + ROM + reabrir).
- * v2.8: segredos voltam preenchidos — resolverSegredos/estadoAtual.
+ * v2.8.1: segredos mascarados no prefill — máscara intacta = manter.
  */
 
 const test = require('node:test');
@@ -14,15 +14,39 @@ const path = require('path');
 const {
   montarConteudoEnv,
   resolverSegredos,
+  mascararSegredo,
+  resolverSegredoCampo,
   estadoAtual,
   avaliarSalvamento,
   salvarConfiguracao,
   verificarCaminhosJogo,
+  hostPermitido,
+  origemPermitida,
 } = require('../assistente');
 const { errosConfig, caminhoEnv } = require('../config');
 
 // ---------------------------------------------------------------------------
-// resolverSegredos — o que vem pré-preenchido é gravado como está (v2.8)
+// mascararSegredo — o prefill mostra que HÁ valor sem entregar o valor (v2.8.1)
+// ---------------------------------------------------------------------------
+
+test('mascararSegredo: segredo longo vira bolinhas + 4 últimos caracteres', () => {
+  assert.strictEqual(mascararSegredo('oauth:abcdefgh1234'), '••••••••1234');
+  assert.strictEqual(mascararSegredo('AIzaSyD-1234567890xyz'), '••••••••0xyz');
+});
+
+test('mascararSegredo: segredo curto vira SÓ bolinhas (nada é revelado)', () => {
+  assert.strictEqual(mascararSegredo('curto'), '••••••••');
+  assert.strictEqual(mascararSegredo('12345678901'), '••••••••');
+});
+
+test('mascararSegredo: vazio fica vazio (não inventa valor onde não há)', () => {
+  assert.strictEqual(mascararSegredo(''), '');
+  assert.strictEqual(mascararSegredo(null), '');
+  assert.strictEqual(mascararSegredo('   '), '');
+});
+
+// ---------------------------------------------------------------------------
+// resolverSegredos — a máscara do prefill intacta = MANTER o salvo (v2.8.1)
 // ---------------------------------------------------------------------------
 
 test('resolverSegredos: token sem oauth: ganha o prefixo sozinho', () => {
@@ -43,6 +67,33 @@ test('resolverSegredos: espaços nas pontas são limpos, chave mantida intacta',
   assert.strictEqual(r.YOUTUBE_API_KEY, 'AIza...');
 });
 
+test('resolverSegredos: máscara do prefill intacta = manter o valor salvo (v2.8.1)', () => {
+  const atuais = { token: 'oauth:segredao1234', apiKey: 'AIzaSyD-chave-9876' };
+  const r = resolverSegredos(
+    {
+      TWITCH_OAUTH_TOKEN: mascararSegredo(atuais.token), // o que a página manda sem mexer
+      YOUTUBE_API_KEY: mascararSegredo(atuais.apiKey),
+    },
+    atuais
+  );
+  assert.strictEqual(r.TWITCH_OAUTH_TOKEN, 'oauth:segredao1234', 'token mantido');
+  assert.strictEqual(r.YOUTUBE_API_KEY, 'AIzaSyD-chave-9876', 'chave mantida');
+});
+
+test('resolverSegredos: valor NOVO substitui o salvo', () => {
+  const atuais = { token: 'oauth:aaaaaaaaaaaa', apiKey: 'AIzaSyD-bbbbbbbb-9999' };
+  const r = resolverSegredos({ TWITCH_OAUTH_TOKEN: 'novotoken9876' }, atuais);
+  assert.strictEqual(r.TWITCH_OAUTH_TOKEN, 'oauth:novotoken9876');
+});
+
+test('resolverSegredoCampo: máscara resolve para o atual; vazio fica vazio', () => {
+  const atual = 'oauth:tokensecreto123';
+  assert.strictEqual(resolverSegredoCampo(mascararSegredo(atual), atual), atual);
+  assert.strictEqual(resolverSegredoCampo('outrovalor', atual), 'outrovalor');
+  assert.strictEqual(resolverSegredoCampo('', atual), '');
+  assert.strictEqual(resolverSegredoCampo(null, atual), '');
+});
+
 // ---------------------------------------------------------------------------
 // estadoAtual — TUDO que foi salvo antes volta para o wizard (v2.8)
 // ---------------------------------------------------------------------------
@@ -50,8 +101,8 @@ test('resolverSegredos: espaços nas pontas são limpos, chave mantida intacta',
 function cfgFake(extras = {}) {
   return {
     geral: { plataformasAtivas: ['twitch', 'youtube'], cooldownMs: 1500, tempoPressionarTeclaMs: 230 },
-    twitch: { username: 'meubot', oauthToken: 'oauth:tok', channel: 'sindrome' },
-    youtube: { apiKey: 'AIza123', videoId: 'jfKfPfyJRdk' },
+    twitch: { username: 'meubot', oauthToken: 'oauth:toksupersecret99', channel: 'sindrome' },
+    youtube: { apiKey: 'AIza123supersecret', videoId: 'jfKfPfyJRdk' },
     teclado: { preset: 'vbam', modo: 'janela', emuladorExe: 'C:\\jogo\\vbam.exe' },
     jogo: { rom: 'C:\\roms\\Emeralda.gba', autoReiniciar: true },
     pausa: { tecla: 'f9' },
@@ -61,10 +112,16 @@ function cfgFake(extras = {}) {
   };
 }
 
-test('estadoAtual: devolve os segredos INTEIROS para o prefill (pedido v2.8)', () => {
+test('estadoAtual: segredos voltam MASCARADOS — nada em claro vai ao navegador (v2.8.1)', () => {
   const d = estadoAtual(cfgFake());
-  assert.strictEqual(d.valores.TWITCH_OAUTH_TOKEN, 'oauth:tok');
-  assert.strictEqual(d.valores.YOUTUBE_API_KEY, 'AIza123');
+  assert.strictEqual(d.valores.TWITCH_OAUTH_TOKEN, '••••••••et99');
+  assert.strictEqual(d.valores.YOUTUBE_API_KEY, '••••••••cret');
+  // flags para a página avisar "há um valor salvo — deixe como está"
+  assert.strictEqual(d.temTokenTwitch, true);
+  assert.strictEqual(d.temChaveYoutube, true);
+  // o JSON inteiro não pode conter os segredos em claro
+  assert.ok(!JSON.stringify(d).includes('oauth:tok'), 'token em claro vazou');
+  assert.ok(!JSON.stringify(d).includes('AIza123'), 'chave em claro vazou');
   assert.strictEqual(d.valores.TWITCH_BOT_USERNAME, 'meubot');
   assert.strictEqual(d.valores.TWITCH_CHANNEL, 'sindrome');
   assert.strictEqual(d.valores.YOUTUBE_VIDEO_ID, 'jfKfPfyJRdk');
@@ -73,9 +130,15 @@ test('estadoAtual: devolve os segredos INTEIROS para o prefill (pedido v2.8)', (
   assert.strictEqual(d.valores.JOGO_ROM, 'C:\\roms\\Emeralda.gba');
 });
 
-test('estadoAtual: não existe mais bloco de máscaras (removido na v2.8)', () => {
-  const d = estadoAtual(cfgFake());
-  assert.strictEqual(d.mascaras, undefined);
+test('estadoAtual: sem segredo salvo → máscara vazia e flags falsas', () => {
+  const cfg = cfgFake();
+  cfg.twitch = { username: 'meubot', oauthToken: '', channel: 'sindrome' };
+  cfg.youtube = { apiKey: '', videoId: 'abc' };
+  const d = estadoAtual(cfg);
+  assert.strictEqual(d.valores.TWITCH_OAUTH_TOKEN, '');
+  assert.strictEqual(d.valores.YOUTUBE_API_KEY, '');
+  assert.strictEqual(d.temTokenTwitch, false);
+  assert.strictEqual(d.temChaveYoutube, false);
 });
 
 test('estadoAtual: configurado reflete errosConfig da cfg recebida', () => {
@@ -169,6 +232,25 @@ test('salvarConfiguracao: página sem prefill NÃO apaga chaves salvas (regress�
   assert.ok(r.erros.length >= 3, 'deveria listar os campos faltando');
   const depois = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
   assert.strictEqual(depois, antes, '.env destruído por body vazio!');
+});
+
+test('avaliarSalvamento: body com as MÁSCARAS intactas mantém os segredos atuais (v2.8.1)', () => {
+  const atuais = { token: 'oauth:salvo1234', apiKey: 'AIzaSyD-salva-5678' };
+  const r = avaliarSalvamento(
+    {
+      twitchAtivo: true,
+      youtubeAtivo: true,
+      TWITCH_BOT_USERNAME: 'bot',
+      TWITCH_CHANNEL: 'canal',
+      TWITCH_OAUTH_TOKEN: mascararSegredo(atuais.token), // não mexeu no campo
+      YOUTUBE_API_KEY: mascararSegredo(atuais.apiKey),
+      YOUTUBE_VIDEO_ID: 'jfKfPfyJRdk',
+    },
+    atuais
+  );
+  assert.strictEqual(r.ok, true, r.erros);
+  assert.strictEqual(r.finais.TWITCH_OAUTH_TOKEN, 'oauth:salvo1234');
+  assert.strictEqual(r.finais.YOUTUBE_API_KEY, 'AIzaSyD-salva-5678');
 });
 
 test('avaliarSalvamento: twitch DESATIVADO permite segredo vazio (remoção consciente)', () => {

@@ -92,8 +92,9 @@ async function iniciar() {
     token = `oauth:${token}`;
     logger.info('[Twitch] Token OAuth sem prefixo "oauth:" — prefixo adicionado automaticamente.');
   }
-  // Log seguro: só os primeiros caracteres
-  const preview = token.length > 14 ? `${token.substring(0, 10)}...(${token.length} chars)` : '(muito curto)';
+  // Log seguro (v2.8.1): nenhum caractere do token aparece — só o tamanho,
+  // para o streamer conferir se colou o token inteiro.
+  const preview = token.length > 14 ? `oauth:•••• (${token.length} caracteres)` : `(muito curto: ${token.length} caracteres)`;
   logger.info(`[Twitch] Token carregado: ${preview}`);
 
   cliente = new tmi.Client({

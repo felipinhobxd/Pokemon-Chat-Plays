@@ -106,7 +106,14 @@ class StatsManager {
     };
     try {
       fs.mkdirSync(path.dirname(path.resolve(this.arquivo)), { recursive: true });
-      fs.writeFileSync(this.arquivo, JSON.stringify(dados, null, 2));
+      // v2.8.1: gravação ATÔMICA — escreve num .tmp e renomeia por cima. Um
+      // writeFileSync direto, se o processo morrer/cair energia no meio da
+      // escrita, deixa um JSON truncado; no próximo boot o parse falha e o
+      // histórico do streamer zera sem aviso. rename dentro do mesmo
+      // diretório/disco é atômico no Windows (MoveFileEx) e no POSIX.
+      const caminhoTmp = `${this.arquivo}.tmp`;
+      fs.writeFileSync(caminhoTmp, JSON.stringify(dados, null, 2));
+      fs.renameSync(caminhoTmp, this.arquivo);
       this.sujo = false;
       return true;
     } catch (err) {

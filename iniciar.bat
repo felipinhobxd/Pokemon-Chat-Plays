@@ -10,7 +10,7 @@ REM  node (npm install + npm start).
 REM
 REM  v2.8: ao abrir o iniciar.bat, o bot SEMPRE abre o assistente de
 REM  configuracao no navegador — e tudo que voce salvou antes ja vem
-REM  preenchido (bot da Twitch, chaves, caminhos do jogo/ROM...). E so
+REM  preenchido (bot da Twitch, chaves mascaradas, caminhos do jogo/ROM). E so
 REM  revisar e clicar em "Salvar e iniciar o bot".
 REM  Argumentos sao repassados: --direto pula o assistente e inicia
 REM  direto (config ja salva); --assistente abre so o assistente.

@@ -1,0 +1,41 @@
+name: CI - Testes
+
+# Validação leve para commits "normais": roda os testes em todo push para a
+# main e em todo pull request — SEM gerar release, artefato ou tag (isso
+# continua exclusivo do build-release.yml, disparado por tag v*).
+#
+# Permissões mínimas (leitura apenas): este workflow nunca publica nada.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testar:
+    name: Testes (Node 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Rodar testes
+        run: npm test

@@ -13,7 +13,7 @@
 ## Highlights
 
 - **Plug-and-play** — run `PokemonChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
-- **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
+- **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
 - **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs.
@@ -25,7 +25,7 @@
 ## Quick start (Windows)
 
 1. **Download and run** `PokemonChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/Pokemon-Chat-Plays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `PokemonChatPlays-Windows.zip`.)*
-2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*).
+2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*). Saved keys come back **masked** (`••••••••abcd`): leave the field as-is to keep the saved value, clear it to remove, paste a new one to replace.
 3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game for you**.
 4. Hit **Save & start** — the bot **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
 

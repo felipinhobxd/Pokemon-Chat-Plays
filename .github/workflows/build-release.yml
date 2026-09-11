@@ -6,14 +6,17 @@ on:
       - 'v*'  # dispara quando uma tag v* é criada (ex: git tag v2.1.0)
   workflow_dispatch:  # permite rodar manualmente
 
-# Permissoes necessarias para criar releases e subir artefatos
+# Permissões MÍNIMAS por job (v2.8.1): o job de testes só precisa ler; só o
+# job de release (que cria a Release no GitHub) precisa escrever. O antigo
+# `packages: write` global não era usado por nada — removido.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   testar:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout do codigo
         uses: actions/checkout@v5
@@ -32,6 +35,8 @@ jobs:
   build-windows:
     needs: testar
     runs-on: windows-latest
+    permissions:
+      contents: write  # necessário APENAS para criar a Release (softprops/action-gh-release)
     steps:
       - name: Checkout do codigo
         uses: actions/checkout@v5

@@ -20,12 +20,18 @@
  *   - 'standalone': `npm run assistente` (ou node src/assistente.js)
  *     abre o wizard fora do boot, para reconfigurar quando quiser.
  *
- * Segurança: escuta apenas 127.0.0.1, requisições cross-origin são barradas
- * (anti-CSRF por Origin) e a página não usa recursos externos. Os segredos
- * salvos VOLTAM preenchidos para o navegador (pedido do fluxo v2.8: o que
- * você digitou antes continua nos campos) — a página só é servida para a
- * própria máquina e o .env já é um arquivo de texto plano no disco, então
- * isso não expõe nada que já não estivesse exposto localmente.
+ * Segurança (v2.8.1 — endurecida):
+ *  - escuta apenas 127.0.0.1;
+ *  - TODO pedido valida o Host (anti-DNS-rebinding: um domínio do atacante
+ *    que "resolve" para 127.0.0.1 não passa) E o Origin quando presente
+ *    (anti-CSRF — vale para GET também, não só POST);
+ *  - os segredos salvos NÃO voltam em claro para o navegador: o prefill usa
+ *    uma MÁSCARA (••••••••abcd). Deixar como está = manter o valor salvo;
+ *    apagar e salvar = remover de verdade (a validação pré-gravação segue
+ *    de pé); colar outro = trocar. A UX do "tudo preenchido" se mantém sem
+ *    entregar o token/chave a qualquer página que consiga bater no servidor;
+ *  - respostas com Cache-Control: no-store e X-Content-Type-Options:
+ *    nosniff; a página não usa recursos externos e tem CSP restritiva.
  */
 
 const http = require('http');
@@ -59,22 +65,64 @@ let ultimoDesfecho = null; // 'salvou' | 'iniciou-direto' | null (v2.8)
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve os segredos vindos do wizard (v2.8).
- * Os campos agora VÊM pré-preenchidos com o que está no .env — então um
- * campo vazio significa "apagar de verdade" (se a plataforma ativa exigir
- * o valor, o errosConfig() do salvar reclama na hora, sem perda silenciosa).
- * Token sem o prefixo "oauth:" ganha o prefixo sozinho.
+ * Máscara de segredo para o prefill (v2.8.1): o wizard mostra que HÁ um valor
+ * salvo (e os 4 últimos caracteres, para o streamer reconhecer a chave) sem
+ * devolver o segredo inteiro ao navegador. O valor mascarado volta no submit
+ * e é reconhecido pelo resolverSegredos como "manter o atual".
+ * @param {string} segredo
+ * @returns {string} '' se não há segredo; senão 8 bolinhas + 4 últimos
+ *   caracteres (segredos curtos ficam só com bolinhas — nada é revelado)
+ */
+function mascararSegredo(segredo) {
+  const t = String(segredo || '').trim();
+  if (!t) return '';
+  const MASCARA = '••••••••';
+  if (t.length < 12) return MASCARA;
+  return MASCARA + t.slice(-4);
+}
+
+/**
+ * Resolve os segredos vindos do wizard (v2.8.1).
+ * O prefill vem com a MÁSCARA do valor salvo: máscara intacta significa
+ * "manter o que está no .env" (o usuário não mexeu no campo). Valor novo
+ * substitui; campo vazio significa "apagar de verdade" (se a plataforma
+ * ativa exigir o valor, o errosConfig() do salvar reclama na hora, sem
+ * perda silenciosa). Token sem o prefixo "oauth:" ganha o prefixo sozinho.
  * @param {object} v - valores brutos do body
+ * @param {object} [atuais] - segredos atuais ({token, apiKey}); default =
+ *   os do config global (os testes injetam os seus)
  * @returns {{TWITCH_OAUTH_TOKEN: string, YOUTUBE_API_KEY: string}}
  */
-function resolverSegredos(v = {}) {
-  const token = String(v.TWITCH_OAUTH_TOKEN || '').trim();
-  const apiKey = String(v.YOUTUBE_API_KEY || '').trim();
+function resolverSegredos(v = {}, atuais = {}) {
+  const tokenAtual = String(atuais.token ?? config.twitch.oauthToken ?? '').trim();
+  const chaveAtual = String(atuais.apiKey ?? config.youtube.apiKey ?? '').trim();
+
+  const tokenBruto = String(v.TWITCH_OAUTH_TOKEN || '').trim();
+  const chaveBruta = String(v.YOUTUBE_API_KEY || '').trim();
+
+  // máscara do prefill voltando intacta = manter o valor salvo
+  const token = tokenBruto && tokenBruto === mascararSegredo(tokenAtual) ? tokenAtual : tokenBruto;
+  const chave = chaveBruta && chaveBruta === mascararSegredo(chaveAtual) ? chaveAtual : chaveBruta;
+
   return {
     TWITCH_OAUTH_TOKEN:
       token && !token.toLowerCase().startsWith('oauth:') ? 'oauth:' + token : token,
-    YOUTUBE_API_KEY: apiKey,
+    YOUTUBE_API_KEY: chave,
   };
+}
+
+/**
+ * Resolve UM campo de segredo do body (máscara do prefill = manter o atual).
+ * Usado pelos botões "Testar" — testam o valor que será usado de verdade.
+ * @param {string} bruto - valor do campo do wizard (pode ser a máscara)
+ * @param {string} atual - segredo atual do config
+ * @returns {string} valor resolvido ('' = campo vazio)
+ */
+function resolverSegredoCampo(bruto, atual) {
+  const t = String(bruto || '').trim();
+  const atualLimpo = String(atual || '').trim();
+  if (t && t === mascararSegredo(atualLimpo)) return atualLimpo;
+  return t;
 }
 
 /** Valores padrão das chaves não obrigatórias do .env gerado. */
@@ -293,9 +341,10 @@ function verificarCaminhosJogo({ exe, rom } = {}) {
 }
 
 /**
- * Valores atuais para PRÉ-PREENCHER o wizard (v2.8: TUDO, inclusive os
- * segredos — o que você digitou antes continua nos campos). Recebe cfg
- * opcional para os testes exercitarem sem depender de .env real.
+ * Valores atuais para PRÉ-PREENCHER o wizard (v2.8.1: segredos MASCARADOS —
+ * o que foi salvo antes continua aparecendo nos campos, mas sem devolver o
+ * valor em claro para o navegador; a máscara intacta no submit = manter).
+ * Recebe cfg opcional para os testes exercitarem sem depender de .env real.
  */
 function estadoAtual(cfg = config) {
   const plataformas = cfg.geral.plataformasAtivas;
@@ -305,12 +354,15 @@ function estadoAtual(cfg = config) {
     configurado: errosConfig(cfg).length === 0,
     twitchAtivo: plataformas.includes('twitch'),
     youtubeAtivo: plataformas.includes('youtube'),
+    // há valor salvo? (para a página mostrar "deixe como está para manter")
+    temTokenTwitch: Boolean(String(cfg.twitch.oauthToken || '').trim()),
+    temChaveYoutube: Boolean(String(cfg.youtube.apiKey || '').trim()),
     valores: {
       TWITCH_BOT_USERNAME: cfg.twitch.username,
       TWITCH_CHANNEL: cfg.twitch.channel,
-      // v2.8: segredos voltam INTEIROS (prefill completo)
-      TWITCH_OAUTH_TOKEN: cfg.twitch.oauthToken,
-      YOUTUBE_API_KEY: cfg.youtube.apiKey,
+      // v2.8.1: segredos voltam MASCARADOS (••••••••abcd) — ver mascararSegredo
+      TWITCH_OAUTH_TOKEN: mascararSegredo(cfg.twitch.oauthToken),
+      YOUTUBE_API_KEY: mascararSegredo(cfg.youtube.apiKey),
       YOUTUBE_VIDEO_ID: cfg.youtube.videoId,
       COMMAND_COOLDOWN_MS: String(cfg.geral.cooldownMs),
       KEY_PRESS_DURATION_MS: String(cfg.geral.tempoPressionarTeclaMs),
@@ -471,6 +523,7 @@ function responderJson(res, codigo, obj) {
   res.writeHead(codigo, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(corpo);
 }
@@ -479,16 +532,18 @@ function responderJson(res, codigo, obj) {
  * Monta os valores FINAIS do .env a partir do body do wizard e valida TUDO
  * antes de qualquer gravação (v2.8). Puro — testável sem servidor.
  *
- * Por que validar antes de gravar: com o prefill completo, campo vazio
- * significa "apagar de verdade". Se a página do wizard não carregou o
- * prefill (fetch falhou, aba antiga) e o usuário salva mesmo assim, o .env
- * anterior ficaria INTACTO em vez de perder os segredos — o usuário vê o
- * erro, recarrega a página e o prefill volta.
+ * Por que validar antes de gravar: com o prefill, campo vazio significa
+ * "apagar de verdade". Se a página do wizard não carregou o prefill (fetch
+ * falhou, aba antiga) e o usuário salva mesmo assim, o .env anterior
+ * ficaria INTACTO em vez de perder os segredos — o usuário vê o erro,
+ * recarrega a página e o prefill volta.
  *
  * @param {object} v - body bruto do POST /api/salvar
+ * @param {object} [atuais] - segredos atuais ({token, apiKey}); default =
+ *   os do config global (os testes injetam os seus)
  * @returns {{ok: boolean, erros: string[], finais: object}}
  */
-function avaliarSalvamento(v = {}) {
+function avaliarSalvamento(v = {}, atuais = {}) {
   const finais = { ...v };
 
   // v2.7.1: caminhos do jogo — tira aspas coladas e quebras de linha (a
@@ -506,9 +561,10 @@ function avaliarSalvamento(v = {}) {
   finais.JOGO_ARGS = limparArgs(finais.JOGO_ARGS) || limparArgs(config.jogo.args);
   finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
 
-  // v2.8: segredos vêm PRÉ-PREENCHIDOS (o que foi salvo antes está no
-  // campo). Vazio = apagar de verdade — validado ANTES de gravar.
-  const segredos = resolverSegredos(finais);
+  // v2.8.1: segredos vêm com a MÁSCARA do prefill — máscara intacta =
+  // MANTER o valor atual; vazio = apagar de verdade; outro valor = trocar.
+  // Tudo validado ANTES de gravar.
+  const segredos = resolverSegredos(finais, atuais);
   finais.TWITCH_OAUTH_TOKEN = segredos.TWITCH_OAUTH_TOKEN;
   finais.YOUTUBE_API_KEY = segredos.YOUTUBE_API_KEY;
 
@@ -577,13 +633,32 @@ function salvarConfiguracao(v) {
 /**
  * Blindagem anti-CSRF (v2.6): requisições cross-origin de OUTROS sites
  * (um site malicioso aberto no navegador do streamer não pode reescrever
- * o .env via fetch pra localhost). O navegador SEMPRE manda Origin em POST
- * cross-site; ferramentas locais (curl/node) não mandam e passam.
+ * o .env via fetch pra localhost). O navegador SEMPRE manda Origin em
+ * pedidos cross-site; ferramentas locais (curl/node) não mandam e passam.
+ * v2.8.1: vale para TODO método (GET incluso) — não custa nada e fecha
+ * qualquer leitura cross-origin que apareça no futuro.
  */
 function origemPermitida(req) {
   const origem = req.headers.origin;
   if (!origem) return true; // curl / node / mesmo servidor
-  return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/$|$)/i.test(origem);
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/$|$)/i.test(origem);
+}
+
+/**
+ * Blindagem anti-DNS-rebinding (v2.8.1): o Host do pedido TEM que ser um
+ * endereço local. Um site malicioso pode registrar um domínio que resolve
+ * para 127.0.0.1 — depois do "rebind", a página dele fala com o servidor
+ * local na MESMA origem (sem CORS pra bloquear) e leria /api/estado com
+ * os segredos. Como o Host continua sendo o domínio do atacante, a
+ * checagem abaixo barra o pedido antes de qualquer rota (GET incluso).
+ * @param {import('http').IncomingMessage} req
+ * @returns {boolean}
+ */
+function hostPermitido(req) {
+  const host = String(req.headers.host || '').trim().toLowerCase();
+  if (!host) return false; // HTTP/1.1 exige Host — sem ele, desconfia
+  const semPorta = host.replace(/:\d+$/, ''); // porta é sempre sufixo simples
+  return semPorta === 'localhost' || semPorta === '127.0.0.1' || semPorta === '[::1]';
 }
 
 /**
@@ -625,15 +700,25 @@ function abrirJogoAgora({ exe, rom, args } = {}) {
 async function tratarRequisicao(req, res) {
   const url = (req.url || '/').split('?')[0];
 
+  // v2.8.1: Host e Origin validados em TODO pedido, ANTES de qualquer rota.
+  // Host estranho = DNS rebinding (domínio do atacante apontando pra
+  // 127.0.0.1); Origin estranho = CSRF de site malicioso. Sem essas duas
+  // portas fechadas, um GET /api/estado podia entregar os segredos.
+  if (!hostPermitido(req)) {
+    responderJson(res, 403, { ok: false, mensagem: 'host não permitido' });
+    return;
+  }
+  if (!origemPermitida(req)) {
+    responderJson(res, 403, { ok: false, mensagem: 'origem não permitida' });
+    return;
+  }
+
   try {
-    if (req.method === 'POST' && !origemPermitida(req)) {
-      responderJson(res, 403, { ok: false, mensagem: 'origem não permitida' });
-      return;
-    }
     if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy':
           "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
       });
@@ -650,7 +735,10 @@ async function tratarRequisicao(req, res) {
       const body = await lerBody(req);
       const resultado = await testarTwitch({
         username: body.TWITCH_BOT_USERNAME || config.twitch.username,
-        oauth: body.TWITCH_OAUTH_TOKEN || config.twitch.oauthToken,
+        // máscara do prefill = testar o valor que está salvo (não a máscara!)
+        oauth:
+          resolverSegredoCampo(body.TWITCH_OAUTH_TOKEN, config.twitch.oauthToken) ||
+          config.twitch.oauthToken,
         channel: body.TWITCH_CHANNEL || config.twitch.channel,
       });
       responderJson(res, 200, resultado);
@@ -660,7 +748,9 @@ async function tratarRequisicao(req, res) {
     if (req.method === 'POST' && url === '/api/testar-youtube') {
       const body = await lerBody(req);
       const resultado = await testarYoutube({
-        apiKey: body.YOUTUBE_API_KEY || config.youtube.apiKey,
+        apiKey:
+          resolverSegredoCampo(body.YOUTUBE_API_KEY, config.youtube.apiKey) ||
+          config.youtube.apiKey,
         videoId: body.YOUTUBE_VIDEO_ID || config.youtube.videoId,
       });
       responderJson(res, 200, resultado);
@@ -892,9 +982,14 @@ module.exports = {
   // puros — testáveis sem servidor
   montarConteudoEnv,
   resolverSegredos,
+  mascararSegredo,
+  resolverSegredoCampo,
   estadoAtual,
   avaliarSalvamento,
   salvarConfiguracao,
   verificarCaminhosJogo,
   abrirJogoAgora,
+  // v2.8.1: validadores de segurança (testes de DNS rebinding / CSRF)
+  hostPermitido,
+  origemPermitida,
 };

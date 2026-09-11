@@ -223,7 +223,11 @@ function agendarAguardarLive() {
     logger.youtube('Conferindo se a live já começou...');
     iniciar().catch(() => { /* erros já logados dentro do iniciar */ });
   }, INTERVALO_AGUARDAR_LIVE_MS);
-  agendarAguardarLiveTimer.unref?.();
+  // v2.8.1: era "agendarAguardarLiveTimer.unref?.()" — nome inexistente:
+  // ReferenceError engolido pelo catch do iniciar() e logado como se fosse
+  // erro da API do YouTube em CADA retentativa (60s). O timer até funcionava
+  // (nascia antes do throw), mas o unref nunca era aplicado e o log mentia.
+  aguardarLiveTimer.unref?.();
 }
 
 /**
@@ -364,4 +368,10 @@ module.exports = {
   parar,
   // v2.6: exposto para os testes unitários do diagnóstico de erros
   interpretarErroApi,
+  // v2.8.1: exposto APENAS para os testes de regressão do timer de
+  // "live agendada" (não use em produção)
+  __test: {
+    agendarAguardarLive,
+    timersAtivos: () => ({ pollTimer, reconnectTimer, aguardarLiveTimer }),
+  },
 };
