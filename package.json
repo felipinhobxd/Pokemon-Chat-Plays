@@ -1,6 +1,6 @@
 {
   "name": "chatplays",
-  "version": "2.9.2",
+  "version": "2.9.3",
   "description": "Let Twitch and YouTube chat control emulators, Minecraft, or almost any keyboard-driven game with fully customizable chat controls.",
   "main": "src/boot.js",
   "bin": {
