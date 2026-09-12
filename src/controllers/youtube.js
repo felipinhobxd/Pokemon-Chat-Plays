@@ -34,6 +34,7 @@ const INTERVALO_POLLING_MS = 10000; // 10s
 const INTERVALO_RECONNECT_MS = 30000; // 30s
 const INTERVALO_AGUARDAR_LIVE_MS = 60000; // 60s (live ainda não começou)
 const FALHAS_CONSECUTIVAS_MAX = 30; // ~5min de polling falhando = desiste
+const QUOTA_OCORRENCIAS_ATE_SUSPENDER = 2;
 
 let youtubeClient = null;
 let liveChatId = null;
@@ -46,6 +47,9 @@ let falhasSeguidas = 0;
 let paradoPeloUsuario = false;
 let quotaBackoffMs = 60000;
 let iniciando = false;
+let quotaOcorrencias = 0;
+let quotaMensagemExibida = false;
+let suspensoPorQuota = false;
 
 function setConexao(ativo) {
   overlay.setConexao('youtube', Boolean(ativo));
@@ -125,6 +129,54 @@ function interpretarErroApi(err) {
   };
 }
 
+function limparTimersDeReconexao() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (aguardarLiveTimer) {
+    clearTimeout(aguardarLiveTimer);
+    aguardarLiveTimer = null;
+  }
+}
+
+function resetarEstadoQuota() {
+  quotaOcorrencias = 0;
+  quotaMensagemExibida = false;
+  suspensoPorQuota = false;
+  quotaBackoffMs = 60000;
+}
+
+/**
+ * Circuit breaker de quota:
+ * - a mensagem longa de quota só aparece UMA vez por ativação manual;
+ * - na 2ª ocorrência confirmada, o YouTube é tratado como offline e todas
+ *   as retentativas automáticas param até o streamer reativar/reiniciar.
+ */
+function registrarFalhaQuota(diagnostico, sufixo = '') {
+  quotaOcorrencias++;
+
+  if (!quotaMensagemExibida) {
+    quotaMensagemExibida = true;
+    logger.erro(`[YouTube] ${diagnostico.mensagem}${sufixo}`);
+  }
+
+  if (quotaOcorrencias < QUOTA_OCORRENCIAS_ATE_SUSPENDER) return false;
+
+  if (!suspensoPorQuota) {
+    suspensoPorQuota = true;
+    pararPolling();
+    limparTimersDeReconexao();
+    setConexao(false);
+    logger.aviso(
+      '[YouTube] Quota excedida novamente — YouTube marcado como offline nesta execução. ' +
+      'As tentativas automáticas foram desativadas; reative o YouTube pelo streamer/reinicie o ChatPlays quando quiser tentar de novo.'
+    );
+  }
+
+  return true;
+}
+
 /**
  * Busca o liveChatId do vídeo configurado.
  * @returns {Promise<{ok: boolean, motivo?: string, titulo?: string, aguardarLive?: boolean}>}
@@ -181,6 +233,11 @@ async function descobrirLiveChatId() {
  * @returns {Promise<boolean>}
  */
 async function iniciar() {
+  if (suspensoPorQuota) {
+    setConexao(false);
+    return false;
+  }
+
   paradoPeloUsuario = false;
   if (iniciando) return false;
   iniciando = true;
@@ -221,26 +278,53 @@ async function iniciar() {
     return true;
   } catch (err) {
     const diagnostico = interpretarErroApi(err);
-    logger.erro(`[YouTube] ${diagnostico.mensagem}`);
     setConexao(false);
     iniciando = false;
-    if (!paradoPeloUsuario && ['rede', 'api', 'desconhecido', 'quota'].includes(diagnostico.tipo)) {
-      const espera = diagnostico.tipo === 'quota' ? quotaBackoffMs : INTERVALO_RECONNECT_MS;
-      if (diagnostico.tipo === 'quota') quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
-      agendarReconexaoInicial(espera);
+
+    if (diagnostico.tipo === 'quota') {
+      const suspendeu = registrarFalhaQuota(diagnostico);
+      if (!suspendeu && !paradoPeloUsuario) {
+        const espera = quotaBackoffMs;
+        quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
+        agendarReconexaoInicial(espera);
+      }
+      return false;
+    }
+
+    logger.erro(`[YouTube] ${diagnostico.mensagem}`);
+    if (!paradoPeloUsuario && ['rede', 'api', 'desconhecido'].includes(diagnostico.tipo)) {
+      agendarReconexaoInicial(INTERVALO_RECONNECT_MS);
     }
     return false;
   }
 }
 
 /**
+ * Reativa explicitamente o YouTube depois de uma suspensão por quota.
+ * Reiniciar o processo também rearma o estado, mas esta API permite que uma
+ * futura UI/comando do streamer faça isso sem reiniciar o app.
+ */
+async function reativar() {
+  limparTimersDeReconexao();
+  pararPolling();
+  liveChatId = null;
+  pageToken = null;
+  emExecucao = false;
+  iniciando = false;
+  paradoPeloUsuario = false;
+  resetarEstadoQuota();
+  logger.youtube('[YouTube] Reativação manual solicitada pelo streamer.');
+  return iniciar();
+}
+
+/**
  * Re-tenta a conexão quando a live ainda não começou (v2.6).
  */
 function agendarAguardarLive() {
-  if (aguardarLiveTimer || paradoPeloUsuario) return;
+  if (aguardarLiveTimer || paradoPeloUsuario || suspensoPorQuota) return;
   aguardarLiveTimer = setTimeout(() => {
     aguardarLiveTimer = null;
-    if (paradoPeloUsuario) return;
+    if (paradoPeloUsuario || suspensoPorQuota) return;
     logger.youtube('Conferindo se a live já começou...');
     iniciar().catch(() => { /* erros já logados dentro do iniciar */ });
   }, INTERVALO_AGUARDAR_LIVE_MS);
@@ -255,6 +339,7 @@ function agendarAguardarLive() {
  * Inicia o polling de mensagens do live chat.
  */
 function iniciarPolling(opcoes = {}) {
+  if (suspensoPorQuota) return;
   if (pollTimer) clearInterval(pollTimer);
   emExecucao = false;
   if (opcoes.preservarFalhas !== true) falhasSeguidas = 0;
@@ -271,7 +356,7 @@ function iniciarPolling(opcoes = {}) {
  * Busca novas mensagens do live chat do YouTube.
  */
 async function buscarMensagens() {
-  if (!liveChatId || emExecucao) return;
+  if (suspensoPorQuota || !liveChatId || emExecucao) return;
   emExecucao = true;
 
   try {
@@ -322,6 +407,22 @@ async function buscarMensagens() {
     falhasSeguidas++;
     const diagnostico = interpretarErroApi(err);
 
+    if (diagnostico.tipo === 'quota') {
+      const suspendeu = registrarFalhaQuota(
+        diagnostico,
+        ` (falha consecutiva nº ${falhasSeguidas})`
+      );
+      if (!suspendeu) {
+        // Uma única tentativa automática é suficiente para confirmar se foi
+        // um erro transitório. Se a quota vier novamente, o circuit breaker
+        // acima desliga o YouTube para esta execução.
+        const espera = quotaBackoffMs;
+        quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
+        agendarReconnect(espera);
+      }
+      return;
+    }
+
     // Log espaçado: a 1ª falha, depois a cada 5 — evita spam em lives longas
     if (falhasSeguidas === 1 || falhasSeguidas % 5 === 0) {
       logger.erro(`[YouTube] ${diagnostico.mensagem} (falha consecutiva nº ${falhasSeguidas})`);
@@ -335,12 +436,7 @@ async function buscarMensagens() {
       return;
     }
 
-    if (diagnostico.tipo === 'quota') {
-      // Backoff persistente entre retomadas: 60s -> 120s -> 240s -> 300s.
-      const espera = quotaBackoffMs;
-      quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
-      agendarReconnect(espera);
-    } else if (falhasSeguidas >= FALHAS_CONSECUTIVAS_MAX) {
+    if (falhasSeguidas >= FALHAS_CONSECUTIVAS_MAX) {
       // ~5min de falhas sem diagnóstico recuperável: pausa o polling
       pararPolling();
       setConexao(false);
@@ -357,10 +453,10 @@ async function buscarMensagens() {
 
 /** Retenta a descoberta/conexão inicial após erro transitório. */
 function agendarReconexaoInicial(esperaMs = INTERVALO_RECONNECT_MS) {
-  if (reconnectTimer || paradoPeloUsuario) return;
+  if (reconnectTimer || paradoPeloUsuario || suspensoPorQuota) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    if (paradoPeloUsuario) return;
+    if (paradoPeloUsuario || suspensoPorQuota) return;
     logger.youtube('Tentando conectar ao YouTube de novo...');
     iniciar().catch(() => { /* iniciar já classifica/loga */ });
   }, esperaMs);
@@ -372,11 +468,11 @@ function agendarReconexaoInicial(esperaMs = INTERVALO_RECONNECT_MS) {
  * @param {number} [esperaMs=INTERVALO_RECONNECT_MS]
  */
 function agendarReconnect(esperaMs = INTERVALO_RECONNECT_MS) {
-  if (reconnectTimer) return;
+  if (reconnectTimer || suspensoPorQuota) return;
   pararPolling();
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    if (paradoPeloUsuario) return;
+    if (paradoPeloUsuario || suspensoPorQuota) return;
     logger.youtube('Tentando retomar o polling...');
     iniciarPolling({ preservarFalhas: true });
   }, esperaMs);
@@ -399,14 +495,7 @@ function pararPolling() {
 function parar() {
   paradoPeloUsuario = true;
   pararPolling();
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (aguardarLiveTimer) {
-    clearTimeout(aguardarLiveTimer);
-    aguardarLiveTimer = null;
-  }
+  limparTimersDeReconexao();
   liveChatId = null;
   pageToken = null;
   emExecucao = false;
@@ -417,15 +506,22 @@ function parar() {
 
 module.exports = {
   iniciar,
+  reativar,
   parar,
   // v2.6: exposto para os testes unitários do diagnóstico de erros
   interpretarErroApi,
-  // v2.8.1: exposto APENAS para os testes de regressão do timer de
-  // "live agendada" (não use em produção)
+  // v2.8.1+: helpers expostos APENAS para testes de regressão
   __test: {
     agendarAguardarLive,
     agendarReconexaoInicial,
     timersAtivos: () => ({ pollTimer, reconnectTimer, aguardarLiveTimer }),
     quotaBackoff: () => quotaBackoffMs,
+    registrarFalhaQuota,
+    estadoQuota: () => ({
+      ocorrencias: quotaOcorrencias,
+      mensagemExibida: quotaMensagemExibida,
+      suspenso: suspensoPorQuota,
+    }),
+    resetarEstadoQuota,
   },
 };
