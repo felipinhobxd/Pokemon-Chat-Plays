@@ -24,6 +24,8 @@ h1{font-size:26px;margin:0}.muted{color:#8da0ba}.spacer{flex:1}.pill{display:inl
 .wide{grid-column:span 2}.full{grid-column:1/-1}.list{display:flex;flex-direction:column;gap:7px}.row{background:#0c121c;border:1px solid #1d293a;border-radius:9px;padding:9px 10px;font-size:13px;display:flex;gap:10px;align-items:center}.row .time{color:#71839c;margin-left:auto;font-variant-numeric:tabular-nums}
 .err{border-color:#51272c;background:#1a1115}.warnrow{border-color:#57451c;background:#18150d}.oktxt{color:#6ee7a0}.badtxt{color:#fca5a5}.yellow{color:#fde68a}.mono{font-family:Consolas,ui-monospace,monospace}
 .empty{color:#71839c;font-size:13px;padding:8px 0}.footer{color:#66758a;font-size:12px;margin-top:14px;text-align:center}
+.reat{background:#1c2a3a;border:1px solid #2f4a63;border-radius:999px;padding:6px 12px;font-size:12px;color:#fde68a;cursor:pointer;font-family:inherit}
+.reat:hover{background:#243447}.reat:disabled{opacity:.55;cursor:wait}
 @media(max-width:1050px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wide{grid-column:span 2}}
 @media(max-width:650px){body{padding:12px}.grid{grid-template-columns:1fr}.wide,.full{grid-column:1}h1{font-size:21px}}
 </style>
@@ -58,13 +60,31 @@ h1{font-size:26px;margin:0}.muted{color:#8da0ba}.spacer{flex:1}.pill{display:inl
   function fmtMs(ms){ms=Math.max(0,Number(ms)||0);if(ms<1000)return Math.round(ms)+'ms';if(ms<60000)return (ms/1000).toFixed(ms<10000?1:0)+'s';return Math.floor(ms/60000)+'m '+Math.floor((ms%60000)/1000)+'s'}
   function line(a,b,cls){return '<div class="line"><span>'+esc(a)+'</span><b class="'+(cls||'')+'">'+esc(b)+'</b></div>'}
   function pill(nome,on){return '<span class="pill '+(on?'on':'bad')+'"><span class="dot"></span>'+esc(nome)+'</span>'}
+  function pillYoutube(s){
+    if(s.youtubeSuspensoQuota){
+      return '<span class="pill warn"><span class="dot"></span>YouTube: SUSPENSO — QUOTA</span>'+
+        '<button id="reativarYt" class="reat" type="button">\ud83d\udd01 Reativar YouTube</button>';
+    }
+    return pill('YouTube',!!(s.conexoes&&s.conexoes.youtube));
+  }
+  function ligarReativacao(){
+    var btn=$('reativarYt');
+    if(!btn)return;
+    btn.addEventListener('click',function(){
+      btn.disabled=true;btn.textContent='reativando…';
+      fetch('/api/reativar-youtube',{method:'POST'}).then(function(r){return r.json()}).then(function(){ciclo()}).catch(function(){
+        btn.disabled=false;btn.textContent='\ud83d\udd01 Reativar YouTube (tente de novo)';
+      });
+    });
+  }
   var ESTADOS_PAD={desativado:['DESATIVADO',''],aguardando:['AGUARDANDO COMANDO','yellow'],pronto:['CONTROLE CRIADO','oktxt'],'dll-ausente':['DLL AUSENTE','badtxt'],'arquitetura-errada':['DLL NÃO É x64','badtxt'],'falha-carregamento':['DLL NÃO CARREGA','badtxt'],'sem-vigembus':['DRIVER ViGEmBus AUSENTE','badtxt'],'falha-desconhecida':['FALHA','badtxt']};
   function estadoPad(g){return ESTADOS_PAD[g&&g.estado]||ESTADOS_PAD.aguardando}
   function render(s){
     var d=s.diagnostico||{}, t=d.teclado||{}, c=d.cooldown||{}, g=d.gamepad||{}, b=c.bloqueios||{};
     $('versao').textContent='v'+(s.versao||'?');
     $('sync').className='pill on';$('sync').innerHTML='<span class="dot"></span> ao vivo · '+new Date(s.geradoEm||Date.now()).toLocaleTimeString();
-    $('plataformas').innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap">'+pill('Twitch',!!(s.conexoes&&s.conexoes.twitch))+pill('YouTube',!!(s.conexoes&&s.conexoes.youtube))+'</div>'+line('Comandos processados',s.stats&&s.stats.totalComandos||0)+line('Uptime',fmtMs(s.uptimeMs));
+    $('plataformas').innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+pill('Twitch',!!(s.conexoes&&s.conexoes.twitch))+pillYoutube(s)+'</div>'+line('Comandos processados',s.stats&&s.stats.totalComandos||0)+line('Uptime',fmtMs(s.uptimeMs));
+    ligarReativacao();
     var modo=(s.votacao&&s.votacao.modo)||'anarquia';
     $('chat').innerHTML=line('Estado',s.pausado?'PAUSADO':'LIBERADO',s.pausado?'badtxt':'oktxt')+line('Modo',modo)+line('Teclas seguradas',(s.seguradas||[]).length)+line('Tecla de pausa',String(s.teclaPausa||'f9').toUpperCase());
     var j=s.jogo||{}, alvo=s.alvo||{};

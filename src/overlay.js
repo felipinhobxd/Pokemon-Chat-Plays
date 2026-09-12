@@ -49,7 +49,13 @@ const estado = {
   // botão (para o gamepad acender na página)
   teclaPausa: 'f9',
   toques: {},
+  // v3.1.x: circuit breaker de quota do YouTube — o painel mostra
+  // "SUSPENSO — QUOTA" e um botão de reativação (booleano, sem segredos)
+  youtubeSuspensoQuota: false,
 };
+
+/** Ação de reativação do YouTube injetada pelo index.js (POST do painel). */
+let acaoReativarYoutube = null;
 
 /** Provedores injetados pelo index.js (evita dependências circulares). */
 let provedores = {
@@ -87,6 +93,24 @@ function setConexao(plataforma, conectado) {
   if (plataforma === 'twitch' || plataforma === 'youtube') {
     estado.conexoes[plataforma] = Boolean(conectado);
   }
+}
+
+/**
+ * Marca/desmarca a suspensão do YouTube por quota (circuit breaker).
+ * Exposto no snapshot como `youtubeSuspensoQuota` — o painel usa para
+ * mostrar "SUSPENSO — QUOTA" + botão de reativar.
+ */
+function setYoutubeSuspensoQuota(suspenso) {
+  estado.youtubeSuspensoQuota = Boolean(suspenso);
+}
+
+/**
+ * Registra a ação executada pelo POST /api/reativar-youtube do painel
+ * (injetada pelo index.js para evitar dependência circular com o cliente).
+ * @param {function|null} fn - async () => boolean
+ */
+function registrarAcaoReativarYoutube(fn) {
+  acaoReativarYoutube = typeof fn === 'function' ? fn : null;
 }
 
 /**
@@ -185,6 +209,7 @@ function snapshot() {
     pausado: estado.pausado,
     teclaPausa: estado.teclaPausa,
     conexoes: { ...estado.conexoes },
+    youtubeSuspensoQuota: estado.youtubeSuspensoQuota,
     uptimeMs,
     geradoEm: Date.now(),
     diagnostico,
@@ -226,11 +251,32 @@ function origemPermitida(req) {
 }
 
 /** Trata uma requisição HTTP do overlay. */
-function tratarRequisicao(req, res) {
+async function tratarRequisicao(req, res) {
   const caminho = (req.url || '/').split('?')[0];
   if (!hostPermitido(req) || !origemPermitida(req)) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('403');
+    return;
+  }
+  // v3.1.x: única rota de escrita — reativação manual do YouTube pelo
+  // streamer no painel (mesmas proteções de Host/Origin do resto do
+  // servidor; sem corpo, sem parâmetros, sem segredos).
+  if (req.method === 'POST' && caminho === '/api/reativar-youtube') {
+    req.resume(); // drena corpo (vazio) para liberar o socket
+    const cabecalho = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+    if (typeof acaoReativarYoutube !== 'function') {
+      res.writeHead(503, cabecalho);
+      res.end(JSON.stringify({ ok: false, mensagem: 'reativação do YouTube não disponível' }));
+      return;
+    }
+    try {
+      const ok = Boolean(await acaoReativarYoutube());
+      res.writeHead(200, cabecalho);
+      res.end(JSON.stringify({ ok }));
+    } catch {
+      res.writeHead(500, cabecalho);
+      res.end(JSON.stringify({ ok: false, mensagem: 'falha ao reativar o YouTube' }));
+    }
     return;
   }
   if (req.method !== 'GET') {
@@ -754,6 +800,8 @@ module.exports = {
   registrarAcao,
   setPausado,
   setConexao,
+  setYoutubeSuspensoQuota,
+  registrarAcaoReativarYoutube,
   setVersao,
   setAlvo,
   setJogo,

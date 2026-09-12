@@ -145,13 +145,17 @@ function resetarEstadoQuota() {
   quotaMensagemExibida = false;
   suspensoPorQuota = false;
   quotaBackoffMs = 60000;
+  overlay.setYoutubeSuspensoQuota(false);
 }
 
 /**
  * Circuit breaker de quota:
  * - a mensagem longa de quota só aparece UMA vez por ativação manual;
- * - na 2ª ocorrência confirmada, o YouTube é tratado como offline e todas
- *   as retentativas automáticas param até o streamer reativar/reiniciar.
+ * - na 2ª ocorrência confirmada, o YouTube entra em suspensão (offline no
+ *   painel/overlay, ZERO timers automáticos, ZERO novas chamadas à API)
+ *   até o streamer reativar pelo painel ou reiniciar o ChatPlays;
+ * - abrir o breaker é idempotente: múltiplas falhas simultâneas não geram
+ *   mensagens repetidas nem estados inconsistentes.
  */
 function registrarFalhaQuota(diagnostico, sufixo = '') {
   quotaOcorrencias++;
@@ -165,12 +169,16 @@ function registrarFalhaQuota(diagnostico, sufixo = '') {
 
   if (!suspensoPorQuota) {
     suspensoPorQuota = true;
+    // Ordem deliberada: primeiro para TUDO (polling + timers de
+    // reconexão/aguardar-live), depois marca offline — nunca fica
+    // "suspenso com timer ativo" ou "conectado mas suspenso".
     pararPolling();
     limparTimersDeReconexao();
     setConexao(false);
+    overlay.setYoutubeSuspensoQuota(true);
     logger.aviso(
-      '[YouTube] Quota excedida novamente — YouTube marcado como offline nesta execução. ' +
-      'As tentativas automáticas foram desativadas; reative o YouTube pelo streamer/reinicie o ChatPlays quando quiser tentar de novo.'
+      '[YouTube] Quota excedida novamente — YouTube suspenso para evitar novas chamadas à API. ' +
+      'Reative o YouTube no painel ao vivo (/dashboard) ou reinicie o ChatPlays quando quiser tentar de novo.'
     );
   }
 
@@ -258,6 +266,15 @@ async function iniciar() {
 
   try {
     const resultado = await descobrirLiveChatId();
+
+    // A API pode demorar; se um parar() (Ctrl+C) ou o circuit breaker de
+    // quota abriu ENQUANTO esperávamos a resposta, esta continuação não
+    // pode marcar o YouTube como conectado nem subir polling.
+    if (suspensoPorQuota || paradoPeloUsuario) {
+      iniciando = false;
+      setConexao(false);
+      return false;
+    }
 
     if (!resultado.ok) {
       logger.erro(`[YouTube] ${resultado.motivo}`);
@@ -500,6 +517,10 @@ function parar() {
   pageToken = null;
   emExecucao = false;
   iniciando = false;
+  // "manualmente parado" ≠ "suspenso por quota": a bandeira do painel
+  // acompanha o estado real (uma parada manual derruba a suspensão exibida;
+  // uma nova ativação via iniciar()/reativar() começa do zero de todo jeito)
+  overlay.setYoutubeSuspensoQuota(false);
   setConexao(false);
   logger.youtube('Cliente desconectado.');
 }
@@ -523,5 +544,10 @@ module.exports = {
       suspenso: suspensoPorQuota,
     }),
     resetarEstadoQuota,
+    // v3.1.x: permitem exercitar o pipeline REAL de polling sem tocar na
+    // API do YouTube (cliente falso que lança os erros que a suíte quiser)
+    definirCliente: (cliente) => { youtubeClient = cliente; },
+    definirLiveChatId: (id) => { liveChatId = id ? String(id) : null; },
+    buscarMensagens,
   },
 };

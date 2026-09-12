@@ -154,3 +154,106 @@ test('overlay: ícone do candidato usa code point (não charAt, que quebra emoji
   // o rótulo também é code-point safe (split por espaço, não slice(2))
   assert.ok(overlay.PAGINA.includes('.split(/\\s+/).slice(1)'), 'rótulo do candidato divide no espaço');
 });
+
+// ---------------------------------------------------------------------------
+// v3.1.x — POST /api/reativar-youtube (circuit breaker de quota do YouTube)
+// Única rota de escrita do servidor do overlay: mesmas proteções de
+// Host/Origin, sem corpo/parâmetros e sem segredos na resposta.
+// ---------------------------------------------------------------------------
+
+test('reativar-youtube: POST executa a ação registrada e responde {ok}', async () => {
+  const porta = await overlay.iniciar(0);
+  try {
+    let chamadas = 0;
+    overlay.registrarAcaoReativarYoutube(async () => {
+      chamadas++;
+      return true;
+    });
+
+    const resp = await fetch(`http://127.0.0.1:${porta}/api/reativar-youtube`, { method: 'POST' });
+    assert.strictEqual(resp.status, 200);
+    assert.match(resp.headers.get('content-type') || '', /application\/json/);
+    const dados = await resp.json();
+    assert.strictEqual(dados.ok, true);
+    assert.strictEqual(chamadas, 1, 'ação executada exatamente uma vez');
+
+    // ação que "falha" (retorna false) também responde JSON — sem 500
+    overlay.registrarAcaoReativarYoutube(async () => false);
+    const resp2 = await fetch(`http://127.0.0.1:${porta}/api/reativar-youtube`, { method: 'POST' });
+    assert.strictEqual(resp2.status, 200);
+    assert.strictEqual((await resp2.json()).ok, false);
+  } finally {
+    overlay.registrarAcaoReativarYoutube(null);
+    await overlay.parar();
+  }
+});
+
+test('reativar-youtube: sem ação registrada responde 503 (não 500 nem crash)', async () => {
+  const porta = await overlay.iniciar(0);
+  try {
+    overlay.registrarAcaoReativarYoutube(null);
+    const resp = await fetch(`http://127.0.0.1:${porta}/api/reativar-youtube`, { method: 'POST' });
+    assert.strictEqual(resp.status, 503);
+    const dados = await resp.json();
+    assert.strictEqual(dados.ok, false);
+  } finally {
+    await overlay.parar();
+  }
+});
+
+test('reativar-youtube: Host/Origin de fora continuam BLOQUEADOS no POST', async () => {
+  const porta = await overlay.iniciar(0);
+  // fetch do undici descarta headers proibidos (Host) — para o teste de
+  // rebinding usamos http.request cru, que respeita o Host na literal
+  const http = require('node:http');
+  const requisitar = (opcoes) =>
+    new Promise((resolve) => {
+      const req = http.request(
+        { host: '127.0.0.1', port: porta, method: 'POST', ...opcoes },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve(res.statusCode));
+        }
+      );
+      req.on('error', () => resolve(null));
+      req.end();
+    });
+
+  try {
+    overlay.registrarAcaoReativarYoutube(() => true);
+    // Host estranho (DNS rebinding): 403 antes de tocar na ação
+    assert.strictEqual(await requisitar({ path: '/api/reativar-youtube', headers: { Host: 'evil.example.com' } }), 403);
+    // Origin cruzada: 403
+    assert.strictEqual(
+      await requisitar({ path: '/api/reativar-youtube', headers: { Origin: 'https://evil.example.com' } }),
+      403
+    );
+  } finally {
+    overlay.registrarAcaoReativarYoutube(null);
+    await overlay.parar();
+  }
+});
+
+test('reativar-youtube: outros POST continuam 405 (rota de escrita única)', async () => {
+  const porta = await overlay.iniciar(0);
+  try {
+    const resp = await fetch(`http://127.0.0.1:${porta}/api/estado`, { method: 'POST' });
+    assert.strictEqual(resp.status, 405);
+    const resp2 = await fetch(`http://127.0.0.1:${porta}/api/salvar`, { method: 'POST' });
+    assert.strictEqual(resp2.status, 405, 'qualquer POST fora da rota única cai no 405');
+  } finally {
+    await overlay.parar();
+  }
+});
+
+test('snapshot expõe o estado de suspensão de quota sem vazar segredos', () => {
+  const antes = overlay.snapshot().youtubeSuspensoQuota;
+  overlay.setYoutubeSuspensoQuota(true);
+  const snap = overlay.snapshot();
+  assert.strictEqual(snap.youtubeSuspensoQuota, true);
+  assert.strictEqual(snap.conexoes.youtube, false, 'suspenso é exibido como desconectado');
+  const json = JSON.stringify(snap);
+  assert.ok(!/api[ _-]?key/i.test(json), 'nenhum segredo no snapshot');
+  assert.ok(!/oauth|token/i.test(json), 'nenhum token no snapshot');
+  overlay.setYoutubeSuspensoQuota(antes);
+});

@@ -335,6 +335,10 @@ async function iniciarOverlay() {
     }),
   });
   overlay.setTeclaPausa(config.pausa.tecla);
+  // v3.1.x: botão "Reativar YouTube" do painel (circuit breaker de quota).
+  // Única via de reativação em runtime — o streamer decide quando tentar
+  // de novo; nada acorda o YouTube sozinho depois da suspensão.
+  overlay.registrarAcaoReativarYoutube(() => youtube.reativar());
   await overlay.iniciar(config.overlay.porta);
 }
 

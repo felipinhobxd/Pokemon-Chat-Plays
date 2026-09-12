@@ -54,3 +54,17 @@ test('passo 6: avisos recentes mascaram token/key antes de chegar ao painel', ()
   assert.doesNotMatch(ultimo.mensagem, /segredo123|abc123|nao-mostrar/);
   assert.match(ultimo.mensagem, /\*\*\*/);
 });
+
+// ---------------------------------------------------------------------------
+// v3.1.x — painel mostra o circuit breaker de quota do YouTube
+// ---------------------------------------------------------------------------
+
+test('painel: estado SUSPENSO — QUOTA do YouTube aparece com botão de reativar', () => {
+  // pill de suspensão + botão (só existem no estado suspenso)
+  assert.match(PAGINA_DASHBOARD, /SUSPENSO — QUOTA/);
+  assert.match(PAGINA_DASHBOARD, /reativarYt/);
+  assert.match(PAGINA_DASHBOARD, /\/api\/reativar-youtube/);
+  // a pill/botão não pedem nem ecoam credenciais: nada de campos de input
+  assert.doesNotMatch(PAGINA_DASHBOARD, /<input[^>]*type=["']?password/i);
+  assert.doesNotMatch(PAGINA_DASHBOARD, /YOUTUBE_API_KEY|YOUTUBE_VIDEO_ID/i);
+});
