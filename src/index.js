@@ -217,9 +217,9 @@ async function configurarAlvoDoEmulador() {
 function iniciarGerenciadorJogo() {
   if (!exeDoJogo) return;
 
-  const usarLauncherMinecraft =
-    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&
-    minecraftLauncher.ehAtLauncher(exeDoJogo);
+  // O próprio caminho do ATLauncher é a fonte de verdade. O preset pode
+  // estar personalizado/legado; nunca trate ATLauncher.exe como o jogo real.
+  const usarLauncherMinecraft = minecraftLauncher.ehAtLauncher(exeDoJogo);
 
   if (usarLauncherMinecraft) {
     logger.info('[Minecraft] ATLauncher configurado — o ChatPlays vai abrir/reutilizar o launcher e acionar Instances → Play.');
@@ -520,9 +520,9 @@ async function main() {
   // Minecraft Java é iniciado pelo launcher, mas teclado/mouse precisam agir
   // no JOGO real. No ATLauncher, input global evita usar a janela do launcher
   // como alvo; o mouse global usa a janela em foco (Minecraft).
-  const launcherMinecraftAtivo =
-    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&
-    minecraftLauncher.ehAtLauncher(exeDoJogo);
+  // Mesmo princípio do gerenciador: ATLauncher.exe identifica o fluxo
+  // Minecraft ainda que o perfil tenha virado "personalizado".
+  const launcherMinecraftAtivo = minecraftLauncher.ehAtLauncher(exeDoJogo);
   if (launcherMinecraftAtivo && config.teclado.modo !== 'global') {
     teclado.configurarAlvoJanela(null);
     overlay.setAlvo(null);
