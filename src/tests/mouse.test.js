@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const mouse = require('../controllers/mouse');
 
 
@@ -35,6 +36,22 @@ test('worker Windows contém backends janela, jogo e global', () => {
   assert.ok(fonte.includes("'MJ'"), 'protocolo precisa expor movimento do modo jogo');
   assert.ok(!fonte.includes('mouse_event('), 'backend legado mouse_event não deve voltar');
   assert.ok(fonte.includes('GetClientRect'), 'mouse deve limitar ações à área do jogo');
+});
+
+test('worker usa arquivo temporário, sem estourar a linha de comando do Windows', () => {
+  const arquivo = mouse.__test.criarArquivoWorker();
+  try {
+    const bytes = fs.readFileSync(arquivo);
+    assert.deepStrictEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'PowerShell 5.1 precisa do BOM UTF-8');
+    assert.match(bytes.toString('utf8'), /ChatPlaysMouse/);
+    const args = mouse.__test.argumentosPowerShellWorker(arquivo);
+    assert.ok(args.includes('-File'));
+    assert.ok(!args.includes('-EncodedCommand'));
+    assert.ok(args.join(' ').length < 32767);
+  } finally {
+    mouse.__test.limparArquivoWorker(arquivo);
+  }
+  assert.strictEqual(fs.existsSync(arquivo), false);
 });
 
 

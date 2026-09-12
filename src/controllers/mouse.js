@@ -18,6 +18,10 @@
  */
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { limitarMs } = require('../utils/duracao');
@@ -56,6 +60,7 @@ let ultimoAviso = 0;
 const worker = {
   proc: null,
   alvo: null,
+  arquivo: null,
   stderrParcial: '',
 };
 
@@ -521,6 +526,7 @@ $targetPid = 0
     [Environment]::GetEnvironmentVariable('CHATPLAYS_MOUSE_TARGET_TITLE'),
     [Environment]::GetEnvironmentVariable('CHATPLAYS_MOUSE_TARGET_PROCESS')
 )
+[Console]::Out.WriteLine('READY')
 while (($line = [Console]::In.ReadLine()) -ne $null) {
     try {
         $p = $line.Trim().Split(' ')
@@ -551,6 +557,28 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
 `;
 }
 
+/**
+ * O worker cresceu além do limite de linha de comando do Windows (32 KiB).
+ * Grave-o em um .ps1 temporário com BOM — necessário para o PowerShell 5.1
+ * interpretar UTF-8 — e mantenha o stdin exclusivamente para as ações.
+ */
+function criarArquivoWorker() {
+  const nome = `chatplays-mouse-${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.ps1`;
+  const arquivo = path.join(os.tmpdir(), nome);
+  fs.writeFileSync(arquivo, `\ufeff${fonteWorker()}`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  return arquivo;
+}
+
+function argumentosPowerShellWorker(arquivo) {
+  return ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', arquivo];
+}
+
+function limparArquivoWorker(arquivo) {
+  if (!arquivo) return;
+  try { fs.unlinkSync(arquivo); }
+  catch { /* limpeza best-effort; o SO remove temporários antigos */ }
+}
+
 function pararWorker() {
   if (!worker.proc) return;
   try { worker.proc.kill(); } catch { /* já finalizado */ }
@@ -568,11 +596,12 @@ function iniciarWorker() {
   if (worker.proc && worker.alvo === chaveAlvo && !worker.proc.killed) return true;
 
   pararWorker();
+  let arquivoWorker = null;
   try {
-    const encoded = Buffer.from(fonteWorker(), 'utf16le').toString('base64');
+    arquivoWorker = criarArquivoWorker();
     const proc = spawn(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded],
+      argumentosPowerShellWorker(arquivoWorker),
       {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
@@ -587,11 +616,18 @@ function iniciarWorker() {
     );
     worker.proc = proc;
     worker.alvo = chaveAlvo;
+    worker.arquivo = arquivoWorker;
+    worker.stderrParcial = '';
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
     proc.stdout.on('data', (dados) => {
       const linhas = String(dados).split(/\r?\n/).filter(Boolean);
       for (const linha of linhas) {
+        if (linha === 'READY') {
+          limparArquivoWorker(arquivoWorker);
+          if (worker.arquivo === arquivoWorker) worker.arquivo = null;
+          continue;
+        }
         if (!linha.startsWith('WARN')) continue;
         const detalhe = linha.replace(/^WARN\s*/, '');
         if (detalhe === 'TARGET') {
@@ -608,16 +644,21 @@ function iniciarWorker() {
       if (worker.stderrParcial.length > 2000) worker.stderrParcial = worker.stderrParcial.slice(-2000);
     });
     proc.on('exit', () => {
+      limparArquivoWorker(arquivoWorker);
       if (worker.proc === proc) {
         worker.proc = null;
         worker.alvo = null;
+        worker.arquivo = null;
       }
     });
     proc.on('error', (err) => {
+      limparArquivoWorker(arquivoWorker);
+      if (worker.arquivo === arquivoWorker) worker.arquivo = null;
       avisar(`PowerShell do mouse falhou: ${err.message}`);
     });
     return true;
   } catch (err) {
+    limparArquivoWorker(arquivoWorker);
     avisar(`não foi possível iniciar o mouse: ${err.message}`);
     return false;
   }
@@ -937,6 +978,9 @@ module.exports = {
     limitar,
     lerPasso,
     fonteWorker,
+    criarArquivoWorker,
+    argumentosPowerShellWorker,
+    limparArquivoWorker,
     /** Injeta plataforma + worker falso p/ testar hold sem Windows. */
     simular({ plataforma = 'win32', linhas = null } = {}) {
       plataformaFake = plataforma;
