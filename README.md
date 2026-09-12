@@ -49,7 +49,7 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 | `soltar` / `release` | Release ALL held inputs: keys, mouse buttons, gamepad |
 | `salvar` / `carregar` (or `save` / `load`) | Emulator save state / load state |
 | `dialogo` / `dialogue` | Repeated A presses for 5 seconds |
-| `mouse cima/baixo/esquerda/direita`, `mouse 50 50`, `clique` | Mouse controls |
+| `mouse cima/baixo/esquerda/direita`, `olhar cima/baixo/esquerda/direita`, `mouse 50 50`, `clique` | Mouse/camera controls (Minecraft-friendly aliases included) |
 | `hold clique 3s` · `hold clique direito 2.5s` · `segurar botão esquerdo 250ms` | Real mouse-button HOLD (down → duration → up) — window and global modes |
 | `hold pad a 250ms` · `hold pad rt 75 500ms` · `hold pad ls direita 2s` | Virtual gamepad HOLD (buttons, triggers, sticks — same 1 ms–10 s range) |
 | `pad a`, `pad direita`, `pad ls direita`, `pad rt 75` | Virtual Xbox gamepad (Windows + ViGEm) |

@@ -61,3 +61,24 @@ test('texto normal não vira comando de mouse', () => {
     assert.strictEqual(parseMouseCommand(entrada), null, String(entrada));
   }
 });
+
+test('Minecraft: atalhos olhar/look/camera movem o mouse nas 4 direções', () => {
+  const casos = [
+    ['olhar cima', 0, -1], ['look up', 0, -1], ['camera cima', 0, -1],
+    ['olhar baixo', 0, 1], ['look down', 0, 1], ['camera baixo', 0, 1],
+    ['olhar esquerda', -1, 0], ['look left', -1, 0], ['camera esquerda', -1, 0],
+    ['olhar direita', 1, 0], ['look right', 1, 0], ['camera direita', 1, 0],
+  ];
+  for (const [entrada, dx, dy] of casos) {
+    const p = parseMouseCommand(entrada);
+    assert.ok(p, entrada);
+    assert.strictEqual(p.tipo, 'mouse-mover');
+    assert.strictEqual(p.dx, dx);
+    assert.strictEqual(p.dy, dy);
+  }
+
+  assert.deepStrictEqual(
+    parseMouseCommand('olhar centro'),
+    { tipo: 'mouse-pos', xPct: 50, yPct: 50, descricao: 'mouse 50 50' }
+  );
+});

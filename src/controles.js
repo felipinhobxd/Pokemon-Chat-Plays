@@ -72,6 +72,11 @@ const RESERVADOS = new Set([
   'mouse clique', 'mouse click',
   'clique direito', 'click direito', 'right click',
   'mouse clique direito', 'mouse click direito',
+  // v3.2.1: atalhos de câmera/mira para Minecraft e outros jogos 3D.
+  'olhar cima', 'olhar baixo', 'olhar esquerda', 'olhar direita', 'olhar centro',
+  'look up', 'look down', 'look left', 'look right', 'look center',
+  'camera cima', 'camera baixo', 'camera esquerda', 'camera direita', 'camera centro',
+  'camera up', 'camera down', 'camera left', 'camera right', 'camera center',
 ]);
 
 // ---------------------------------------------------------------------------

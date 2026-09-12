@@ -8,6 +8,8 @@
  *   mouse baixo / mouse down
  *   mouse esquerda / mouse left
  *   mouse direita / mouse right
+ *   olhar cima/baixo/esquerda/direita (ou look up/down/left/right)
+ *   camera cima/baixo/esquerda/direita — atalhos naturais para jogos 3D/Minecraft
  *   mouse 50 50        -> 50% X, 50% Y dentro da área do jogo
  *   clique / click
  *   clique direito / right click
@@ -136,8 +138,12 @@ function parseMouseCommand(texto) {
     return { tipo: 'mouse-click', botao: 'left', descricao: 'clique' };
   }
 
-  if (!t.startsWith('mouse ')) return null;
-  const resto = t.slice(6).trim();
+  let resto = null;
+  if (t.startsWith('mouse ')) resto = t.slice(6).trim();
+  else if (t.startsWith('olhar ')) resto = t.slice(6).trim();
+  else if (t.startsWith('look ')) resto = t.slice(5).trim();
+  else if (t.startsWith('camera ')) resto = t.slice(7).trim();
+  else return null;
 
   if (DIRECOES[resto]) {
     const d = DIRECOES[resto];

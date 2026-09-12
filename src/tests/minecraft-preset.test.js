@@ -45,3 +45,12 @@ test('assistente exibe Minecraft como modelo selecionável', () => {
   assert.match(PAGINA, /<option value="minecraft">Minecraft<\/option>/);
   assert.match(PAGINA, /minecraft: "Minecraft"/);
 });
+
+test('assistente Minecraft configura o mouse global e persiste o preset correto', () => {
+  assert.match(PAGINA, /if \(sel === "minecraft"\)/);
+  assert.match(PAGINA, /f-modo-mouse/);
+  assert.match(PAGINA, /value = "global"/);
+  assert.match(PAGINA, /mouse cima\/baixo\/esquerda\/direita/);
+  assert.match(PAGINA, /olhar cima\/baixo\/esquerda\/direita/);
+  assert.match(PAGINA, /\["vbam", "mgba", "desmume", "retroarch", "minecraft"\]/);
+});
