@@ -70,11 +70,12 @@ test('empacotamento: TODO doc do repositório vai no build, no instalador e nas 
       ocorrenciasNsi >= 2,
       `installer.nsi cita docs\\${doc} ${ocorrenciasNsi}x — precisa instalar E remover`
     );
-    // 3) workflow confere dentro do ZIP real e no smoke test do instalador
+    // 3) workflow: assemble do staging + checagem do ZIP real + smoke test
+    //    do instalador (o doc precisa aparecer nas TRÊS listas)
     const noWorkflow = workflow.split(`docs\\${doc}`).length - 1;
     assert.ok(
-      noWorkflow >= 2,
-      `build-release.yml cita docs\\${doc} ${noWorkflow}x — precisa estar na checagem do ZIP E no smoke test`
+      noWorkflow >= 3,
+      `build-release.yml cita docs\\${doc} ${noWorkflow}x — precisa estar no assemble, na checagem do ZIP E no smoke test`
     );
   }
 });

@@ -183,7 +183,9 @@ jobs:
           New-Item -ItemType Directory -Force release, release\docs, release\drivers, release\licenses | Out-Null
           Copy-Item ChatPlays.exe,.env.example,README.md,iniciar.bat,LICENSE release/
           Copy-Item ViGEmClient.dll release/
-          Copy-Item docs\GAMEPAD.md,docs\PERFIS.md release\docs\
+          # v3.3.2: a lista de docs aqui precisa acompanhar docs/ do repo —
+          # conferida por src/tests/empacotamento.test.js (assemble + ZIP + smoke)
+          Copy-Item docs\GAMEPAD.md,docs\PERFIS.md,docs\MINECRAFT-ATLAUNCHER.md release\docs\
           Copy-Item drivers\*.exe release\drivers\
           Copy-Item licenses\*.txt release\licenses\
           Get-ChildItem release -Recurse -File | ForEach-Object { Write-Host "  $($_.FullName.Replace((Get-Location).Path, ''))" }
