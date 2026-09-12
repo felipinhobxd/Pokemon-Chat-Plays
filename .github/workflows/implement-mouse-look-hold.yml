@@ -1,0 +1,389 @@
+name: Implement mouse look HOLD
+
+on:
+  push:
+    branches:
+      - feat/mouse-look-hold
+    paths:
+      - .github/workflows/implement-mouse-look-hold.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Apply implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              if old not in s:
+                  raise SystemExit(f'pattern not found in {path}: {old[:120]!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          # 1) Parser: HOLD de movimento para olhar/camera/look e mouse PT-BR.
+          path = 'src/mouse-commands.js'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = '''/**
+           * @param {string} texto
+           * @returns {object|null}
+           */
+          function parseMouseCommand(texto) {'''
+          if marker not in s:
+              raise SystemExit('mouse parser insertion marker not found')
+          func = r'''/**
+           * Interpreta HOLD de movimento contínuo da câmera/mouse.
+           * Mantém compatibilidade: "hold mouse left/right" continua sendo
+           * botão do mouse; para direção em inglês use "look left/right".
+           *
+           * Exemplos:
+           *   hold olhar cima 10s
+           *   segurar camera direita 2.5s
+           *   hold look down 500ms
+           *   hold mouse esquerda 250ms
+           */
+          function parseHoldMovimento(t) {
+            const verbo = VERBOS_HOLD.find((v) => t === v || t.startsWith(`${v} `));
+            if (!verbo) return null;
+
+            const resto = t.slice(verbo.length).trim();
+            const m = resto.match(/^(olhar|look|camera|mouse)\s+(cima|up|baixo|down|esquerda|left|direita|right)(?:\s+(.+))?$/);
+            if (!m) return null;
+
+            // Preserva os aliases históricos de botão: hold mouse left/right.
+            if (m[1] === 'mouse' && (m[2] === 'left' || m[2] === 'right')) return null;
+
+            const d = DIRECOES[m[2]];
+            if (!d) return null;
+            const duracaoTexto = String(m[3] || '').trim();
+            if (duracaoTexto && parseDuracaoMs(duracaoTexto) === null) return null;
+            const duracaoMs = duracaoTexto ? parseDuracaoMs(duracaoTexto) : null;
+            return {
+              tipo: 'mouse-move-hold',
+              dx: d.dx,
+              dy: d.dy,
+              direcao: d.nome,
+              duracaoMs,
+              descricao: `hold olhar ${d.nome}`,
+            };
+          }
+
+          '''
+          s = s.replace(marker, func + marker, 1)
+          old = '''  const hold = parseHoldMouse(t);
+            if (hold) return hold;
+          '''
+          new = '''  const hold = parseHoldMouse(t);
+            if (hold) return hold;
+
+            const holdMovimento = parseHoldMovimento(t);
+            if (holdMovimento) return holdMovimento;
+          '''
+          if old not in s:
+              raise SystemExit('mouse parser hold marker not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('''  parseHoldMouse,\n  normalizar,''', '''  parseHoldMouse,\n  parseHoldMovimento,\n  normalizar,''', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # 2) Runtime do mouse: movimento contínuo cancelável e stale-safe.
+          path = 'src/controllers/mouse.js'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = 'const botoesSegurados = new Map();\n'
+          if marker not in s:
+              raise SystemExit('mouse runtime state marker not found')
+          block = r'''
+          /**
+           * HOLD de movimento contínuo. Cada direção tem timers próprios e um
+           * token por identidade do objeto; timers velhos nunca afetam um hold novo.
+           * Um passo acontece imediatamente e os próximos a cada 50ms.
+           */
+          const movimentosSegurados = new Map();
+          const MOVIMENTO_HOLD_TICK_MS = 50;
+
+          function chaveMovimento(dxUnidade, dyUnidade) {
+            const dx = Math.sign(Number(dxUnidade) || 0);
+            const dy = Math.sign(Number(dyUnidade) || 0);
+            return `${dx},${dy}`;
+          }
+
+          function segurarMovimento(dxUnidade, dyUnidade, duracaoMs = 1000, dono = null) {
+            const dx = Math.sign(Number(dxUnidade) || 0);
+            const dy = Math.sign(Number(dyUnidade) || 0);
+            if (dx === 0 && dy === 0) return false;
+            const duracao = limitarMs(duracaoMs) || 1000;
+            const chave = chaveMovimento(dx, dy);
+
+            const anterior = movimentosSegurados.get(chave);
+            if (anterior) {
+              clearInterval(anterior.intervalo);
+              clearTimeout(anterior.timer);
+              movimentosSegurados.delete(chave);
+            }
+
+            // Move já no instante do comando; isso também valida worker/alvo.
+            if (!mover(dx, dy)) return false;
+
+            const info = { intervalo: null, timer: null, dono, dx, dy };
+            const intervalo = setInterval(() => {
+              if (movimentosSegurados.get(chave) !== info) return;
+              mover(dx, dy);
+            }, MOVIMENTO_HOLD_TICK_MS);
+            intervalo.unref?.();
+
+            const timer = setTimeout(() => {
+              if (movimentosSegurados.get(chave) !== info) return;
+              clearInterval(info.intervalo);
+              movimentosSegurados.delete(chave);
+            }, duracao);
+            timer.unref?.();
+
+            info.intervalo = intervalo;
+            info.timer = timer;
+            movimentosSegurados.set(chave, info);
+            logger.comando(`[Mouse] Hold movimento: ${dx},${dy} por ${duracao}ms${dono ? ` — @${dono}` : ''}`);
+            return true;
+          }
+
+          function soltarMovimento(dxUnidade, dyUnidade) {
+            const chave = chaveMovimento(dxUnidade, dyUnidade);
+            const info = movimentosSegurados.get(chave);
+            if (!info) return false;
+            clearInterval(info.intervalo);
+            clearTimeout(info.timer);
+            movimentosSegurados.delete(chave);
+            return true;
+          }
+
+          function soltarMovimentos() {
+            let liberados = 0;
+            for (const [chave, info] of [...movimentosSegurados.entries()]) {
+              clearInterval(info.intervalo);
+              clearTimeout(info.timer);
+              movimentosSegurados.delete(chave);
+              liberados++;
+            }
+            return liberados;
+          }
+          '''
+          s = s.replace(marker, marker + block + '\n', 1)
+
+          old = '''function soltarTodos() {
+            let liberados = 0;
+            for (const b of [...botoesSegurados.keys()]) {
+              if (soltarBotao(b)) liberados++;
+            }
+            return liberados;
+          }'''
+          new = '''function soltarTodos() {
+            let liberados = 0;
+            for (const b of [...botoesSegurados.keys()]) {
+              if (soltarBotao(b)) liberados++;
+            }
+            liberados += soltarMovimentos();
+            return liberados;
+          }'''
+          if old not in s:
+              raise SystemExit('soltarTodos marker not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('return botoesSegurados.size;\n}', 'return botoesSegurados.size + movimentosSegurados.size;\n}', 1)
+          s = s.replace(
+              "return { modo, alvoExe, passoPx, suportado: plataformaAtual() === 'win32', segurando: botoesSegurados.size };",
+              "return { modo, alvoExe, passoPx, suportado: plataformaAtual() === 'win32', segurando: totalSegurando(), movimentosSegurando: movimentosSegurados.size };",
+              1,
+          )
+          s = s.replace('''  segurar,\n  soltarBotao,\n  soltarTodos,''', '''  segurar,\n  segurarMovimento,\n  soltarBotao,\n  soltarMovimento,\n  soltarMovimentos,\n  soltarTodos,''', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # 3) Pipeline central: executa o novo tipo com cooldown/democracia/overlay.
+          path = 'src/handlers.js'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = '''    // ------------------------------------------- hold de botão do mouse
+          '''
+          if marker not in s:
+              raise SystemExit('handlers mouse-hold marker not found')
+          case = r'''    // ------------------------------------- hold de movimento do mouse
+              // Movimento contínuo da câmera (Minecraft/3D). É repetido em ticks
+              // pelo controller e cancelado por soltar/F9/troca de alvo/shutdown.
+              case 'mouse-move-hold': {
+                const descricao = parsed.descricao || `hold olhar ${parsed.direcao || ''}`.trim();
+                if (bloqueadoPelaPausa(usuario, descricao)) return;
+
+                const chaveCooldown = `hold:mouse:move:${parsed.direcao || `${parsed.dx},${parsed.dy}`}`;
+                const verificacao = verificarCooldown(contexto, chaveCooldown);
+                if (!verificacao.permitido) {
+                  if (config.geral.debug) {
+                    logger.debug(`[Chat] @${usuario} bloqueado no hold de movimento do mouse: ${verificacao.motivo}`);
+                  }
+                  return;
+                }
+
+                if (votacao.modoAtual() === 'democracia') {
+                  if (config.geral.debug) {
+                    logger.debug(`[Mouse] "${descricao}" ignorado em democracia (hold de movimento ainda não votável).`);
+                  }
+                  return;
+                }
+
+                const duracao = duracaoEfetiva(parsed.duracaoMs, config.geral);
+                const ok = mouse.segurarMovimento(parsed.dx, parsed.dy, duracao, usuario);
+                if (ok) {
+                  cooldown.registrarExecucao(ator, chaveCooldown);
+                  stats.registrar(`${descricao} ${duracao}ms`, plataforma, usuario);
+                  overlay.registrarAcao(usuario, null, 'hold', duracao);
+                  if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
+                    responderSeguro(responder, msg.msgHoldConfirmado(usuario, `olhar ${parsed.direcao}`, duracao), 'baixa');
+                  }
+                  logger.comando(`[Chat] 🖱️↔️ @${usuario}: ${descricao} por ${duracao}ms`);
+                }
+                return;
+              }
+
+          '''
+          s = s.replace(marker, case + marker, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # 4) Command tester: descreve sem executar.
+          path = 'src/testar-comando.js'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = "  if (parsed.tipo === 'mouse-hold') {\n"
+          if marker not in s:
+              raise SystemExit('tester marker not found')
+          block = r'''  if (parsed.tipo === 'mouse-move-hold') {
+            const duracao = duracaoEfetiva(parsed.duracaoMs, { holdPadraoMs: 1000, holdMaxMs: 10000 });
+            r.categoria = 'mouse';
+            r.titulo = '🖱️ Mouse / câmera';
+            r.resumo = `Moveria continuamente para ${parsed.direcao} por ${duracao}ms.`;
+            r.detalhes = [
+              `Direção: ${parsed.direcao}`,
+              `Movimento relativo repetido: x=${parsed.dx}, y=${parsed.dy}`,
+              parsed.duracaoMs == null ? 'Duração: padrão (1000ms)' : `Duração normalizada: ${parsed.duracaoMs}ms → ${duracao}ms`,
+              'soltar/release ou F9 interrompe imediatamente.',
+            ];
+            if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
+            else if (!String(contexto.alvoExe || '').trim() && String(contexto.modoMouse || '').toLowerCase() !== 'global') { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+            else if (contexto.democracia) { r.resumo += ' Em Democracia, hold de movimento fica bloqueado.'; r.executaria = false; }
+            else r.executaria = true;
+            return r;
+          }
+
+          '''
+          s = s.replace(marker, block + marker, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # 5) Ajuda: torna o recurso descobrível.
+          replace_once(
+              'src/messages.js',
+              "    itens.push('hold clique direito 1s');\n",
+              "    itens.push('hold clique direito 1s');\n    itens.push('hold olhar cima 2s');\n",
+          )
+          replace_once(
+              'src/messages.js',
+              "    '✊ COMO SEGURAR TECLAS:',\n",
+              "    '✊ HOLD — TECLADO / MOUSE:',\n",
+          )
+          replace_once(
+              'src/messages.js',
+              "    c,\n    `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,\n",
+              "    c,\n    '🖱 hold olhar cima 2s / hold camera direita 500ms',\n    `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,\n",
+          )
+
+          # 6) Testes de parser + runtime/cancelamento.
+          path = 'src/tests/hold.test.js'
+          p = Path(path)
+          s = p.read_text(encoding='utf-8')
+          marker = '''test('mouse: worker tem DOWN/UP separados nos dois modos (fonte C#)', () => {
+          '''
+          if marker not in s:
+              raise SystemExit('hold parser test marker not found')
+          tests = r'''test('mouse: hold de olhar/camera/look aceita 1ms–10s e preserva mouse left/right como botão', () => {
+            const casos = [
+              ['hold olhar cima 10s', 'cima', 0, -1, 10000],
+              ['segurar camera direita 2.5s', 'direita', 1, 0, 2500],
+              ['hold look down 500ms', 'baixo', 0, 1, 500],
+              ['hold mouse esquerda 37ms', 'esquerda', -1, 0, 37],
+              ['segurar olhar baixo 1ms', 'baixo', 0, 1, 1],
+            ];
+            for (const [texto, direcao, dx, dy, duracaoMs] of casos) {
+              const r = parseMouseCommand(texto);
+              assert.ok(r, texto);
+              assert.strictEqual(r.tipo, 'mouse-move-hold', texto);
+              assert.strictEqual(r.direcao, direcao, texto);
+              assert.strictEqual(r.dx, dx, texto);
+              assert.strictEqual(r.dy, dy, texto);
+              assert.strictEqual(r.duracaoMs, duracaoMs, texto);
+            }
+            // Compatibilidade histórica: em inglês "mouse left/right" = botão.
+            assert.strictEqual(parseMouseCommand('hold mouse left 500ms').tipo, 'mouse-hold');
+            assert.strictEqual(parseMouseCommand('hold mouse right 500ms').tipo, 'mouse-hold');
+          });
+
+          '''
+          s = s.replace(marker, tests + marker, 1)
+
+          marker2 = '''test('mouse: hold real down→up com worker simulado (janela e global)', async () => {
+          '''
+          if marker2 not in s:
+              raise SystemExit('hold runtime test marker not found')
+          tests2 = r'''test('mouse: hold de olhar repete movimento e soltar cancela imediatamente', async () => {
+            mouse.configurar({ modo: 'global', alvoExe: null, passoPx: 40 });
+            const linhas = [];
+            mouse.__test.simular({ plataforma: 'win32', linhas });
+            try {
+              assert.strictEqual(mouse.segurarMovimento(0, -1, 180, 'camera'), true);
+              assert.strictEqual(linhas[0], 'MG 0 -40');
+              assert.strictEqual(mouse.totalSegurando(), 1);
+              await sleep(120);
+              assert.ok(linhas.filter((l) => l === 'MG 0 -40').length >= 2, 'deve repetir o movimento');
+              const liberados = mouse.soltarTodos();
+              assert.strictEqual(liberados, 1);
+              assert.strictEqual(mouse.totalSegurando(), 0);
+              const tamanho = linhas.length;
+              await sleep(120);
+              assert.strictEqual(linhas.length, tamanho, 'nenhum tick antigo pode continuar após soltar');
+            } finally {
+              mouse.__test.restaurar();
+              mouse.configurar({ modo: 'janela', alvoExe: null });
+            }
+          });
+
+          '''
+          s = s.replace(marker2, tests2 + marker2, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Install and validate
+        run: |
+          npm ci
+          npm test
+          npm audit --audit-level=high
+
+      - name: Commit clean implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/implement-mouse-look-hold.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add continuous HOLD for mouse look"
+          git push origin HEAD:feat/mouse-look-hold
