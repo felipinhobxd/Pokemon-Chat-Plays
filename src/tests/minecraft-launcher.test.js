@@ -17,15 +17,28 @@ test('ATLauncher: fallback usa coordenadas calibradas das referências', () => {
   assert.deepStrictEqual(launcher.coordenadaFallback('play', 1187, 696), { x: 427, y: 399 });
 });
 
-test('ATLauncher: prioriza UI Automation, captura fallback e apaga screenshot temporária', () => {
-  const s = launcher.montarScriptAtLauncher('C:\\ATLauncher\\ATLauncher.exe', 'C:\\Temp\\cp-shot.png');
+test('ATLauncher: UIA detecta/reutiliza launcher aberto e fica isolada do fallback', () => {
+  const s = launcher.montarScriptAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
   assert.match(s, /UIAutomationClient/);
   assert.match(s, /Find-ByName \$root 'Instances'/);
   assert.match(s, /Find-ByName \$root 'Play'/);
+  assert.match(s, /Get-CimInstance Win32_Process/);
+  assert.match(s, /CommandLine -match '\(\?i\)ATLauncher'/);
+  assert.match(s, /REUSED=/);
+  assert.doesNotMatch(s, /CopyFromScreen/);
+});
+
+test('ATLauncher: fallback visual é independente, temporário e usa as coordenadas calibradas', () => {
+  const s = launcher.montarScriptAtLauncherFallback(
+    'C:\\ATLauncher\\ATLauncher.exe',
+    'C:\\Temp\\cp-shot.png'
+  );
   assert.match(s, /CopyFromScreen/);
   assert.match(s, /0\.932 0\.343/);
   assert.match(s, /0\.360 0\.573/);
+  assert.match(s, /METHOD=screenshot-relative/);
   assert.match(s, /finally \{[\s\S]*Remove-Item -LiteralPath \$shot -Force/);
+  assert.doesNotMatch(s, /UIAutomationClient/);
 });
 
 test('gerenciador: launcher customizado não vira falso Minecraft rodando', async () => {
@@ -107,20 +120,72 @@ test('ATLauncher: Minecraft JÁ rodando não clica Play de novo (guarda anti-dup
   }
 });
 
-test('ATLauncher: Minecraft parado → detecção + automação normal (Instances → Play)', async () => {
+test('ATLauncher: Minecraft parado → UI Automation normal (Instances → Play)', async () => {
   const scripts = [];
   launcher.__test.definirExecutor(async (script) => {
     scripts.push(script);
-    return /Get-CimInstance/.test(script)
+    return scripts.length === 1
       ? { ok: true, codigo: 0, stdout: 'RUNNING=0', stderr: '', timeout: false }
-      : { ok: true, codigo: 0, stdout: 'RESULT=ok;METHOD=uia', stderr: '', timeout: false };
+      : { ok: true, codigo: 0, stdout: 'RESULT=ok;METHOD=uia;REUSED=1', stderr: '', timeout: false };
   });
   launcher.__test.definirPlataforma('win32');
   try {
     const ok = await launcher.iniciarAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
     assert.strictEqual(ok, true);
-    assert.strictEqual(scripts.length, 2, 'detecção + automação');
+    assert.strictEqual(scripts.length, 2, 'detecção + UIA');
     assert.match(scripts[1], /Find-ByName \$root 'Play'/);
+  } finally {
+    launcher.__test.definirExecutor(null);
+    launcher.__test.definirPlataforma(null);
+  }
+});
+
+test('ATLauncher: UIA travada não bloqueia fallback visual em processo separado', async () => {
+  const scripts = [];
+  launcher.__test.definirExecutor(async (script) => {
+    scripts.push(script);
+    if (scripts.length === 1) {
+      return { ok: true, codigo: 0, stdout: 'RUNNING=0', stderr: '', timeout: false };
+    }
+    if (scripts.length === 2) {
+      return { ok: false, codigo: null, stdout: '', stderr: '', timeout: true };
+    }
+    return {
+      ok: true,
+      codigo: 0,
+      stdout: 'RESULT=ok;METHOD=screenshot-relative;REUSED=1',
+      stderr: '',
+      timeout: false,
+    };
+  });
+  launcher.__test.definirPlataforma('win32');
+  try {
+    const ok = await launcher.iniciarAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
+    assert.strictEqual(ok, true);
+    assert.strictEqual(scripts.length, 3, 'detecção + UIA + fallback');
+    assert.match(scripts[1], /UIAutomationClient/);
+    assert.match(scripts[2], /CopyFromScreen/);
+    assert.doesNotMatch(scripts[2], /UIAutomationClient/);
+  } finally {
+    launcher.__test.definirExecutor(null);
+    launcher.__test.definirPlataforma(null);
+  }
+});
+
+test('ATLauncher: caminho inexistente não tenta clicar fallback', async () => {
+  const scripts = [];
+  launcher.__test.definirExecutor(async (script) => {
+    scripts.push(script);
+    if (scripts.length === 1) {
+      return { ok: true, codigo: 0, stdout: 'RUNNING=0', stderr: '', timeout: false };
+    }
+    return { ok: false, codigo: 2, stdout: 'RESULT=launcher-not-found', stderr: '', timeout: false };
+  });
+  launcher.__test.definirPlataforma('win32');
+  try {
+    const ok = await launcher.iniciarAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
+    assert.strictEqual(ok, false);
+    assert.strictEqual(scripts.length, 2, 'não deve clicar coordenadas quando o exe configurado nem existe');
   } finally {
     launcher.__test.definirExecutor(null);
     launcher.__test.definirPlataforma(null);
