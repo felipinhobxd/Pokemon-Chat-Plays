@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'release/v*'
   workflow_dispatch:
 
 permissions:
@@ -46,6 +48,13 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
             [[ "${TAG}" == "${EXPECTED}" ]] || {
               echo "Tag ${TAG} does not match package version ${VERSION} (expected ${EXPECTED})."
+              exit 1
+            }
+            DO_RELEASE=true
+          elif [[ "${GITHUB_REF}" == refs/heads/release/v* ]]; then
+            TAG="${GITHUB_REF#refs/heads/release/}"
+            [[ "${TAG}" == "${EXPECTED}" ]] || {
+              echo "Release branch ${TAG} does not match package version ${VERSION} (expected ${EXPECTED})."
               exit 1
             }
             DO_RELEASE=true
