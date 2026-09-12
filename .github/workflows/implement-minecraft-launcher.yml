@@ -28,14 +28,60 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The runtime/docs portion ends before the old test-generation block.
-          # Keep tests explicit below so quoting cannot corrupt the Python patch.
-          head -n 452 scripts/patch-minecraft-launcher-automation.py > /tmp/patch-minecraft-launcher.py
-          python3 -m py_compile /tmp/patch-minecraft-launcher.py
-          python3 /tmp/patch-minecraft-launcher.py
+          # Runtime + wizard edits are in the stable first section of the patch.
+          head -n 363 scripts/patch-minecraft-launcher-automation.py > /tmp/patch-core.py
+          python3 -m py_compile /tmp/patch-core.py
+          python3 /tmp/patch-core.py
 
           python3 - <<'PY'
           from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              if old not in s:
+                  raise SystemExit(f'pattern not found in {path}: {old[:120]!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              '.env.example',
+              r'''# Serve QUALQUER programa: VBA-M, mGBA, RetroArch, DeSmuME, Minecraft...
+          # Deixe VAZIO para o bot perguntar no terminal ao iniciar (o caminho
+          # fica salvo em dados/emulador.json — Enter mantém o último usado).
+          # EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe''',
+              r'''# Serve qualquer jogo/emulador. Para Minecraft Java, configure
+          # EMULADOR_PRESET=minecraft e coloque aqui o LAUNCHER. O ATLauncher é
+          # automatizado: o bot abre/reutiliza, entra em Instances e aperta Play.
+          # Deixe VAZIO para o bot perguntar no terminal ao iniciar.
+          # EMULADOR_EXE=C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe'''
+          )
+
+          replace_once(
+              'README.md',
+              '- **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).',
+              '- **Any game, any emulator — plus Minecraft launchers** — normal games/emulators use their `.exe`; for Minecraft Java, select the Minecraft preset and paste the launcher path. **ATLauncher is automated**: ChatPlays opens/reuses it, goes to **Instances → Play**, then watches the real Java/Minecraft process and can relaunch it after a crash.'
+          )
+          replace_once(
+              'README.md',
+              "3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game** for you.",
+              r'''3. In **🎮 Game / Emulator**, paste the game/emulator executable. For **Minecraft Java**, choose the Minecraft preset and paste the launcher path (example: `C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.'''
+          )
+          replace_once(
+              'README.md',
+              '- **On boot** — game not running? The bot opens it: `spawn(exe, [ROM, ...args])`. Already running? It just **attaches** (no second instance) and watches it.',
+              '- **On boot** — normal games use `spawn(exe, [ROM, ...args])`. With the Minecraft preset + ATLauncher, the configured `.exe` is a **launcher**: ChatPlays opens/reuses ATLauncher and triggers **Instances → Play**, while the watchdog tracks the real Java/Minecraft process instead of the launcher.'
+          )
+          replace_once(
+              'README.md',
+              '- **Watchdog** — the game closes mid-stream → the bot waits `JOGO_REINICIAR_DELAY_MS` (3 s) and **reopens it with the same ROM**. The OBS overlay shows 🎮 running / 🔄 reopening live.',
+              '- **Watchdog** — the game closes mid-stream → the bot waits `JOGO_REINICIAR_DELAY_MS` (3 s) and reopens it. Minecraft gets a startup grace period while Java loads; the launcher staying open does **not** count as the game running.'
+          )
+          replace_once(
+              'README.md',
+              r'''It works with anything you can launch: `EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe` + `JOGO_ROM=C:\Games\Pokemon - Emerald.gba`, a launcher `.bat`, a `.jar`… For extra flags (RetroArch cores etc.) use `JOGO_ARGS`.''',
+              r'''It works with anything you can launch: `EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe` + `JOGO_ROM=C:\Games\Pokemon - Emerald.gba`. Minecraft Java is special: use `EMULADOR_PRESET=minecraft` + an ATLauncher path. See [Minecraft + ATLauncher](docs/MINECRAFT-ATLAUNCHER.md). For extra flags (RetroArch cores etc.) use `JOGO_ARGS`.'''
+          )
+
           p = Path('src/tests/minecraft-preset.test.js')
           s = p.read_text(encoding='utf-8')
           old = "test('assistente Minecraft configura o mouse global e persiste o preset correto', () => {\n  assert.match(PAGINA, /if \\(sel === \"minecraft\"\\)/);\n  assert.match(PAGINA, /f-modo-mouse/);"
@@ -43,6 +89,36 @@ jobs:
           if old not in s:
               raise SystemExit('minecraft preset test pattern not found')
           p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          docs = Path('docs/MINECRAFT-ATLAUNCHER.md')
+          docs.write_text(r'''# Minecraft + ATLauncher
+
+          For Minecraft Java there is no stable game `.exe` to save in ChatPlays. Configure the **Minecraft** control preset and put the launcher path in `EMULADOR_EXE`, for example:
+
+          ```text
+          C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe
+          ```
+
+          On Windows, ChatPlays now:
+
+          1. opens or reuses ATLauncher;
+          2. tries Windows UI Automation to select **Instances**;
+          3. opens **Instances** and presses **Play**;
+          4. if those controls are not exposed, captures the ATLauncher window to a **temporary PNG**, uses window-relative fallback positions calibrated from the reference screenshots, then deletes the PNG immediately;
+          5. waits for the real Minecraft Java process (`javaw.exe` / `java.exe`) and watches that process for crashes instead of watching the launcher.
+
+          The Minecraft preset switches keyboard + mouse to **Global** because the launcher executable is not the game window.
+
+          ## Reference screenshots
+
+          - [ATLauncher News page](./minecraft-atlauncher/01-news.png)
+          - [Instances tab selected](./minecraft-atlauncher/02-instances-selected.png)
+          - [Instances tab normal](./minecraft-atlauncher/03-instances-normal.png)
+          - [ATLauncher Instances page](./minecraft-atlauncher/04-instances-page.png)
+          - [Play button](./minecraft-atlauncher/05-play.png)
+
+          These images are repository references. Screenshots captured on a user's PC during fallback are temporary and are not saved in the repository or user data folder.
+          '''.replace('\n          ', '\n').lstrip(), encoding='utf-8')
           PY
 
           cat > src/tests/minecraft-launcher.test.js <<'EOF'
