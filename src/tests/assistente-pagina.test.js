@@ -156,3 +156,10 @@ test('modo Testar Comandos aparece no wizard e deixa claro que é simulação', 
   assert.match(PAGINA, /hold direita 2/);
   assert.match(PAGINA, /pad a/);
 });
+
+
+test('passo 5 mostra e salva cooldowns específicos por comando', () => {
+  assert.match(PAGINA, /f-cooldowns-comando/);
+  assert.match(PAGINA, /dialogo=10s/);
+  assert.match(PAGINA, /COMMAND_COOLDOWNS/);
+});

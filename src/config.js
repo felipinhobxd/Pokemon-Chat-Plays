@@ -5,6 +5,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { parseCooldownsPorComando } = require('./utils/cooldown-config');
 
 /**
  * Encontra o caminho do arquivo .env.
@@ -148,6 +149,8 @@ function construirConfig() {
       .map((p) => p.trim().toLowerCase())
       .filter(Boolean),
     cooldownMs: getEnvInt('COMMAND_COOLDOWN_MS', 1500),
+    cooldownsPorComandoTexto: getEnv('COMMAND_COOLDOWNS', ''),
+    cooldownsPorComando: parseCooldownsPorComando(getEnv('COMMAND_COOLDOWNS', '')),
     tempoPressionarTeclaMs: getEnvInt('KEY_PRESS_DURATION_MS', 230),
     intervaloAnuncioMin: getEnvInt('ANNOUNCE_INTERVAL_MIN', 10),
     statsAtivadas: getEnvBool('ENABLE_STATS', true),

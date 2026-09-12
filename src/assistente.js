@@ -50,6 +50,7 @@ const { interpretarErroApi } = require('./controllers/youtube');
 const { PAGINA } = require('./assistente-pagina');
 const controles = require('./controles');
 const { testarComando } = require('./testar-comando');
+const { analisarCooldownsPorComando } = require('./utils/cooldown-config');
 
 const PORTA_PADRAO = 8124;
 const LIMITE_BODY_BYTES = 64 * 1024;
@@ -130,6 +131,7 @@ function resolverSegredoCampo(bruto, atual) {
 /** Valores padrão das chaves não obrigatórias do .env gerado. */
 const PADROES = {
   COMMAND_COOLDOWN_MS: '1500',
+  COMMAND_COOLDOWNS: '',
   KEY_PRESS_DURATION_MS: '230',
   ANNOUNCE_INTERVAL_MIN: '10',
   ENABLE_STATS: 'true',
@@ -201,6 +203,8 @@ function montarConteudoEnv(v, envAtual = '') {
     `ACTIVE_PLATFORMS=${val('ACTIVE_PLATFORMS') || 'twitch'}`,
     '# Cooldown por usuário entre comandos (ms)',
     `COMMAND_COOLDOWN_MS=${val('COMMAND_COOLDOWN_MS')}`,
+    '# Cooldowns extras por ação (ex.: dialogo=10s, mouse-click=2s, a=500ms)',
+    `COMMAND_COOLDOWNS=${val('COMMAND_COOLDOWNS')}`,
     '# Tempo que cada tecla fica pressionada (ms)',
     `KEY_PRESS_DURATION_MS=${val('KEY_PRESS_DURATION_MS')}`,
     '# Anúncio automático dos comandos a cada N minutos (0 = desligado)',
@@ -387,6 +391,7 @@ function estadoAtual(cfg = config) {
       YOUTUBE_API_KEY: mascararSegredo(cfg.youtube.apiKey),
       YOUTUBE_VIDEO_ID: cfg.youtube.videoId,
       COMMAND_COOLDOWN_MS: String(cfg.geral.cooldownMs),
+      COMMAND_COOLDOWNS: String(cfg.geral.cooldownsPorComandoTexto || ''),
       KEY_PRESS_DURATION_MS: String(cfg.geral.tempoPressionarTeclaMs),
       EMULADOR_PRESET: cfg.teclado.preset,
       MODO_TECLADO: cfg.teclado.modo,
@@ -614,6 +619,10 @@ function avaliarSalvamento(v = {}, atuais = {}) {
   if (plataformas.length === 0) {
     erros.push('Nenhuma plataforma ativa — ligue pelo menos Twitch ou YouTube');
   }
+
+  const analiseCooldowns = analisarCooldownsPorComando(finais.COMMAND_COOLDOWNS);
+  for (const e of analiseCooldowns.erros) erros.push(`Cooldowns: ${e}`);
+  finais.COMMAND_COOLDOWNS = String(finais.COMMAND_COOLDOWNS || '').replace(/[\r\n]+/g, ', ').trim();
 
   // v2.9: controles do chat — a lista só é trocada quando o wizard mandou
   // uma (body sem "controles" = página antiga/testes: registro intocado).

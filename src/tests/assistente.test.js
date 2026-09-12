@@ -652,3 +652,23 @@ test('montarConteudoEnv: quebra de linha em valor não vira chave-fantasma no .e
   // token: a quebra some sem quebrar o formato
   assert.ok(conteudo.includes('TWITCH_OAUTH_TOKEN=oauth:to ken'), 'token sanitizado em uma linha');
 });
+
+
+test('passo 5: montarConteudoEnv grava COMMAND_COOLDOWNS e valida sintaxe', () => {
+  const base = {
+    twitchAtivo: true,
+    youtubeAtivo: false,
+    TWITCH_BOT_USERNAME: 'bot',
+    TWITCH_OAUTH_TOKEN: 'oauth:token',
+    TWITCH_CHANNEL: 'canal',
+    COMMAND_COOLDOWNS: 'dialogo=10s, mouse-click=2s',
+  };
+  const avaliado = avaliarSalvamento(base, { token: 'oauth:token', apiKey: '' });
+  assert.equal(avaliado.ok, true, JSON.stringify(avaliado.erros));
+  const env = montarConteudoEnv(avaliado.finais, '');
+  assert.match(env, /COMMAND_COOLDOWNS=dialogo=10s, mouse-click=2s/);
+
+  const ruim = avaliarSalvamento({ ...base, COMMAND_COOLDOWNS: 'dialogo=nunca' }, { token: 'oauth:token', apiKey: '' });
+  assert.equal(ruim.ok, false);
+  assert.ok(ruim.erros.some((e) => /Cooldowns:/.test(e)));
+});

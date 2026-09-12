@@ -32,3 +32,11 @@ test('gamepad: backend desligado falha aberto sem executar nada', () => {
   gamepad.configurar({ modo: 'off' });
   assert.strictEqual(gamepad.executar({ tipo: 'gamepad-botao', botao: 'A' }), false);
 });
+
+
+test('passo 5: gamepad gera chaves estáveis para cooldown específico', () => {
+  const { chaveCooldownGamepad } = require('../gamepad-integration');
+  assert.equal(chaveCooldownGamepad({ tipo: 'gamepad-botao', botao: 'A' }), 'pad:a');
+  assert.equal(chaveCooldownGamepad({ tipo: 'gamepad-trigger', trigger: 'L' }), 'pad:lt');
+  assert.equal(chaveCooldownGamepad({ tipo: 'gamepad-stick', stick: 'R' }), 'pad:r');
+});

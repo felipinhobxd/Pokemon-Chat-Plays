@@ -1,87 +1,111 @@
 /**
  * Sistema de cooldown para evitar spam.
- * Cada usuário só pode enviar um comando a cada intervalo configurado.
- * Inclui cooldown global opcional para evitar sobrecarga do jogo.
+ *
+ * Mantém as proteções antigas (global + por usuário) e acrescenta cooldowns
+ * independentes por comando. Exemplo:
+ *   dialogo=10s, mouse-click=2s, a=500ms
+ *
+ * O cooldown específico só impede repetir aquela ação. Depois do cooldown
+ * base, o espectador pode usar outras ações normalmente.
  */
 
 const logger = require('./logger');
 const { config } = require('../config');
+const { normalizarChaveCooldown } = require('./cooldown-config');
 
 class CooldownManager {
-  constructor() {
-    /** @type {Map<string, number>} - última execução por usuário (timestamp) */
+  constructor(opcoes = {}) {
     this.usuario = new Map();
-    /** @type {number} - última execução global (timestamp) */
+    this.comando = new Map();
     this.ultimoGlobal = 0;
-    this.cooldownMs = config.geral.cooldownMs;
-    this.cooldownGlobalMs = Math.max(150, this.cooldownMs / 10); // cooldown global mínimo 150ms
+    this.opcoes = opcoes;
   }
 
-  /**
-   * Verifica se o usuário pode executar um comando agora.
-   * @param {string} usuario - Nome do usuário
-   * @returns {{permitido: boolean, motivo?: string}}
-   */
-  podeExecutar(usuario) {
-    const agora = Date.now();
+  _config() {
+    const base = Number.isFinite(this.opcoes.cooldownMs)
+      ? Math.max(0, this.opcoes.cooldownMs)
+      : Math.max(0, Number(config.geral.cooldownMs) || 0);
+    const global = Number.isFinite(this.opcoes.cooldownGlobalMs)
+      ? Math.max(0, this.opcoes.cooldownGlobalMs)
+      : Math.max(150, base / 10);
+    const especificos = this.opcoes.cooldownsPorComando || config.geral.cooldownsPorComando || {};
+    return { base, global, especificos };
+  }
 
-    // Cooldown global (limita taxa de comandos total)
-    const desdeUltimoGlobal = agora - this.ultimoGlobal;
-    if (desdeUltimoGlobal < this.cooldownGlobalMs) {
-      const esperaMs = Math.ceil(this.cooldownGlobalMs - desdeUltimoGlobal);
-      return {
-        permitido: false,
-        motivo: `cooldown global: aguarde ${esperaMs}ms`,
-      };
+  _limitesEspecificos(chave, especificos) {
+    const k = normalizarChaveCooldown(chave);
+    if (!k) return [];
+    const candidatos = [k];
+    if (k.startsWith('hold:')) candidatos.push('hold');
+    if (k.startsWith('mouse-')) candidatos.push('mouse');
+    if (k.startsWith('pad:')) candidatos.push('gamepad');
+    const saida = [];
+    for (const nome of candidatos) {
+      if (!Object.prototype.hasOwnProperty.call(especificos, nome)) continue;
+      const ms = Math.max(0, Number(especificos[nome]) || 0);
+      if (ms > 0) saida.push({ chave: nome, ms });
+    }
+    return saida;
+  }
+
+  podeExecutar(usuario, chaveComando = '') {
+    const agora = Date.now();
+    const cfg = this._config();
+
+    const desdeGlobal = agora - this.ultimoGlobal;
+    if (desdeGlobal < cfg.global) {
+      return { permitido: false, motivo: `cooldown global: aguarde ${Math.ceil(cfg.global - desdeGlobal)}ms` };
     }
 
-    // Cooldown por usuário
-    const ultimo = this.usuario.get(usuario) || 0;
-    const desdeUltimo = agora - ultimo;
-    if (desdeUltimo < this.cooldownMs) {
-      const esperaMs = Math.ceil((this.cooldownMs - desdeUltimo) / 1000 * 10) / 10;
-      return {
-        permitido: false,
-        motivo: `cooldown de usuário: aguarde ${esperaMs}s`,
-      };
+    const ultimoUsuario = this.usuario.get(usuario) || 0;
+    const desdeUsuario = agora - ultimoUsuario;
+    if (desdeUsuario < cfg.base) {
+      const espera = Math.ceil((cfg.base - desdeUsuario) / 100) / 10;
+      return { permitido: false, motivo: `cooldown de usuário: aguarde ${espera}s` };
+    }
+
+    for (const limite of this._limitesEspecificos(chaveComando, cfg.especificos)) {
+      const id = `${usuario}\u0000${limite.chave}`;
+      const ultimo = this.comando.get(id) || 0;
+      const desde = agora - ultimo;
+      if (desde < limite.ms) {
+        const espera = Math.ceil((limite.ms - desde) / 100) / 10;
+        return {
+          permitido: false,
+          motivo: `cooldown de ${limite.chave}: aguarde ${espera}s`,
+          comando: limite.chave,
+        };
+      }
     }
 
     return { permitido: true };
   }
 
-  /**
-   * Registra que o usuário executou um comando com sucesso.
-   * @param {string} usuario - Nome do usuário
-   */
-  registrarExecucao(usuario) {
-    this.usuario.set(usuario, Date.now());
-    this.ultimoGlobal = Date.now();
+  registrarExecucao(usuario, chaveComando = '') {
+    const agora = Date.now();
+    const cfg = this._config();
+    this.usuario.set(usuario, agora);
+    this.ultimoGlobal = agora;
+    for (const limite of this._limitesEspecificos(chaveComando, cfg.especificos)) {
+      this.comando.set(`${usuario}\u0000${limite.chave}`, agora);
+    }
   }
 
-  /**
-   * Remove registros antigos (mais de 1 hora) para liberar memória.
-   */
   limparAntigos() {
-    const limite = Date.now() - 3600000; // 1 hora atrás
+    const limite = Date.now() - 3600000;
     let removidos = 0;
     for (const [usuario, ts] of this.usuario.entries()) {
-      if (ts < limite) {
-        this.usuario.delete(usuario);
-        removidos++;
-      }
+      if (ts < limite) { this.usuario.delete(usuario); removidos++; }
     }
-    if (removidos > 0) {
-      logger.debug(`[Cooldown] ${removidos} registros antigos removidos`);
+    for (const [chave, ts] of this.comando.entries()) {
+      if (ts < limite) { this.comando.delete(chave); removidos++; }
     }
+    if (removidos > 0) logger.debug(`[Cooldown] ${removidos} registros antigos removidos`);
   }
 }
 
 const instance = new CooldownManager();
-
-// Limpa registros antigos a cada 10 minutos (unref: não impede o processo de encerrar)
-setInterval(() => {
-  instance.limparAntigos();
-}, 600000).unref();
+setInterval(() => instance.limparAntigos(), 600000).unref();
 
 module.exports = instance;
 module.exports.CooldownManager = CooldownManager;

@@ -25,9 +25,16 @@ function ehStreamer(usuario) {
   return Boolean(canal) && String(usuario || '').toLowerCase().trim() === canal;
 }
 
-function permitidoPeloCooldown(usuario) {
+function chaveCooldownGamepad(parsed) {
+  if (parsed.tipo === 'gamepad-botao') return `pad:${String(parsed.botao || '').toLowerCase()}`;
+  if (parsed.tipo === 'gamepad-stick') return `pad:${String(parsed.stick || '').toLowerCase()}`;
+  if (parsed.tipo === 'gamepad-trigger') return `pad:${parsed.trigger === 'L' ? 'lt' : 'rt'}`;
+  return 'gamepad';
+}
+
+function permitidoPeloCooldown(usuario, chave) {
   if (ehStreamer(usuario)) return true;
-  return cooldown.podeExecutar(usuario).permitido;
+  return cooldown.podeExecutar(usuario, chave).permitido;
 }
 
 function processarGamepad({ plataforma, usuario, parsed }) {
@@ -45,7 +52,8 @@ function processarGamepad({ plataforma, usuario, parsed }) {
     if (config.geral.debug) logger.debug(`[Gamepad] "${parsed.descricao}" ignorado: chat pausado.`);
     return;
   }
-  if (!permitidoPeloCooldown(usuario)) return;
+  const chaveCooldown = chaveCooldownGamepad(parsed);
+  if (!permitidoPeloCooldown(usuario, chaveCooldown)) return;
 
   if (votacao.modoAtual() === 'democracia') {
     if (config.geral.debug) logger.debug(`[Gamepad] "${parsed.descricao}" ignorado em democracia.`);
@@ -55,7 +63,7 @@ function processarGamepad({ plataforma, usuario, parsed }) {
   const ok = gamepad.executar(parsed);
   if (!ok) return;
 
-  cooldown.registrarExecucao(usuario);
+  cooldown.registrarExecucao(usuario, chaveCooldown);
   stats.registrar(parsed.descricao, plataforma, usuario);
   overlay.registrarAcao(usuario, null, 'gamepad');
   logger.comando(`[Chat] 🎮 @${usuario}: ${parsed.descricao}`);
@@ -104,4 +112,5 @@ module.exports = {
   instalar,
   desinstalar,
   processarGamepad,
+  chaveCooldownGamepad,
 };
