@@ -318,7 +318,18 @@ async function iniciarOverlay() {
       cooldown: cooldown.diagnostico(),
       gamepad: (() => {
         const g = gamepad.status();
-        return { modo: g.modo, pronto: g.pronto, rodando: g.rodando, tapMs: g.tapMs, analogMs: g.analogMs, suportado: g.suportado };
+        return {
+          modo: g.modo,
+          pronto: g.pronto,
+          rodando: g.rodando,
+          tapMs: g.tapMs,
+          analogMs: g.analogMs,
+          suportado: g.suportado,
+          // v3.1: diagnóstico diferenciado (dll ausente / arquitetura /
+          // carregamento / ViGEmBus / pronto) — nunca genérico
+          estado: g.estado,
+          detalhe: g.detalhe,
+        };
       })(),
       logs: logger.recentes(10),
     }),
@@ -395,11 +406,13 @@ function configurarBotaoPanico() {
     overlay.setPausado(pausado);
     if (pausado) {
       logger.aviso(`[Pausa] ⛔ CHAT PAUSADO (${origem}) — comandos do chat serão ignorados.`);
-      // Pânico real: interrompe macro, descarta taps ainda não iniciados e
-      põe keyups de holds na frente da fila.
+      // Pânico real: interrompe macro, descarta taps ainda não iniciados,
+      // solta teclas + botões do mouse (keyups na frente da fila); o gamepad
+      // é neutralizado pelo observer do gamepad-integration.
       dialogo.parar();
       teclado.cancelarToquesPendentes();
       teclado.soltarTodas({ prioridade: true });
+      mouse.soltarTodos();
       twitch.enviarMensagem(msgChatPausado());
     } else {
       logger.aviso(`[Pausa] ✅ CHAT LIBERADO (${origem}) — o chat volta a controlar o jogo.`);

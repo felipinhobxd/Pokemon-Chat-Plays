@@ -10,12 +10,27 @@
  *   pad lt / pad rt 60
  *   pad soltar
  *
+ * HOLD (v3.1 — mesma faixa 1ms–10s do teclado/mouse):
+ *   hold pad a 250ms          hold pad x 2s
+ *   hold pad rb 500ms         hold pad a 3        (número puro = segundos)
+ *   hold pad rt 75 500ms      hold pad lt 100 2s  (intensidade + tempo)
+ *   hold pad ls direita 250ms hold pad rs cima 500ms
+ *   hold pad ls 100 0 750ms   hold pad rs -50 80 1.5s
+ *   segurar pad a 1ms
+ *
  * Prefixos equivalentes: pad, gamepad, controle, xbox.
- * Duracoes opcionais usam sufixo: 500ms, 2s (max. 10s).
+ * Duracoes com sufixo usam o parser compartilhado (ms/s, decimais,
+ * máximo 10s). Em trigger/analógico o número puro do fim é
+ * intensidade/coordenada — a duração nesses casos exige sufixo explícito.
  */
 
 const PREFIXOS = ['pad', 'gamepad', 'controle', 'xbox'];
 const DURACAO_MAX_MS = 10000;
+
+/** Verbos de hold (mesma lista do teclado). */
+const VERBOS_HOLD = ['hold', 'segurar', 'segura', 'segure', 'segurando'];
+
+const { parseDuracaoExplicitaMs, parseDuracaoMs } = require('./utils/duracao');
 
 function normalizar(texto) {
   return String(texto || '')
@@ -31,12 +46,9 @@ function limitar(n, min, max) {
 }
 
 function parseDuracao(token) {
-  const t = String(token || '').toLowerCase().trim();
-  let m = t.match(/^(\d+(?:\.\d+)?)ms$/);
-  if (m) return limitar(Math.round(Number(m[1])), 40, DURACAO_MAX_MS);
-  m = t.match(/^(\d+(?:\.\d+)?)s$/);
-  if (m) return limitar(Math.round(Number(m[1]) * 1000), 40, DURACAO_MAX_MS);
-  return null;
+  // v3.1: parser COMPARTILHADO — unidades explícitas apenas (número puro no
+  // fim aqui é intensidade/coordenada, não duração), piso de 1ms (era 40ms)
+  return parseDuracaoExplicitaMs(token);
 }
 
 function separarDuracao(resto) {
@@ -132,9 +144,48 @@ function parseTrigger(corpo, duracaoMs) {
   };
 }
 
+/**
+ * Interpreta "hold pad ..." / "segurar pad ...": remove o verbo e reusa o
+ * parser normal do namespace (botão/trigger/analógico), marcando hold:true.
+ * O número puro no fim só é duração no caso do BOTÃO ("hold pad a 3" = 3s,
+ * compatível com o teclado) — em trigger/analógico é intensidade/coordenada.
+ * @param {string} t - texto normalizado
+ * @returns {object|null}
+ */
+function parseGamepadHold(t) {
+  const verbo = VERBOS_HOLD.find((v) => t.startsWith(`${v} `));
+  if (!verbo) return null;
+
+  const resto = t.slice(verbo.length).trim();
+  if (!resto) return null;
+
+  let parsed = parseGamepadCommand(resto);
+
+  if (!parsed) {
+    // fallback: último token número puro como duração (só faz sentido p/ botão)
+    const m = resto.match(/^(.*\S)\s+(\d{1,7})$/);
+    if (m) {
+      const duracaoMs = parseDuracaoMs(m[2]); // compat: <=30 = segundos
+      if (duracaoMs !== null) {
+        const semNumero = parseGamepadCommand(m[1]);
+        if (semNumero && semNumero.tipo === 'gamepad-botao') {
+          parsed = { ...semNumero, duracaoMs: semNumero.duracaoMs ?? duracaoMs };
+        }
+      }
+    }
+  }
+
+  if (!parsed || parsed.tipo === 'gamepad-reset') return null;
+  return { ...parsed, hold: true, descricao: `hold ${parsed.descricao}` };
+}
+
 function parseGamepadCommand(texto) {
   const t = normalizar(texto);
   if (!t) return null;
+
+  // v3.1: hold de gamepad — verbo de hold + namespace pad
+  const hold = parseGamepadHold(t);
+  if (hold) return hold;
 
   const prefixo = PREFIXOS.find((p) => t === p || t.startsWith(`${p} `));
   if (!prefixo) return null;
@@ -180,8 +231,10 @@ function parseGamepadCommand(texto) {
 
 module.exports = {
   parseGamepadCommand,
+  parseGamepadHold,
   normalizar,
   parseDuracao,
   limitar,
   DURACAO_MAX_MS,
+  VERBOS_HOLD,
 };

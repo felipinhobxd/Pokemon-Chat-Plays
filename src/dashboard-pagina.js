@@ -58,6 +58,8 @@ h1{font-size:26px;margin:0}.muted{color:#8da0ba}.spacer{flex:1}.pill{display:inl
   function fmtMs(ms){ms=Math.max(0,Number(ms)||0);if(ms<1000)return Math.round(ms)+'ms';if(ms<60000)return (ms/1000).toFixed(ms<10000?1:0)+'s';return Math.floor(ms/60000)+'m '+Math.floor((ms%60000)/1000)+'s'}
   function line(a,b,cls){return '<div class="line"><span>'+esc(a)+'</span><b class="'+(cls||'')+'">'+esc(b)+'</b></div>'}
   function pill(nome,on){return '<span class="pill '+(on?'on':'bad')+'"><span class="dot"></span>'+esc(nome)+'</span>'}
+  var ESTADOS_PAD={desativado:['DESATIVADO',''],aguardando:['AGUARDANDO COMANDO','yellow'],pronto:['CONTROLE CRIADO','oktxt'],'dll-ausente':['DLL AUSENTE','badtxt'],'arquitetura-errada':['DLL NÃO É x64','badtxt'],'falha-carregamento':['DLL NÃO CARREGA','badtxt'],'sem-vigembus':['DRIVER ViGEmBus AUSENTE','badtxt'],'falha-desconhecida':['FALHA','badtxt']};
+  function estadoPad(g){return ESTADOS_PAD[g&&g.estado]||ESTADOS_PAD.aguardando}
   function render(s){
     var d=s.diagnostico||{}, t=d.teclado||{}, c=d.cooldown||{}, g=d.gamepad||{}, b=c.bloqueios||{};
     $('versao').textContent='v'+(s.versao||'?');
@@ -70,7 +72,8 @@ h1{font-size:26px;margin:0}.muted{color:#8da0ba}.spacer{flex:1}.pill{display:inl
     var q=Number(t.fila)||0, qm=Number(t.filaMax)||0;
     $('fila').innerHTML='<div class="big '+(qm&&q>=qm?'yellow':'')+'">'+q+(qm?' / '+qm:'')+'</div>'+line('Executando agora',t.processando?'sim':'não')+line('Toques descartados',t.descartados||0,(t.descartados||0)>0?'yellow':'')+line('Worker',t.worker&&t.worker.legacy?'compatível':(t.worker&&t.worker.pronto?'pronto':(t.worker&&t.worker.booting?'iniciando':'parado')));
     $('cooldown').innerHTML=line('Cooldown por usuário',fmtMs(c.baseMs))+line('Cooldown global',fmtMs(c.globalMs))+line('Regras específicas',c.regrasEspecificas||0)+line('Bloqueios globais',b.global||0)+line('Bloqueios por usuário',b.usuario||0)+line('Bloqueios específicos',b.comando||0);
-    $('gamepad').innerHTML=line('Modo',g.modo||'—')+line('Suportado neste SO',g.suportado?'sim':'não',g.suportado?'oktxt':'')+line('Worker',g.pronto?'PRONTO':(g.rodando?'INICIANDO':'PARADO'),g.pronto?'oktxt':'')+line('Tap padrão',g.tapMs!=null?fmtMs(g.tapMs):'—')+line('Analógico padrão',g.analogMs!=null?fmtMs(g.analogMs):'—');
+    var ep=estadoPad(g);
+    $('gamepad').innerHTML=line('Modo',g.modo||'—')+line('Suportado neste SO',g.suportado?'sim':'não',g.suportado?'oktxt':'')+line('Situação',ep[0],ep[1])+line('Detalhe',(g.detalhe||'—').slice(0,80))+line('Worker',g.pronto?'PRONTO':(g.rodando?'INICIANDO':'PARADO'),g.pronto?'oktxt':'')+line('Tap padrão',g.tapMs!=null?fmtMs(g.tapMs):'—')+line('Analógico padrão',g.analogMs!=null?fmtMs(g.analogMs):'—');
     var a=(s.acoes||[]).slice(0,10);$('acoes').innerHTML=a.length?a.map(function(x){return '<div class="row"><span>'+esc(x.icone||'🎮')+'</span><b>'+esc(x.usuario||'?')+'</b><span>'+esc(x.rotulo||x.botao||'?')+'</span><span class="muted">'+esc(x.tipo||'tap')+'</span><span class="time">'+new Date(x.ts||Date.now()).toLocaleTimeString()+'</span></div>'}).join(''):'<div class="empty">Nenhuma ação ainda.</div>';
     var logs=(d.logs||[]).slice(0,10);$('logs').innerHTML=logs.length?logs.map(function(x){var cls=x.nivel==='erro'?'err':'warnrow';return '<div class="row '+cls+'"><b>'+esc(String(x.nivel||'').toUpperCase())+'</b><span>'+esc(x.mensagem||'')+'</span><span class="time">'+new Date(x.ts||Date.now()).toLocaleTimeString()+'</span></div>'}).join(''):'<div class="empty">Sem avisos recentes. Ótimo sinal.</div>';
   }

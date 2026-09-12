@@ -21,6 +21,7 @@ const dialogo = require('./utils/dialogo');
 const overlay = require('./overlay');
 const { parseComando } = require('./commands');
 const { parseMouseCommand } = require('./mouse-commands');
+const { duracaoEfetiva } = require('./utils/duracao');
 const msg = require('./messages');
 
 /**
@@ -209,7 +210,10 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
     case 'soltar': {
       if (bloqueadoPelaPausa(usuario, 'soltar')) return;
       dialogo.parar();
+      // v3.1: soltar libera TUDO — teclado, botões do mouse (o gamepad é
+      // neutralizado pelo wrapper do gamepad-integration antes de chegar aqui)
       const quantidade = teclado.soltarTodas();
+      mouse.soltarTodos();
       stats.registrar('soltar', plataforma, usuario);
       overlay.registrarAcao(usuario, null, 'soltar');
       if (config.geral.confirmarComandos && podeResponder('soltar-confirmado')) {
@@ -308,6 +312,45 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
         stats.registrar(descricao, plataforma, usuario);
         overlay.registrarAcao(usuario, null, 'mouse');
         logger.comando(`[Chat] 🖱️ @${usuario}: ${descricao}`);
+      }
+      return;
+    }
+
+    // ------------------------------------------- hold de botão do mouse
+    // v3.1: HOLD real (down ... up), mesma faixa 1ms–10s do teclado. Em
+    // democracia fica BLOQUEADO (igual aos demais comandos de mouse) —
+    // nunca executa direto para não furar o modo.
+    case 'mouse-hold': {
+      const descricao = parsed.descricao || 'hold clique';
+      if (bloqueadoPelaPausa(usuario, descricao)) return;
+
+      const chaveCooldown = `hold:mouse:${parsed.botao}`;
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
+      if (!verificacao.permitido) {
+        if (config.geral.debug) {
+          logger.debug(`[Chat] @${usuario} bloqueado no hold de mouse: ${verificacao.motivo}`);
+        }
+        return;
+      }
+
+      if (votacao.modoAtual() === 'democracia') {
+        if (config.geral.debug) {
+          logger.debug(`[Mouse] "${descricao}" ignorado em democracia (hold de mouse ainda não votável).`);
+        }
+        return;
+      }
+
+      const duracao = duracaoEfetiva(parsed.duracaoMs, config.geral);
+      const ok = mouse.segurar(parsed.botao, duracao, usuario);
+      if (ok) {
+        cooldown.registrarExecucao(ator, chaveCooldown);
+        stats.registrar(`${descricao} ${duracao}ms`, plataforma, usuario);
+        overlay.registrarAcao(usuario, null, 'hold', duracao);
+        if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
+          const rotulo = parsed.botao === 'right' ? 'clique direito' : 'clique';
+          responderSeguro(responder, msg.msgHoldConfirmado(usuario, rotulo, duracao), 'baixa');
+        }
+        logger.comando(`[Chat] 🖱️🔒 @${usuario}: ${descricao} por ${duracao}ms`);
       }
       return;
     }

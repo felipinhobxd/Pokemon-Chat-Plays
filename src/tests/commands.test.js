@@ -125,9 +125,11 @@ test('hold com sufixos s e ms', () => {
 });
 
 test('hold é limitado ao máximo (10s)', () => {
-  assert.strictEqual(parseComando('hold cima 60').duracaoMs, 100); // >30 = ms, elevado ao piso de 100ms
+  // v3.1: piso artificial de 100ms removido — 60 (ms) fica 60 mesmo
+  assert.strictEqual(parseComando('hold cima 60').duracaoMs, 60);
   assert.strictEqual(parseComando('hold cima 20s').duracaoMs, 10000); // 20s -> capado em 10s
   assert.strictEqual(parseComando('hold cima 999999').duracaoMs, 10000);
+  assert.strictEqual(parseComando('hold cima 1ms').duracaoMs, 1); // piso real: 1ms
 });
 
 test('hold com botão inválido', () => {

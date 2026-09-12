@@ -311,8 +311,8 @@ function msgUsoHold(usuario) {
   const palavra = seguraveis.length ? palavraPrincipal(seguraveis[0]) : 'cima';
   return garantirLimite(
     [
-      `@${usuario} uso: hold <controle> [tempo]`,
-      `ex: hold ${palavra} · hold ${palavra} 3 · hold ${palavra} 500ms`,
+      `@${usuario} uso: hold <controle|clique|pad> [1ms a 10s]`,
+      `ex: hold ${palavra} 3 · hold ${palavra} 500ms · hold clique direito 2s · hold pad a 250ms`,
     ].join('\n')
   );
 }

@@ -16,13 +16,13 @@
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
-- **Mouse + virtual gamepad** — chat can move/click inside the game window or globally, and on Windows can drive a virtual Xbox 360 controller via ViGEm.
+- **Mouse + virtual gamepad** — chat can move/click inside the game window or globally, and on Windows can drive a virtual Xbox 360 controller via ViGEm (installer and `ViGEmClient.dll` bundled, with distinct failure diagnostics on the dashboard).
 - **Game profiles** — keep separate executable/ROM/input/cooldown/control settings per game (`iniciar.bat --perfis`).
 - **Command tester + diagnostics** — safely preview how a chat message is parsed in the wizard; inspect runtime health at `http://localhost:8899/dashboard`.
 - **Fully configurable chat controls** — the wizard's **🎮 Chat Controls** section maps *any action* to *any key* and *any chat word*: remap A/B/directions, or add brand-new actions (`Pular → Space → pular, jump, espaço`). Aliases are auto-suggested (PT-BR + EN), editable, and checked for conflicts/reserved words before saving. Works for **any game** — Minecraft, Terraria, whatever — with no code changes. Both Twitch and YouTube read the same registry; `!comandos` and the auto-announcement always reflect what you configured. Presets (VBA-M, mGBA, DeSmuME, RetroArch) are just **starting templates**.
 - **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs (works with custom controls too).
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
-- **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim (custom controls too, when the key is holdable).
+- **Unified HOLD (1 ms–10 s)** — real down→up on keyboard keys, mouse buttons (mining/placing in Minecraft, charged shots) and gamepad buttons/triggers/sticks; `soltar`/F9 release everything instantly.
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
 - **Solid** — extensive automated regression suite, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
@@ -45,11 +45,13 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 |---|---|
 | `up` `down` `left` `right` (or `cima` `baixo` `esquerda` `direita`) | Move |
 | `a` `b` `l` `r` `start` `select` | Buttons |
-| `hold cima` · `hold baixo 3` · `hold up 500ms` | Hold a key (seconds by default, `s`/`ms` suffixes) |
-| `soltar` / `release` | Release all held keys |
+| `hold cima` · `hold baixo 3` · `hold up 500ms` · `hold w 37ms` | Hold a key — **1 ms to 10 s**, decimal seconds (`2.5s`), bare numbers stay seconds (≤30) |
+| `soltar` / `release` | Release ALL held inputs: keys, mouse buttons, gamepad |
 | `salvar` / `carregar` (or `save` / `load`) | Emulator save state / load state |
 | `dialogo` / `dialogue` | Repeated A presses for 5 seconds |
 | `mouse cima/baixo/esquerda/direita`, `mouse 50 50`, `clique` | Mouse controls |
+| `hold clique 3s` · `hold clique direito 2.5s` · `segurar botão esquerdo 250ms` | Real mouse-button HOLD (down → duration → up) — window and global modes |
+| `hold pad a 250ms` · `hold pad rt 75 500ms` · `hold pad ls direita 2s` | Virtual gamepad HOLD (buttons, triggers, sticks — same 1 ms–10 s range) |
 | `pad a`, `pad direita`, `pad ls direita`, `pad rt 75` | Virtual Xbox gamepad (Windows + ViGEm) |
 
 **Info commands** (with `!`): `!comandos` (full list) · `!stats` · `!top` · `!uptime` · `!recorde` · `!democracia` / `!anarquia` / `!votacao` · `!segurar` (hold help). Greetings like `oi`/`hello` get a friendly reply with a command tip.

@@ -31,6 +31,7 @@
 
 const { config } = require('./config');
 const controles = require('./controles');
+const { parseDuracaoMs, duracaoEfetiva } = require('./utils/duracao');
 
 // O vocabulário do sistema (verbos de hold, soltar, saudações e nomes dos
 // comandos !) vive no registro — fonte única, também usada para validar
@@ -156,29 +157,15 @@ function parseHoldResto(resto) {
   // controle não segurável (savestate, combo): "hold salvar" vira toque
   if (!controles.ehSeguravel(botao)) return { tipo: 'botao', botao };
 
-  let duracaoMs = config.geral.holdPadraoMs;
+  // v3.1: o parser de duração é COMPARTILHADO com mouse/gamepad (1ms–10s,
+  // segundos decimais, compatibilidade de número puro "3" = 3s). Piso
+  // artificial de 100ms removido — "hold w 1ms" é legítimo.
+  let duracaoMs = null;
   const argDuracao = partes[fimDoAlias];
+  if (argDuracao) duracaoMs = parseDuracaoMs(argDuracao);
+  // sufixo inválido (ex: "hold cima abc") -> null -> usa o padrão
 
-  if (argDuracao) {
-    const m = argDuracao.match(/^(\d{1,7})(ms|s|seg|segs|segundo|segundos)?$/);
-    if (m) {
-      const num = parseInt(m[1], 10);
-      const sufixo = m[2] || null;
-      if (sufixo === 'ms') {
-        duracaoMs = num;
-      } else if (sufixo) {
-        duracaoMs = num * 1000; // s, seg, segundos...
-      } else if (num <= 30) {
-        duracaoMs = num * 1000; // número pequeno: segundos
-      } else {
-        duracaoMs = num; // número grande: milissegundos
-      }
-    }
-    // sufixo inválido (ex: "hold cima abc") -> usa o padrão
-  }
-
-  // Limita a duração máxima por segurança
-  duracaoMs = Math.min(Math.max(duracaoMs, 100), config.geral.holdMaxMs);
+  duracaoMs = duracaoEfetiva(duracaoMs, config.geral);
 
   return { tipo: 'hold', botao, duracaoMs };
 }

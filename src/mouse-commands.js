@@ -11,7 +11,19 @@
  *   mouse 50 50        -> 50% X, 50% Y dentro da área do jogo
  *   clique / click
  *   clique direito / right click
+ *
+ * HOLD real de botão (v3.1 — down ... up, SEM cliques repetidos):
+ *   hold clique [tempo]            hold click 1s
+ *   hold clique esquerdo 250ms     segurar botao esquerdo 250ms
+ *   hold clique direito 2.5s       segurar clique direito 75ms
+ *   hold mouse left 500ms          hold mouse right 3s
+ *   segurar mouse esquerdo 500ms   segurar mouse direito 3s
+ *
+ * Tempo usa o parser compartilhado (1ms–10s, segundos decimais,
+ * número puro compatível com o teclado: "3" = 3s).
  */
+
+const { parseDuracaoMs } = require('./utils/duracao');
 
 function normalizar(texto) {
   return String(texto || '')
@@ -43,6 +55,68 @@ const CLIQUE_DIREITO = new Set([
   'mouse clique direito', 'mouse click direito',
 ]);
 
+/** Verbos de hold (mesma lista do registro/teclado). */
+const VERBOS_HOLD = ['hold', 'segurar', 'segura', 'segure', 'segurando'];
+
+/** Frase -> botão segurável. No máx. 3 palavras ("mouse clique direito"). */
+const ALVOS_HOLD = new Map([
+  ['clique', 'left'],
+  ['click', 'left'],
+  ['clicar', 'left'],
+  ['clique esquerdo', 'left'],
+  ['click esquerdo', 'left'],
+  ['left click', 'left'],
+  ['mouse clique', 'left'],
+  ['mouse click', 'left'],
+  ['botao esquerdo', 'left'],
+  ['mouse esquerdo', 'left'],
+  ['mouse left', 'left'],
+  ['botao', 'left'],
+  ['clique direito', 'right'],
+  ['click direito', 'right'],
+  ['right click', 'right'],
+  ['rightclick', 'right'],
+  ['mouse clique direito', 'right'],
+  ['mouse click direito', 'right'],
+  ['botao direito', 'right'],
+  ['mouse direito', 'right'],
+  ['mouse right', 'right'],
+]);
+
+/**
+ * Interpreta "hold <alvo-do-mouse> [tempo]".
+ * @param {string} t - texto já normalizado
+ * @returns {object|null}
+ */
+function parseHoldMouse(t) {
+  const verbo = VERBOS_HOLD.find((v) => t === v || t.startsWith(`${v} `));
+  if (!verbo) return null;
+
+  const resto = t.slice(verbo.length).trim();
+  if (!resto) return null;
+
+  const tokens = resto.split(' ');
+  // casa o MAIOR prefixo que é um alvo conhecido (3..1 palavras)
+  for (let n = Math.min(3, tokens.length); n >= 1; n--) {
+    const frase = tokens.slice(0, n).join(' ');
+    const botao = ALVOS_HOLD.get(frase);
+    if (!botao) continue;
+
+    const sobra = tokens.slice(n).join(' ').trim();
+    if (sobra && parseDuracaoMs(sobra) === null) return null; // lixo depois do alvo
+    const duracaoMs = sobra ? parseDuracaoMs(sobra) : null;
+
+    const rotulo = botao === 'right' ? 'clique direito' : 'clique';
+    return {
+      tipo: 'mouse-hold',
+      botao,
+      duracaoMs,
+      descricao: `hold ${rotulo}`,
+    };
+  }
+  return null;
+}
+
 /**
  * @param {string} texto
  * @returns {object|null}
@@ -50,6 +124,10 @@ const CLIQUE_DIREITO = new Set([
 function parseMouseCommand(texto) {
   const t = normalizar(texto);
   if (!t || t.length > 100) return null;
+
+  // v3.1: hold real de botão (antes dos taps, para não cair no hold do teclado)
+  const hold = parseHoldMouse(t);
+  if (hold) return hold;
 
   if (CLIQUE_DIREITO.has(t)) {
     return { tipo: 'mouse-click', botao: 'right', descricao: 'clique direito' };
@@ -97,6 +175,8 @@ function parseMouseCommand(texto) {
 
 module.exports = {
   parseMouseCommand,
+  parseHoldMouse,
   normalizar,
   DIRECOES,
+  ALVOS_HOLD,
 };

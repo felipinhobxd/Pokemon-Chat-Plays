@@ -17,6 +17,30 @@ const PADRAO_TAP_MS = 220;
 const PADRAO_ANALOG_MS = 320;
 const MAX_ACOES_PENDENTES = 32;
 
+/**
+ * Situação do gamepad para diagnóstico (dashboard/overlay) — v3.1: nunca
+ * mais um "indisponível" genérico. Estados possíveis:
+ *  - desativado        (GAMEPAD_ENABLED=off)
+ *  - aguardando        (auto: cria no primeiro comando)
+ *  - dll-ausente       (ViGEmClient.dll não encontrada em lugar nenhum)
+ *  - arquitetura-errada(DLL não é x64 / formato inválido)
+ *  - falha-carregamento(DLL encontrada mas não carrega)
+ *  - sem-vigembus      (driver ViGEmBus ausente ou desconectado)
+ *  - falha-desconhecida(erro do worker sem classificação)
+ *  - pronto            (controle Xbox virtual criado)
+ */
+let estado = 'aguardando';
+let estadoDetalhe = '';
+
+/** Plataforma injetável para os testes (produção: process.platform). */
+let plataformaFake = null;
+function plataformaAtual() {
+  return plataformaFake || process.platform;
+}
+
+/** Linhas escritas no worker quando simulado nos testes. */
+let linhasSimuladas = null;
+
 let opcoes = {
   modo: 'auto', // auto | on | off
   vigemDll: '',
@@ -62,6 +86,14 @@ function configurar(op = {}) {
     analogMs: op.analogMs !== undefined ? inteiroEnv(op.analogMs, PADRAO_ANALOG_MS, 40, 10000) : opcoes.analogMs,
   };
 
+  if (opcoes.modo === 'off') {
+    estado = 'desativado';
+    estadoDetalhe = 'GAMEPAD_ENABLED=off';
+  } else if (estado === 'desativado') {
+    estado = 'aguardando';
+    estadoDetalhe = '';
+  }
+
   if (anterior.vigemDll !== opcoes.vigemDll || anterior.modo !== opcoes.modo) {
     pararWorker();
   }
@@ -89,9 +121,13 @@ function procurarDll() {
     return fs.existsSync(p) ? p : opcoes.vigemDll;
   }
 
+  // v3.1: ordem determinística — o .exe empacotado (pkg) NÃO pode depender
+  // de cwd nem do filesystem virtual do pkg: process.execPath é o CAMINHO
+  // REAL do executável em builds pkg, então o diretório dele vem primeiro.
+  // node src/boot.js de qualquer cwd continua achando a DLL na raiz do repo.
   const candidatos = [
-    path.join(process.cwd(), 'ViGEmClient.dll'),
     path.join(path.dirname(process.execPath), 'ViGEmClient.dll'),
+    path.join(process.cwd(), 'ViGEmClient.dll'),
     path.resolve(__dirname, '..', '..', 'ViGEmClient.dll'),
   ];
   for (const p of candidatos) {
@@ -103,6 +139,29 @@ function procurarDll() {
 }
 
 const { fonteWorker } = require('./gamepad-worker');
+
+/**
+ * Classifica a mensagem de erro do worker em um estado de diagnóstico.
+ * (Mensagens do .NET/PowerShell podem vir localizadas — casa os dois idiomas.)
+ * @param {string} mensagem
+ * @returns {{estado: string, detalhe: string}}
+ */
+function classificarErroWorker(mensagem) {
+  const t = String(mensagem || '').toLowerCase();
+  if (/vigem_connect/.test(t)) {
+    return { estado: 'sem-vigembus', detalhe: 'driver ViGEmBus ausente ou serviço parado (o instalador está na pasta drivers/ do app)' };
+  }
+  if (/vigem_alloc|vigem_target|primeiro update/.test(t)) {
+    return { estado: 'sem-vigembus', detalhe: 'falha ao criar o controle virtual — verifique o driver ViGEmBus' };
+  }
+  if (/format|valid win32|32-bit|não é um aplicativo|nao e um aplicativo|incorrect format|incorreto/.test(t)) {
+    return { estado: 'arquitetura-errada', detalhe: 'ViGEmClient.dll não é x64 — use a versão de 64 bits ao lado do ChatPlays.exe' };
+  }
+  if (/load dll|carregar a dll|unable to load|could not load|não é possível carregar|nao e possivel carregar|could not be loaded|dllnotfound/.test(t)) {
+    return { estado: 'falha-carregamento', detalhe: 'ViGEmClient.dll foi encontrada mas não pôde ser carregada' };
+  }
+  return { estado: 'falha-desconhecida', detalhe: String(mensagem || '').slice(0, 160) };
+}
 
 function avisar(texto, forcar = false) {
   const agora = Date.now();
@@ -131,6 +190,7 @@ function pararWorker() {
   limparTimers();
   worker.buffer = [];
   worker.ready = false;
+  if (linhasSimuladas) linhasSimuladas = null;
   if (!worker.proc) return;
   const proc = worker.proc;
   worker.proc = null;
@@ -141,7 +201,7 @@ function pararWorker() {
 function iniciarWorker() {
   garantirEnv();
   if (opcoes.modo === 'off') return false;
-  if (process.platform !== 'win32') {
+  if (plataformaAtual() !== 'win32') {
     avisar('gamepad virtual esta disponivel apenas no Windows nesta versao.');
     return false;
   }
@@ -151,7 +211,19 @@ function iniciarWorker() {
   const dll = procurarDll();
   if (opcoes.vigemDll && dll !== 'ViGEmClient.dll' && !fs.existsSync(path.resolve(dll))) {
     avisar(`GAMEPAD_VIGEM_DLL nao foi encontrado: ${opcoes.vigemDll}`, true);
+    estado = 'dll-ausente';
+    estadoDetalhe = `caminho configurado não existe: ${opcoes.vigemDll}`;
     worker.retryAfter = Date.now() + 10000;
+    return false;
+  }
+  // v3.1: DLL "bare" (nenhum candidato existia) não carrega de forma
+  // confiável — o PATH do PowerShell não inclui a pasta do app. Diagnóstico
+  // explícito em vez de erro genérico de Add-Type depois de 25s.
+  if (!opcoes.vigemDll && dll === 'ViGEmClient.dll') {
+    avisar('ViGEmClient.dll nao foi encontrada (procure ao lado do ChatPlays.exe). O jogo continua com teclado/mouse.', true);
+    estado = 'dll-ausente';
+    estadoDetalhe = 'ViGEmClient.dll ausente — coloque a DLL (x64) ao lado do ChatPlays.exe ou defina GAMEPAD_VIGEM_DLL';
+    worker.retryAfter = Date.now() + 60000;
     return false;
   }
 
@@ -179,6 +251,8 @@ function iniciarWorker() {
       for (const linha of linhas) {
         if (linha === 'READY') {
           worker.ready = true;
+          estado = 'pronto';
+          estadoDetalhe = `ViGEmClient.dll: ${worker.alvoDll || dll}`;
           logger.info('[Gamepad] 🎮 Controle virtual Xbox 360 conectado via ViGEm.');
           const pendentes = worker.buffer.splice(0);
           for (const cmd of pendentes) enviarDireto(cmd);
@@ -186,7 +260,13 @@ function iniciarWorker() {
           worker.ready = false;
           worker.buffer = [];
           worker.retryAfter = Date.now() + 10000;
-          avisar(`${linha.slice(6)}. Instale o ViGEmBus e deixe ViGEmClient.dll ao lado do ChatPlays ou configure GAMEPAD_VIGEM_DLL.`, true);
+          const msg = linha.slice(6);
+          const c = classificarErroWorker(msg);
+          estado = c.estado;
+          estadoDetalhe = c.detalhe;
+          avisar(`${msg}. ${c.estado === 'sem-vigembus'
+            ? 'Instale o driver ViGEmBus (o instalador está em drivers/ ao lado do ChatPlays.exe).'
+            : 'Instale o ViGEmBus e deixe ViGEmClient.dll ao lado do ChatPlays.exe ou configure GAMEPAD_VIGEM_DLL.'}`, true);
         }
       }
     });
@@ -206,6 +286,11 @@ function iniciarWorker() {
       if (worker.proc === proc) worker.proc = null;
       worker.ready = false;
       worker.buffer = [];
+      if (estado === 'pronto') {
+        // worker caiu depois de pronto: próximo comando tenta subir de novo
+        estado = 'aguardando';
+        estadoDetalhe = 'worker caiu — tenta recriar no próximo comando';
+      }
       if (codigo && codigo !== 0) worker.retryAfter = Date.now() + 10000;
     });
     return true;
@@ -217,6 +302,10 @@ function iniciarWorker() {
 }
 
 function enviarDireto(linha) {
+  if (linhasSimuladas) {
+    linhasSimuladas.push(String(linha).trim());
+    return true;
+  }
   if (!worker.proc || !worker.proc.stdin?.writable) return false;
   try {
     worker.proc.stdin.write(`${linha}\n`);
@@ -233,6 +322,13 @@ function enviar(linha) {
     avisar('comandos de gamepad estao desativados (GAMEPAD_ENABLED=off).');
     return false;
   }
+  if (linhasSimuladas || worker.proc) {
+    // worker simulado (testes) ou vivo: manda direto / buffering normal
+    if (worker.ready || linhasSimuladas) return enviarDireto(linha);
+    if (worker.buffer.length >= MAX_ACOES_PENDENTES) worker.buffer.shift();
+    worker.buffer.push(linha);
+    return true;
+  }
   if (!iniciarWorker()) return false;
   if (worker.ready) return enviarDireto(linha);
   if (worker.buffer.length >= MAX_ACOES_PENDENTES) worker.buffer.shift();
@@ -241,8 +337,9 @@ function enviar(linha) {
 }
 
 function duracaoDaAcao(valor, fallback) {
+  // v3.1: piso de 1ms (era 40ms) — a faixa de hold é 1ms–10s
   const n = Number(valor);
-  return Number.isFinite(n) ? Math.round(limitar(n, 40, 10000)) : fallback;
+  return Number.isFinite(n) ? Math.round(limitar(n, 1, 10000)) : fallback;
 }
 
 function pressionar(botao, duracaoMs) {
@@ -271,6 +368,10 @@ function acionarTrigger(trigger, valor, duracaoMs) {
 
 function resetar() {
   limparTimers();
+  if (linhasSimuladas) {
+    worker.buffer = [];
+    return enviarDireto('RESET');
+  }
   if (!worker.proc) return false;
   worker.buffer = ['RESET'];
   if (worker.ready) {
@@ -299,11 +400,14 @@ function status() {
   return {
     modo: opcoes.modo,
     pronto: worker.ready,
-    rodando: Boolean(worker.proc && !worker.proc.killed),
+    rodando: Boolean(worker.proc && !worker.proc.killed) || Boolean(linhasSimuladas),
     vigemDll: worker.alvoDll || opcoes.vigemDll || '',
     tapMs: opcoes.tapMs,
     analogMs: opcoes.analogMs,
-    suportado: process.platform === 'win32',
+    suportado: plataformaAtual() === 'win32',
+    // v3.1: diagnóstico diferenciado (nunca mais "indisponível" genérico)
+    estado,
+    detalhe: estadoDetalhe,
   };
 }
 
@@ -332,5 +436,31 @@ module.exports = {
     procurarDll,
     fonteWorker,
     duracaoDaAcao,
+    classificarErroWorker,
+    /** Injeta plataforma + worker simulado (captura linhas) p/ testes. */
+    simular({ plataforma = 'win32', pronto = true, linhas = [] } = {}) {
+      plataformaFake = plataforma;
+      linhasSimuladas = linhas;
+      worker.ready = Boolean(pronto);
+      if (pronto) {
+        estado = 'pronto';
+        estadoDetalhe = 'worker simulado (teste)';
+      }
+    },
+    restaurarSimulacao() {
+      plataformaFake = null;
+      linhasSimuladas = null;
+      worker.ready = false;
+      worker.proc = null;
+      worker.buffer = [];
+      worker.retryAfter = 0;
+      limparTimers();
+      estado = 'aguardando';
+      estadoDetalhe = '';
+    },
+    definirEstado(novoEstado, detalhe = '') {
+      estado = novoEstado;
+      estadoDetalhe = detalhe;
+    },
   },
 };

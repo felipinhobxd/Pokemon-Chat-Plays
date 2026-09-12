@@ -172,7 +172,7 @@ test('hold inválido recebe dica de uso', () => {
   const { respostas, responder } = criarResponderEspiao();
   processarMensagem({ plataforma: 'twitch', usuario: 'confuso', texto: 'hold pizza', responder });
   assert.strictEqual(respostas.length, 1);
-  assert.ok(respostas[0].texto.includes('hold <controle>'));
+  assert.ok(respostas[0].texto.includes('hold <controle|clique|pad>'));
 });
 
 test('sem responder (YouTube), nada quebra', () => {

@@ -12,6 +12,7 @@ const dialogo = require('./utils/dialogo');
 const { parseComando } = require('./commands');
 const { parseMouseCommand } = require('./mouse-commands');
 const { parseGamepadCommand } = require('./gamepad-commands');
+const { duracaoEfetiva } = require('./utils/duracao');
 
 function copiarLista(lista) {
   return (Array.isArray(lista) ? lista : []).map((c) => ({
@@ -100,6 +101,25 @@ function descrever(entrada, parsed, contexto = {}) {
     return r;
   }
 
+  if (parsed.tipo === 'mouse-hold') {
+    // v3.1: hold REAL de botão — down ... up, com a duração normalizada
+    const duracao = duracaoEfetiva(parsed.duracaoMs, { holdPadraoMs: 1000, holdMaxMs: 10000 });
+    const lado = parsed.botao === 'right' ? 'Direito' : 'Esquerdo';
+    r.categoria = 'mouse';
+    r.titulo = '🖱️ Mouse';
+    r.resumo = `Seguraria o botão ${lado.toLowerCase()} por ${duracao}ms.`;
+    r.detalhes = [
+      `Botão: ${lado}`,
+      'HOLD real: pressiona, espera a duração e solta (sem cliques repetidos).',
+      parsed.duracaoMs == null ? 'Duração: padrão (1000ms)' : `Duração normalizada: ${parsed.duracaoMs}ms → ${duracao}ms`,
+    ];
+    if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
+    else if (!String(contexto.alvoExe || '').trim()) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+    else if (contexto.democracia) { r.resumo += ' Em Democracia, hold de mouse fica bloqueado.'; r.executaria = false; }
+    else r.executaria = true;
+    return r;
+  }
+
   if (parsed.tipo && parsed.tipo.startsWith('mouse-')) {
     r.categoria = 'mouse';
     r.titulo = '🖱️ Mouse';
@@ -118,7 +138,24 @@ function descrever(entrada, parsed, contexto = {}) {
     r.categoria = 'gamepad';
     r.titulo = '🎮 Gamepad virtual';
     r.resumo = parsed.descricao || 'Executaria uma ação no controle Xbox 360 virtual.';
-    if (parsed.duracaoMs) r.detalhes.push(`Duração: ${parsed.duracaoMs} ms`);
+    if (parsed.hold) {
+      // v3.1: hold de botão/gatilho/analógico com duração normalizada
+      const duracao = duracaoEfetiva(parsed.duracaoMs, { holdPadraoMs: 1000, holdMaxMs: 10000 });
+      r.resumo = `Seguraria ${parsed.descricao} por ${duracao}ms.`;
+      r.detalhes.push('HOLD real: estado ativo → duração → neutro.');
+      if (parsed.duracaoMs == null) r.detalhes.push('Duração: padrão (1000ms)');
+      else r.detalhes.push(`Duração normalizada: ${parsed.duracaoMs}ms → ${duracao}ms`);
+      if (parsed.tipo === 'gamepad-stick') r.detalhes.push(`Ao final, o analógico volta exatamente ao centro.`);
+      if (parsed.tipo === 'gamepad-trigger') r.detalhes.push(`Ao final, o gatilho volta a 0%.`);
+    } else if (parsed.duracaoMs) {
+      r.detalhes.push(`Duração: ${parsed.duracaoMs} ms`);
+    }
+    if (parsed.tipo === 'gamepad-stick' && parsed.hold && parsed.x !== undefined) {
+      r.detalhes.push(`Analógico: ${parsed.stick === 'L' ? 'esquerdo' : 'direito'} em x=${parsed.x}, y=${parsed.y}`);
+    }
+    if (parsed.tipo === 'gamepad-trigger' && parsed.valor !== undefined) {
+      r.detalhes.push(`Gatilho: ${parsed.trigger === 'L' ? 'LT' : 'RT'} em ${parsed.valor}%`);
+    }
     if (String(contexto.gamepadEnabled || '').toLowerCase() === 'off') { r.resumo += ' Gamepad está desativado.'; r.executaria = false; }
     else if (contexto.democracia) { r.resumo += ' Em Democracia, gamepad fica bloqueado.'; r.executaria = false; }
     else r.executaria = true;

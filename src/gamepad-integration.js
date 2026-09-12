@@ -15,15 +15,19 @@ const overlay = require('./overlay');
 const handlers = require('./handlers');
 const gamepad = require('./controllers/gamepad');
 const { parseGamepadCommand, normalizar } = require('./gamepad-commands');
+const { duracaoEfetiva } = require('./utils/duracao');
 
 let instalado = false;
 let removerObservadorPausa = null;
 let originalProcessarMensagem = null;
 
 function chaveCooldownGamepad(parsed) {
-  if (parsed.tipo === 'gamepad-botao') return `pad:${String(parsed.botao || '').toLowerCase()}`;
-  if (parsed.tipo === 'gamepad-stick') return `pad:${String(parsed.stick || '').toLowerCase()}`;
-  if (parsed.tipo === 'gamepad-trigger') return `pad:${parsed.trigger === 'L' ? 'lt' : 'rt'}`;
+  // v3.1: holds usam o prefixo hold: (hold:pad:a, hold:pad:rt...) — o grupo
+  // "hold" do cooldown-config continua aplicável; taps mantêm as chaves antigas
+  const prefixo = parsed && parsed.hold ? 'hold:' : '';
+  if (parsed.tipo === 'gamepad-botao') return `${prefixo}pad:${String(parsed.botao || '').toLowerCase()}`;
+  if (parsed.tipo === 'gamepad-stick') return `${prefixo}pad:${String(parsed.stick || '').toLowerCase()}`;
+  if (parsed.tipo === 'gamepad-trigger') return `${prefixo}pad:${parsed.trigger === 'L' ? 'lt' : 'rt'}`;
   return 'gamepad';
 }
 
@@ -56,13 +60,18 @@ function processarGamepad({ plataforma, usuario, usuarioId, broadcaster = false,
     return;
   }
 
-  const ok = gamepad.executar(parsed);
+  // v3.1: hold sem duração usa o padrão do config (mesma regra do teclado)
+  const parsedFinal = parsed.hold && parsed.duracaoMs == null
+    ? { ...parsed, duracaoMs: duracaoEfetiva(null, config.geral) }
+    : parsed;
+
+  const ok = gamepad.executar(parsedFinal);
   if (!ok) return;
 
   cooldown.registrarExecucao(handlers.identidadeAtor(contexto), chaveCooldown);
   stats.registrar(parsed.descricao, plataforma, usuario);
-  overlay.registrarAcao(usuario, null, 'gamepad');
-  logger.comando(`[Chat] 🎮 @${usuario}: ${parsed.descricao}`);
+  overlay.registrarAcao(usuario, null, parsed.hold ? 'hold' : 'gamepad');
+  logger.comando(`[Chat] 🎮 @${usuario}: ${parsed.descricao}${parsed.hold && parsedFinal.duracaoMs ? ` (${parsedFinal.duracaoMs}ms)` : ''}`);
 }
 
 function instalar() {
