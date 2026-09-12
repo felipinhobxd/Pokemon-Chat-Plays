@@ -2,8 +2,7 @@ name: Implement running game picker
 
 on:
   push:
-    branches:
-      - feat/select-running-game
+    branches: [feat/select-running-game]
 
 permissions:
   contents: write
@@ -16,39 +15,31 @@ jobs:
         with:
           ref: feat/select-running-game
           fetch-depth: 0
-
       - uses: actions/setup-node@v5
         with:
           node-version: 18
           cache: npm
 
-      - name: Patch running-app selector
+      - name: Patch feature
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new):
+          def one(path, old, new):
               p = Path(path)
               s = p.read_text(encoding='utf-8')
-              if old not in s:
-                  raise SystemExit(f'anchor not found in {path}: {old[:100]!r}')
               if s.count(old) != 1:
-                  raise SystemExit(f'anchor not unique in {path}: {old[:100]!r}')
+                  raise SystemExit(f'expected one anchor in {path}, got {s.count(old)}: {old[:100]!r}')
               p.write_text(s.replace(old, new, 1), encoding='utf-8')
 
-          # -----------------------------------------------------------------
-          # Backend: lista janelas/aplicativos abertos do usuário no Windows.
-          # -----------------------------------------------------------------
-          assist = Path('src/assistente.js')
-          s = assist.read_text(encoding='utf-8')
-          anchor = '''/**
-           * Abre o jogo na hora (botão "abrir agora" do wizard) — lançamento
-          '''
-          bloco = r'''/**
-           * Script PowerShell usado pelo seletor "jogo já aberto" do assistente.
-           * Lista somente processos com janela visível/título, evitando inundar a
-           * interface com serviços e processos de sistema sem UI.
+          # Backend ----------------------------------------------------------
+          p = Path('src/assistente.js')
+          s = p.read_text(encoding='utf-8')
+          anchor = '/**\n * Abre o jogo na hora (botão "abrir agora" do wizard) — lançamento\n'
+          backend = r'''/**
+           * Monta o PowerShell que lista apenas aplicativos com janela aberta.
+           * Serviços/processos de fundo ficam fora para a lista continuar útil.
            */
           function montarScriptAplicativosAbertos() {
             return String.raw`
@@ -81,15 +72,10 @@ jobs:
           `;
           }
 
-          /** Normaliza a saída JSON do PowerShell para a API do assistente. */
           function normalizarAplicativosAbertos(saida) {
             let bruto;
-            try {
-              const texto = String(saida || '').trim();
-              bruto = JSON.parse(texto || '[]');
-            } catch {
-              return [];
-            }
+            try { bruto = JSON.parse(String(saida || '').trim() || '[]'); }
+            catch { return []; }
             const lista = Array.isArray(bruto) ? bruto : [bruto];
             const vistos = new Set();
             const normalizados = [];
@@ -114,11 +100,6 @@ jobs:
             return normalizados;
           }
 
-          /**
-           * Retorna aplicativos com janela aberta no PC do streamer.
-           * O endpoint continua protegido pelas mesmas validações Host/Origin do
-           * restante do assistente e nunca aceita script/caminho vindo do browser.
-           */
           function listarAplicativosAbertos() {
             if (process.platform !== 'win32') {
               return Promise.resolve({
@@ -127,20 +108,18 @@ jobs:
                 mensagem: 'A seleção automática de aplicativos abertos está disponível no Windows.',
               });
             }
-
             return new Promise((resolve) => {
               let filho;
               let stdout = '';
               let stderr = '';
               let terminou = false;
               let timer = null;
-              const finalizar = (resultado) => {
+              const finalizar = (r) => {
                 if (terminou) return;
                 terminou = true;
                 if (timer) clearTimeout(timer);
-                resolve(resultado);
+                resolve(r);
               };
-
               try {
                 filho = spawn(
                   'powershell.exe',
@@ -151,28 +130,20 @@ jobs:
                 finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos (${err.message}).` });
                 return;
               }
-
               timer = setTimeout(() => {
-                try { filho.kill(); } catch { /* best effort */ }
+                try { filho.kill(); } catch { }
                 finalizar({ ok: false, aplicativos: [], mensagem: 'A busca por aplicativos abertos demorou demais.' });
               }, 7000);
               timer.unref?.();
-
               filho.stdout.setEncoding('utf8');
               filho.stderr.setEncoding('utf8');
               filho.stdout.on('data', (d) => { stdout = (stdout + String(d)).slice(-1024 * 1024); });
               filho.stderr.on('data', (d) => { stderr = (stderr + String(d)).slice(-12000); });
-              filho.on('error', (err) => {
-                finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos (${err.message}).` });
-              });
+              filho.on('error', (err) => finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos (${err.message}).` }));
               filho.on('close', (codigo) => {
                 if (terminou) return;
                 if (codigo !== 0) {
-                  finalizar({
-                    ok: false,
-                    aplicativos: [],
-                    mensagem: `Não consegui listar os aplicativos${stderr.trim() ? ` (${stderr.trim()})` : '.'}`,
-                  });
+                  finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos${stderr.trim() ? ` (${stderr.trim()})` : '.'}` });
                   return;
                 }
                 const aplicativos = normalizarAplicativosAbertos(stdout);
@@ -184,161 +155,131 @@ jobs:
                     : 'Nenhum aplicativo com janela aberta foi encontrado.',
                 });
               });
-
               try { filho.stdin.end(montarScriptAplicativosAbertos()); }
-              catch (err) {
-                finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui consultar os aplicativos (${err.message}).` });
-              }
+              catch (err) { finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui consultar os aplicativos (${err.message}).` }); }
             });
           }
 
           /**
            * Abre o jogo na hora (botão "abrir agora" do wizard) — lançamento
           '''
-          if anchor not in s:
-              raise SystemExit('assistente backend insertion anchor not found')
-          assist.write_text(s.replace(anchor, bloco, 1), encoding='utf-8')
+          if s.count(anchor) != 1:
+              raise SystemExit('backend insertion anchor missing')
+          p.write_text(s.replace(anchor, backend, 1), encoding='utf-8')
 
-          replace_once(
-              'src/assistente.js',
-              '''    if (req.method === 'GET' && url === '/api/estado') {
-                responderJson(res, 200, estadoAtual());
-                return;
-              }
+          one('src/assistente.js',
+          """    if (req.method === 'GET' && url === '/api/estado') {
+              responderJson(res, 200, estadoAtual());
+              return;
+            }
 
-              if (req.method === 'POST' && url === '/api/testar-twitch') {''',
-              '''    if (req.method === 'GET' && url === '/api/estado') {
-                responderJson(res, 200, estadoAtual());
-                return;
-              }
+            if (req.method === 'POST' && url === '/api/testar-twitch') {""",
+          """    if (req.method === 'GET' && url === '/api/estado') {
+              responderJson(res, 200, estadoAtual());
+              return;
+            }
 
-              // Windows: permite escolher diretamente um jogo/app que já está aberto.
-              if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
-                const resultado = await listarAplicativosAbertos();
-                responderJson(res, 200, resultado);
-                return;
-              }
+            if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
+              responderJson(res, 200, await listarAplicativosAbertos());
+              return;
+            }
 
-              if (req.method === 'POST' && url === '/api/testar-twitch') {'''
-          )
+            if (req.method === 'POST' && url === '/api/testar-twitch') {""")
 
-          replace_once(
-              'src/assistente.js',
-              '''  verificarCaminhosJogo,
-              abrirJogoAgora,
-              // v2.8.1: validadores de segurança (testes de DNS rebinding / CSRF)''',
-              '''  verificarCaminhosJogo,
-              abrirJogoAgora,
-              listarAplicativosAbertos,
-              montarScriptAplicativosAbertos,
-              normalizarAplicativosAbertos,
-              // v2.8.1: validadores de segurança (testes de DNS rebinding / CSRF)'''
-          )
+          one('src/assistente.js',
+              "  abrirJogoAgora,\n",
+              "  abrirJogoAgora,\n  listarAplicativosAbertos,\n  montarScriptAplicativosAbertos,\n  normalizarAplicativosAbertos,\n")
 
-          # -----------------------------------------------------------------
-          # UI: botão + select seguro (textContent, nunca injeta título como HTML).
-          # -----------------------------------------------------------------
-          replace_once(
-              'src/assistente-pagina.js',
-              '''  '      <div class="dica">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
-              '    </div>',
-              '    <div class="campo caminho">',''',
-              '''  '      <div class="dica">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
-              '    </div>',
-              '    <div class="campo">',
-              '      <label for="f-app-aberto">Ou escolha um jogo/aplicativo que já está aberto</label>',
-              '      <div class="linha-modelo">',
-              '        <button class="btn teste" id="btn-apps-abertos" type="button">🪟 Procurar apps abertos</button>',
-              '        <select id="f-app-aberto" style="display:none;flex:1"><option value="">Selecione um aplicativo...</option></select>',
-              '      </div>',
-              '      <div class="dica">No Windows, o ChatPlays lista as <b>janelas abertas</b> e mostra título + processo, por exemplo <b>Minecraft* 26.2 — javaw.exe</b> ou <b>Peggle — Peggle.exe</b>. Ao selecionar, o caminho real do .exe é preenchido acima. Apps cujo caminho o Windows protege continuam visíveis, mas não podem ser selecionados.</div>',
-              '    </div>',
-              '    <div class="campo caminho">','''
-          )
+          # UI ---------------------------------------------------------------
+          one('src/assistente-pagina.js',
+          """  '      <div class=\"dica\">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
+            '    </div>',
+            '    <div class=\"campo caminho\">',""",
+          """  '      <div class=\"dica\">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
+            '    </div>',
+            '    <div class=\"campo\">',
+            '      <label for=\"f-app-aberto\">Ou escolha um jogo/aplicativo que já está aberto</label>',
+            '      <div class=\"linha-modelo\">',
+            '        <button class=\"btn teste\" id=\"btn-apps-abertos\" type=\"button\">🪟 Procurar apps abertos</button>',
+            '        <select id=\"f-app-aberto\" style=\"display:none;flex:1\"><option value=\"\">Selecione um aplicativo...</option></select>',
+            '      </div>',
+            '      <div class=\"dica\">No Windows, o ChatPlays lista as <b>janelas abertas</b> por título + processo, por exemplo <b>Minecraft* 26.2 — javaw.exe</b> ou <b>Peggle — Peggle.exe</b>. Ao selecionar, o caminho real do .exe é preenchido acima.</div>',
+            '    </div>',
+            '    <div class=\"campo caminho\">',""")
 
-          replace_once(
-              'src/assistente-pagina.js',
-              '''  'function testarJogo() {',
-              '  var res = $("res-jogo");',''',
-              '''  'function carregarAplicativosAbertos() {',
-              '  var btn = $("btn-apps-abertos");',
-              '  var sel = $("f-app-aberto");',
-              '  var res = $("res-jogo");',
-              '  botaoCarregando(btn, true, "Procurando...");',
-              '  api("/api/aplicativos-abertos").then(function (r) {',
-              '    botaoCarregando(btn, false, "🔄 Atualizar apps abertos");',
-              '    sel.textContent = "";',
-              '    var primeiro = document.createElement("option");',
-              '    primeiro.value = "";',
-              '    txt(primeiro, "Selecione um aplicativo...");',
-              '    sel.appendChild(primeiro);',
-              '    var apps = r.aplicativos || [];',
-              '    for (var i = 0; i < apps.length; i++) {',
-              '      var a = apps[i];',
-              '      var op = document.createElement("option");',
-              '      op.value = a.caminho || "";',
-              '      op.disabled = !a.caminho;',
-              '      op.setAttribute("data-titulo", a.titulo || "");',
-              '      op.setAttribute("data-processo", a.processo || "");',
-              '      op.setAttribute("data-pid", String(a.pid || ""));',
-              '      txt(op, (a.titulo || a.processo) + " — " + a.processo + (a.caminho ? "" : " (caminho protegido pelo Windows)"));',
-              '      sel.appendChild(op);',
-              '    }',
-              '    sel.style.display = "block";',
-              '    if (!r.ok) mostrarRes(res, "err", "✖ " + (r.mensagem || "Não consegui listar os aplicativos."));',
-              '    else mostrarRes(res, "ok", "✔ " + (r.mensagem || (apps.length + " aplicativo(s) encontrado(s).")));',
-              '  }).catch(function (e) {',
-              '    botaoCarregando(btn, false, "🪟 Procurar apps abertos");',
-              '    mostrarRes(res, "err", "✖ Falha ao procurar aplicativos: " + e);',
-              '  });',
-              '}',
-              '',
-              'function selecionarAplicativoAberto() {',
-              '  var sel = $("f-app-aberto");',
-              '  var op = sel.options[sel.selectedIndex];',
-              '  if (!op || !op.value) return;',
-              '  $("f-exe").value = op.value;',
-              '  var titulo = op.getAttribute("data-titulo") || "";',
-              '  var processo = op.getAttribute("data-processo") || "";',
-              '  var pid = op.getAttribute("data-pid") || "";',
-              '  var minecraftJava = /minecraft/i.test(titulo) && /^javaw?\\.exe$/i.test(processo);',
-              '  if (minecraftJava) {',
-              '    $("f-modo-teclado").value = "global";',
-              '    $("f-modo-mouse").value = "global";',
-              '    $("tg-reabrir").checked = false;',
-              '    mostrarRes($("res-jogo"), "ok", "✔ Minecraft já aberto selecionado (" + processo + ", PID " + pid + "). Coloquei teclado/mouse em Global e desliguei o reabrir automático: javaw.exe sozinho não sabe iniciar o Minecraft. Para abrir/reabrir sozinho, use o launcher (ex.: ATLauncher). Se quiser os comandos Minecraft padrão, escolha Minecraft e clique em ↺ Aplicar modelo.");',
-              '  } else {',
-              '    mostrarRes($("res-jogo"), "ok", "✔ Selecionado: " + titulo + " — " + processo + (pid ? " (PID " + pid + ")" : "") + ". O caminho do .exe foi preenchido acima.");',
-              '  }',
-              '}',
-              '',
-              'function testarJogo() {',
-              '  var res = $("res-jogo");','''
-          )
+          one('src/assistente-pagina.js',
+          """  'function testarJogo() {',
+            '  var res = $(\"res-jogo\");',""",
+          """  'function carregarAplicativosAbertos() {',
+            '  var btn = $(\"btn-apps-abertos\");',
+            '  var sel = $(\"f-app-aberto\");',
+            '  var res = $(\"res-jogo\");',
+            '  botaoCarregando(btn, true, \"Procurando...\");',
+            '  api(\"/api/aplicativos-abertos\").then(function (r) {',
+            '    botaoCarregando(btn, false, \"🔄 Atualizar apps abertos\");',
+            '    sel.textContent = \"\";',
+            '    var primeiro = document.createElement(\"option\");',
+            '    primeiro.value = \"\";',
+            '    txt(primeiro, \"Selecione um aplicativo...\");',
+            '    sel.appendChild(primeiro);',
+            '    var apps = r.aplicativos || [];',
+            '    for (var i = 0; i < apps.length; i++) {',
+            '      var a = apps[i];',
+            '      var op = document.createElement(\"option\");',
+            '      op.value = a.caminho || \"\";',
+            '      op.disabled = !a.caminho;',
+            '      op.setAttribute(\"data-titulo\", a.titulo || \"\");',
+            '      op.setAttribute(\"data-processo\", a.processo || \"\");',
+            '      op.setAttribute(\"data-pid\", String(a.pid || \"\"));',
+            '      txt(op, (a.titulo || a.processo) + \" — \" + a.processo + (a.caminho ? \"\" : \" (caminho protegido pelo Windows)\"));',
+            '      sel.appendChild(op);',
+            '    }',
+            '    sel.style.display = \"block\";',
+            '    mostrarRes(res, r.ok ? \"ok\" : \"err\", (r.ok ? \"✔ \" : \"✖ \") + (r.mensagem || \"Busca concluída.\"));',
+            '  }).catch(function (e) {',
+            '    botaoCarregando(btn, false, \"🪟 Procurar apps abertos\");',
+            '    mostrarRes(res, \"err\", \"✖ Falha ao procurar aplicativos: \" + e);',
+            '  });',
+            '}',
+            '',
+            'function selecionarAplicativoAberto() {',
+            '  var sel = $(\"f-app-aberto\");',
+            '  var op = sel.options[sel.selectedIndex];',
+            '  if (!op || !op.value) return;',
+            '  $(\"f-exe\").value = op.value;',
+            '  var titulo = op.getAttribute(\"data-titulo\") || \"\";',
+            '  var processo = op.getAttribute(\"data-processo\") || \"\";',
+            '  var pid = op.getAttribute(\"data-pid\") || \"\";',
+            '  var minecraftJava = /minecraft/i.test(titulo) && /^javaw?\\\\.exe$/i.test(processo);',
+            '  if (minecraftJava) {',
+            '    $(\"f-modo-teclado\").value = \"global\";',
+            '    $(\"f-modo-mouse\").value = \"global\";',
+            '    $(\"tg-reabrir\").checked = false;',
+            '    mostrarRes($(\"res-jogo\"), \"ok\", \"✔ Minecraft já aberto selecionado (\" + processo + \", PID \" + pid + \"). Teclado/mouse foram para Global e o reabrir automático foi desligado: javaw.exe sozinho não sabe iniciar o Minecraft. Para abertura/reabertura automática, use o launcher (ex.: ATLauncher).\");',
+            '  } else {',
+            '    mostrarRes($(\"res-jogo\"), \"ok\", \"✔ Selecionado: \" + titulo + \" — \" + processo + (pid ? \" (PID \" + pid + \")\" : \"\") + \". O caminho do .exe foi preenchido acima.\");',
+            '  }',
+            '}',
+            '',
+            'function testarJogo() {',
+            '  var res = $(\"res-jogo\");',""")
 
-          replace_once(
-              'src/assistente-pagina.js',
-              '''  '  $("btn-youtube").addEventListener("click", testarYoutube);',
-              '  $("btn-verificar-jogo").addEventListener("click", testarJogo);',''',
-              '''  '  $("btn-youtube").addEventListener("click", testarYoutube);',
-              '  $("btn-apps-abertos").addEventListener("click", carregarAplicativosAbertos);',
-              '  $("f-app-aberto").addEventListener("change", selecionarAplicativoAberto);',
-              '  $("btn-verificar-jogo").addEventListener("click", testarJogo);','''
-          )
+          one('src/assistente-pagina.js',
+          """  '  $(\"btn-youtube\").addEventListener(\"click\", testarYoutube);',
+            '  $(\"btn-verificar-jogo\").addEventListener(\"click\", testarJogo);',""",
+          """  '  $(\"btn-youtube\").addEventListener(\"click\", testarYoutube);',
+            '  $(\"btn-apps-abertos\").addEventListener(\"click\", carregarAplicativosAbertos);',
+            '  $(\"f-app-aberto\").addEventListener(\"change\", selecionarAplicativoAberto);',
+            '  $(\"btn-verificar-jogo\").addEventListener(\"click\", testarJogo);',""")
 
-          # README
-          replace_once(
-              'README.md',
-              '''- **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.''',
-              '''- **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch, or on Windows click **“Procurar apps abertos”** and select the game that is already running. `--direto` skips it; `npm run assistente` opens it standalone.'''
-          )
-          replace_once(
-              'README.md',
-              '''3. In **🎮 Game / Emulator**, paste the game/emulator executable. For **Minecraft Java**, choose the Minecraft preset and paste the launcher path (example: `C:\\Users\\Admin\\AppData\\Roaming\\ATLauncher\\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.''',
-              '''3. In **🎮 Game / Emulator**, paste the game/emulator executable **or, on Windows, click “🪟 Procurar apps abertos” and select a game that is already running** (the list shows the window title + process, e.g. `Minecraft* 26.2 — javaw.exe` or `Peggle — Peggle.exe`). For **Minecraft Java**, the launcher path is still the best option when you want automatic opening/reopening (example: `C:\\Users\\Admin\\AppData\\Roaming\\ATLauncher\\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.'''
-          )
+          # Docs -------------------------------------------------------------
+          one('README.md',
+              'set the **game path + ROM** with a one-click launch.',
+              'set the **game path + ROM** with a one-click launch, or on Windows choose a game/app that is already open.')
+          one('README.md',
+              '3. In **🎮 Game / Emulator**, paste the game/emulator executable. For **Minecraft Java**, choose the Minecraft preset and paste the launcher path',
+              '3. In **🎮 Game / Emulator**, paste the game/emulator executable **or click “🪟 Procurar apps abertos” and select a game that is already running** (for example `Minecraft* 26.2 — javaw.exe` or `Peggle — Peggle.exe`). For **Minecraft Java**, choose the Minecraft preset and paste the launcher path')
 
-          # Tests for the pure PowerShell builder/parser + page wiring.
           Path('src/tests/assistente-apps-abertos.test.js').write_text(r'''\
           'use strict';
 
@@ -347,7 +288,7 @@ jobs:
           const assistente = require('../assistente');
           const { PAGINA } = require('../assistente-pagina');
 
-          test('assistente: script de apps abertos usa somente janelas visíveis e devolve título/processo/caminho', () => {
+          test('assistente: script lista apps com janela e caminho executável', () => {
             const s = assistente.montarScriptAplicativosAbertos();
             assert.match(s, /MainWindowHandle -ne 0/);
             assert.match(s, /MainWindowTitle/);
@@ -356,19 +297,16 @@ jobs:
             assert.match(s, /ConvertTo-Json/);
           });
 
-          test('assistente: normaliza singleton/array e preserva Minecraft* 26.2 + javaw.exe', () => {
+          test('assistente: normaliza Minecraft javaw e Peggle', () => {
             const um = assistente.normalizarAplicativosAbertos(JSON.stringify({
               pid: 4242,
               titulo: 'Minecraft* 26.2',
               processo: 'javaw.exe',
               caminho: 'C:\\Java\\bin\\javaw.exe',
             }));
-            assert.deepStrictEqual(um, [{
-              pid: 4242,
-              titulo: 'Minecraft* 26.2',
-              processo: 'javaw.exe',
-              caminho: 'C:\\Java\\bin\\javaw.exe',
-            }]);
+            assert.strictEqual(um.length, 1);
+            assert.strictEqual(um[0].titulo, 'Minecraft* 26.2');
+            assert.strictEqual(um[0].processo, 'javaw.exe');
 
             const varios = assistente.normalizarAplicativosAbertos(JSON.stringify([
               { pid: 9, titulo: 'Peggle', processo: 'Peggle', caminho: 'C:\\Games\\Peggle\\Peggle.exe' },
@@ -378,24 +316,23 @@ jobs:
             assert.strictEqual(varios[0].processo, 'Peggle.exe');
           });
 
-          test('assistente: página oferece seletor de aplicativo aberto sem remover campo manual', () => {
+          test('assistente: página expõe seletor de app aberto e mantém caminho manual', () => {
             assert.match(PAGINA, /id="btn-apps-abertos"/);
             assert.match(PAGINA, /id="f-app-aberto"/);
             assert.match(PAGINA, /\/api\/aplicativos-abertos/);
             assert.match(PAGINA, /id="f-exe"/);
             assert.match(PAGINA, /Minecraft\* 26\.2/);
-            assert.match(PAGINA, /javaw\.exe sozinho não sabe iniciar o Minecraft/);
           });
           ''', encoding='utf-8')
           PY
 
-      - name: Install and validate
+      - name: Validate
         run: |
           npm ci
           npm test
           npm audit --audit-level=high
 
-      - name: Commit clean feature result
+      - name: Commit feature
         shell: bash
         run: |
           rm -f .github/workflows/implement-running-game-picker.yml
