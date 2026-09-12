@@ -130,6 +130,13 @@ if (!envEncontrado) {
  * Monta o objeto de configuração a partir das variáveis de ambiente.
  * (v2.6: função para permitir recarregar sem perder referências.)
  */
+function plataformasAtivasEfetivas() {
+  const lista = [...new Set(getEnv('ACTIVE_PLATFORMS', 'twitch')
+    .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean))];
+  if (!getEnvBool('YOUTUBE_ENABLED', false)) return lista.filter((p) => p !== 'youtube');
+  return lista;
+}
+
 function construirConfig() {
   return {
   twitch: {
@@ -144,10 +151,7 @@ function construirConfig() {
     videoId: normalizarVideoIdYoutube(getEnv('YOUTUBE_VIDEO_ID')),
   },
   geral: {
-    plataformasAtivas: getEnv('ACTIVE_PLATFORMS', 'twitch')
-      .split(',')
-      .map((p) => p.trim().toLowerCase())
-      .filter(Boolean),
+    plataformasAtivas: plataformasAtivasEfetivas(),
     cooldownMs: getEnvInt('COMMAND_COOLDOWN_MS', 1500),
     cooldownsPorComandoTexto: getEnv('COMMAND_COOLDOWNS', ''),
     cooldownsPorComando: parseCooldownsPorComando(getEnv('COMMAND_COOLDOWNS', '')),
@@ -187,6 +191,16 @@ function construirConfig() {
       salvar: getEnv('TECLA_SALVAR'),
       carregar: getEnv('TECLA_CARREGAR'),
     },
+  },
+  mouse: {
+    modo: getEnv('MODO_MOUSE', getEnv('MODO_TECLADO', 'janela')).toLowerCase(),
+    passoPx: Math.max(5, Math.min(500, getEnvInt('MOUSE_PASSO_PX', 40))),
+  },
+  gamepad: {
+    enabled: getEnv('GAMEPAD_ENABLED', 'auto').toLowerCase(),
+    vigemDll: getEnv('GAMEPAD_VIGEM_DLL', ''),
+    tapMs: Math.max(40, Math.min(10000, getEnvInt('GAMEPAD_TAP_MS', 220))),
+    analogMs: Math.max(40, Math.min(10000, getEnvInt('GAMEPAD_ANALOG_MS', 320))),
   },
   // --- Novidades v2.7: gerenciador de jogo (abrir + vigiar + reabrir) ---
   // O EMULADOR_EXE (config.teclado.emuladorExe) define QUAL programa é o
@@ -346,4 +360,5 @@ module.exports = {
   errosConfig,
   caminhoEnv,
   normalizarVideoIdYoutube,
+  plataformasAtivasEfetivas,
 };

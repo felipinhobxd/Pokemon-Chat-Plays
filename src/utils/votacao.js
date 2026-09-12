@@ -223,8 +223,8 @@ function votarModo(novo, usuario) {
 /**
  * Troca o modo de jogo diretamente.
  * @param {string} novo - 'anarquia' | 'democracia'
- * @param {string} [origem] - 'chat @fulano' (API legado, respeita intervalo) |
- *   'tecla' / 'terminal' / 'config' / 'api' / 'maioria-chat' (imediatos)
+ * @param {string} [origem] - origens de chat (`chat...`/`maioria-chat...`)
+ *   respeitam trocaMinMs; tecla/terminal/config/api são imediatos.
  * @returns {{mudou: boolean, motivo?: string, esperaMs?: number}}
  */
 function definirModo(novo, origem = 'api') {
@@ -235,8 +235,9 @@ function definirModo(novo, origem = 'api') {
     return { mudou: false, motivo: 'já está neste modo' };
   }
   const agora = Date.now();
-  const veioDoChatLegado = String(origem).startsWith('chat');
-  if (veioDoChatLegado && agora - ultimaTroca < trocaMinMs) {
+  const origemTexto = String(origem || '');
+  const veioDoChat = origemTexto.startsWith('chat') || origemTexto.startsWith('maioria-chat');
+  if (veioDoChat && agora - ultimaTroca < trocaMinMs) {
     return {
       mudou: false,
       motivo: 'troca recente',

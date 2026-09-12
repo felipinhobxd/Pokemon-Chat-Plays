@@ -273,9 +273,9 @@ test('REGRESSÃO v2.9.1: falha no rename do .env preserva o anterior, sem .tmp �
     // ...e não sobrou .tmp órfão
     assert.ok(!fs.existsSync(`${envLocal}.tmp`), '.tmp órfão não deveria sobrar');
 
-    // os controles foram salvos PRIMEIRO (ordem documentada) — arquivo válido
-    const disco = JSON.parse(fs.readFileSync(process.env.CONTROLES_ARQUIVO, 'utf8'));
-    assert.ok(disco.controles.some((c) => c.id === 'pular'), 'controles deveriam ter sido gravados antes do .env');
+    // v3: o save é transacional — se o .env falha, os controles novos
+    // também voltam ao estado anterior (neste caso, arquivo inexistente).
+    assert.ok(!fs.existsSync(process.env.CONTROLES_ARQUIVO), 'controles não podem ficar meio-salvos se o .env falhar');
   } finally {
     process.chdir(cwdOriginal);
     if (controlesArquivoOriginal === undefined) delete process.env.CONTROLES_ARQUIVO;

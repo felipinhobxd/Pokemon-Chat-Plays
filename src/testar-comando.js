@@ -71,7 +71,7 @@ function respostaBase(entrada, parsed) {
   };
 }
 
-function descrever(entrada, parsed) {
+function descrever(entrada, parsed, contexto = {}) {
   if (!parsed) {
     return {
       ok: true,
@@ -93,7 +93,10 @@ function descrever(entrada, parsed) {
     r.titulo = '💬 Diálogo';
     r.resumo = 'Apertaria o botão A repetidamente por 5 segundos.';
     r.detalhes = ['Macro protegida: não empilha duas execuções ao mesmo tempo.'];
-    r.executaria = true;
+    if (contexto.democracia) {
+      r.resumo = 'Em Democracia, contaria como um voto no botão A (não inicia a macro).';
+      r.executaria = false;
+    } else r.executaria = true;
     return r;
   }
 
@@ -102,9 +105,12 @@ function descrever(entrada, parsed) {
     r.titulo = '🖱️ Mouse';
     r.resumo = parsed.descricao || 'Executaria uma ação de mouse.';
     if (parsed.tipo === 'mouse-mover') r.detalhes.push(`Movimento relativo: x=${parsed.dx}, y=${parsed.dy}`);
-    if (parsed.tipo === 'mouse-pos') r.detalhes.push(`Posição na área do jogo: ${parsed.x}% × ${parsed.y}%`);
+    if (parsed.tipo === 'mouse-pos') r.detalhes.push(`Posição na área do jogo: ${parsed.xPct}% × ${parsed.yPct}%`);
     if (parsed.tipo === 'mouse-click') r.detalhes.push(`Botão: ${parsed.botao || 'esquerdo'}`);
-    r.executaria = true;
+    if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
+    else if (!String(contexto.alvoExe || '').trim()) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+    else if (contexto.democracia) { r.resumo += ' Em Democracia, mouse fica bloqueado.'; r.executaria = false; }
+    else r.executaria = true;
     return r;
   }
 
@@ -113,7 +119,9 @@ function descrever(entrada, parsed) {
     r.titulo = '🎮 Gamepad virtual';
     r.resumo = parsed.descricao || 'Executaria uma ação no controle Xbox 360 virtual.';
     if (parsed.duracaoMs) r.detalhes.push(`Duração: ${parsed.duracaoMs} ms`);
-    r.executaria = true;
+    if (String(contexto.gamepadEnabled || '').toLowerCase() === 'off') { r.resumo += ' Gamepad está desativado.'; r.executaria = false; }
+    else if (contexto.democracia) { r.resumo += ' Em Democracia, gamepad fica bloqueado.'; r.executaria = false; }
+    else r.executaria = true;
     return r;
   }
 
@@ -128,7 +136,10 @@ function descrever(entrada, parsed) {
       `Controle: ${parsed.botao}`,
       `Tecla: ${c?.key || '(não encontrada)'}`,
     ];
-    r.executaria = true;
+    if (contexto.democracia) {
+      r.resumo = `Em Democracia, contaria como um voto em ${parsed.botao}.`;
+      r.executaria = false;
+    } else r.executaria = true;
     return r;
   }
 
@@ -165,7 +176,7 @@ function descrever(entrada, parsed) {
   return r;
 }
 
-function testarComando(texto, listaControles) {
+function testarComando(texto, listaControles, contexto = {}) {
   const entrada = String(texto || '').trim();
   if (!entrada) {
     return {
@@ -185,7 +196,7 @@ function testarComando(texto, listaControles) {
   }
 
   controles.garantirInicializado();
-  return comControlesTemporarios(listaControles, () => descrever(entrada, interpretar(entrada)));
+  return comControlesTemporarios(listaControles, () => descrever(entrada, interpretar(entrada), contexto));
 }
 
 module.exports = { testarComando, interpretar, descrever };

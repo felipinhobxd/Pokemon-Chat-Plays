@@ -73,4 +73,4 @@ A troca preserva chaves e configuracoes globais que nao pertencem ao jogo, inclu
 - teclado + mouse;
 - controles personalizados como `pular`, `agachar`, `inventario`, `andar`.
 
-O suporte a gamepad/controle virtual sera uma camada separada e pode ser adicionado aos mesmos perfis sem quebrar o formato atual.
+O gamepad virtual já é suportado. `GAMEPAD_ENABLED`, `GAMEPAD_TAP_MS` e `GAMEPAD_ANALOG_MS` acompanham cada perfil; `GAMEPAD_VIGEM_DLL` continua global porque é um caminho específico deste PC.

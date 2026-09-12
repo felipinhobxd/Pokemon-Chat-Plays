@@ -126,7 +126,9 @@ async function iniciar() {
     if (self) return; // ignora as próprias mensagens do bot
     processarMensagem({
       plataforma: 'twitch',
-      usuario: tags.username || 'desconhecido',
+      usuario: tags.username || tags['display-name'] || 'desconhecido',
+      usuarioId: tags['user-id'] || tags.username || tags['display-name'] || 'desconhecido',
+      broadcaster: Boolean(tags.badges && tags.badges.broadcaster),
       texto: mensagem,
       responder,
     });

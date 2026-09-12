@@ -55,6 +55,8 @@ const { verificarSistema, soltarTodasSync } = teclado;
 const assistente = require('./assistente');
 const cooldown = require('./utils/cooldown');
 const gamepad = require('./controllers/gamepad');
+const mouse = require('./controllers/mouse');
+const dialogo = require('./utils/dialogo');
 
 // Silencia avisos experimentais (ex.: "Fetch API is an experimental feature"
 // no Node 18 do .exe) para não poluir o terminal durante a live.
@@ -93,7 +95,11 @@ async function encerrar(sinal) {
   encerrando = true;
   logger.aviso(`Sinal recebido (${sinal}). Encerrando...`);
   try {
-    // Primeiro solta as teclas (um jogo com tecla presa é péssimo)
+    // Primeiro interrompe macros/taps e neutraliza input (um jogo com tecla presa é péssimo).
+    dialogo.parar();
+    teclado.cancelarToquesPendentes();
+    gamepad.parar();
+    mouse.parar();
     soltarTodasSync();
     // Para a vigilância do jogo (NÃO fecha o jogo — ele é do streamer)
     jogo.parar();
@@ -310,7 +316,10 @@ async function iniciarOverlay() {
     diagnostico: () => ({
       teclado: teclado.diagnostico(),
       cooldown: cooldown.diagnostico(),
-      gamepad: gamepad.status(),
+      gamepad: (() => {
+        const g = gamepad.status();
+        return { modo: g.modo, pronto: g.pronto, rodando: g.rodando, tapMs: g.tapMs, analogMs: g.analogMs, suportado: g.suportado };
+      })(),
       logs: logger.recentes(10),
     }),
   });
@@ -386,8 +395,11 @@ function configurarBotaoPanico() {
     overlay.setPausado(pausado);
     if (pausado) {
       logger.aviso(`[Pausa] ⛔ CHAT PAUSADO (${origem}) — comandos do chat serão ignorados.`);
-      // solta tudo: hold pausado deixaria o personagem andando sozinho
-      teclado.soltarTodas();
+      // Pânico real: interrompe macro, descarta taps ainda não iniciados e
+      põe keyups de holds na frente da fila.
+      dialogo.parar();
+      teclado.cancelarToquesPendentes();
+      teclado.soltarTodas({ prioridade: true });
       twitch.enviarMensagem(msgChatPausado());
     } else {
       logger.aviso(`[Pausa] ✅ CHAT LIBERADO (${origem}) — o chat volta a controlar o jogo.`);
@@ -472,8 +484,23 @@ async function main() {
     }
   }
 
-  // Emulador alvo (v2.4): pergunta o .exe ANTES de mexer em qualquer tecla
+  // Emulador alvo: resolvido DEPOIS do wizard, quando config já foi recarregada.
   await configurarAlvoDoEmulador();
+
+  // Mouse/gamepad são importados antes do wizard pelo pipeline; sincronize-os
+  // agora com a configuração FINAL para não manter modo/alvo antigo.
+  mouse.configurar({
+    modo: config.mouse.modo,
+    alvoExe: exeDoJogo,
+    passoPx: config.mouse.passoPx,
+  });
+  gamepad.configurar({
+    modo: config.gamepad.enabled,
+    vigemDll: config.gamepad.vigemDll,
+    tapMs: config.gamepad.tapMs,
+    analogMs: config.gamepad.analogMs,
+  });
+  gamepad.preparar();
 
   // Controles do chat (v2.9) — antes de qualquer coisa tocar no teclado
   aplicarControles();

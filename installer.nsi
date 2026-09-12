@@ -107,6 +107,10 @@ Section "ChatPlays (obrigatório)" SEC_APP
   File "${FILESDIR}\README.md"
   File "${FILESDIR}\LICENSE"
   File "${FILESDIR}\iniciar.bat"
+  SetOutPath "$INSTDIR\docs"
+  File "${FILESDIR}\docs\GAMEPAD.md"
+  File "${FILESDIR}\docs\PERFIS.md"
+  SetOutPath "$INSTDIR"
 
   ; Desinstalador
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -159,6 +163,9 @@ Section "Uninstall"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\${APP_BAT}"
+  Delete "$INSTDIR\docs\GAMEPAD.md"
+  Delete "$INSTDIR\docs\PERFIS.md"
+  RMDir "$INSTDIR\docs"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
 

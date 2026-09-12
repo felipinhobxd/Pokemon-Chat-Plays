@@ -85,4 +85,4 @@ GAMEPAD_TAP_MS=220
 GAMEPAD_ANALOG_MS=320
 ```
 
-Essas opções são de **hardware/PC**, não guardam credenciais e não mudam os controles personalizados de cada perfil.
+`GAMEPAD_ENABLED`, `GAMEPAD_TAP_MS` e `GAMEPAD_ANALOG_MS` fazem parte do perfil do jogo. `GAMEPAD_VIGEM_DLL` fica global, pois aponta para uma DLL instalada neste PC. Nenhuma dessas opções contém credenciais.

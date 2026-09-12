@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - 'release/v*'
   workflow_dispatch:
 
 permissions:
@@ -14,101 +12,64 @@ permissions:
 jobs:
   preparar:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      sha: ${{ steps.release_meta.outputs.SHA }}
-      tag: ${{ steps.release_meta.outputs.TAG }}
-      version: ${{ steps.release_meta.outputs.VERSION }}
-      do_release: ${{ steps.release_meta.outputs.DO_RELEASE }}
+      sha: ${{ steps.meta.outputs.SHA }}
+      tag: ${{ steps.meta.outputs.TAG }}
+      version: ${{ steps.meta.outputs.VERSION }}
+      do_release: ${{ steps.meta.outputs.DO_RELEASE }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '18'
           cache: npm
-
-      - name: Resolve release metadata
-        id: release_meta
+      - id: meta
+        name: Validate release metadata
         shell: bash
         run: |
           set -euo pipefail
-
-          SHA="${GITHUB_SHA}"
           VERSION="$(node -p "require('./package.json').version")"
-          TAG="v${VERSION}"
+          LOCK_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
+          PACKAGE_BIN="$(node -p "require('./package.json').bin.chatplays")"
+          LOCK_BIN="$(node -p "require('./package-lock.json').packages[''].bin.chatplays")"
+          EXPECTED="v${VERSION}"
+          TAG="${EXPECTED}"
           DO_RELEASE=false
 
-          if [[ "${GITHUB_REF}" == refs/heads/release/v* ]]; then
-            TAG="${GITHUB_REF#refs/heads/release/}"
-            VERSION="${TAG#v}"
-            DO_RELEASE=true
+          [[ "${LOCK_VERSION}" == "${VERSION}" ]] || { echo "package-lock version mismatch"; exit 1; }
+          [[ "${PACKAGE_BIN}" == "src/boot.js" ]] || { echo "package bin must be src/boot.js"; exit 1; }
+          [[ "${LOCK_BIN}" == "${PACKAGE_BIN}" ]] || { echo "package-lock bin mismatch"; exit 1; }
 
-            git fetch origin main
-            MAIN_SHA="$(git rev-parse origin/main)"
-            if [[ "${MAIN_SHA}" != "${GITHUB_SHA}" ]]; then
-              echo "main changed after the release branch was created; refusing to release blindly."
-              echo "release branch: ${GITHUB_SHA}"
-              echo "current main:    ${MAIN_SHA}"
-              exit 1
-            fi
-
-            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-              echo "Tag ${TAG} already exists; refusing to overwrite it."
-              exit 1
-            fi
-
-            git checkout -B __chatplays_release origin/main
-            npm version "${VERSION}" --no-git-tag-version
-
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package.json package-lock.json
-            git commit -m "release: ChatPlays ${TAG}"
-
-            SHA="$(git rev-parse HEAD)"
-            git push origin HEAD:main
-          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            VERSION="${TAG#v}"
+            [[ "${TAG}" == "${EXPECTED}" ]] || {
+              echo "Tag ${TAG} does not match package version ${VERSION} (expected ${EXPECTED})."
+              exit 1
+            }
             DO_RELEASE=true
           fi
 
-          echo "SHA=${SHA}" >> "${GITHUB_OUTPUT}"
-          echo "TAG=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "VERSION=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "DO_RELEASE=${DO_RELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "SHA=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "DO_RELEASE=${DO_RELEASE}" >> "$GITHUB_OUTPUT"
 
   testar:
     needs: preparar
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - name: Checkout exact release SHA
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.preparar.outputs.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '18'
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Security audit
-        run: npm audit --audit-level=high
+      - run: npm ci
+      - run: npm test
+      - run: npm audit --audit-level=high
 
   build-windows:
     needs: [preparar, testar]
@@ -116,61 +77,44 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout exact release SHA
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.preparar.outputs.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '18'
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install pkg (packager)
-        run: npm install -g pkg
-
-      - name: Package the .exe
+      - run: npm ci
+      - run: npm install -g pkg
+      - name: Package EXE
         run: pkg . --targets node18-win-x64 --output ChatPlays.exe --compress GZip
-
       - name: Assemble release folder
+        shell: pwsh
         run: |
-          mkdir release
-          copy ChatPlays.exe release\
-          copy .env.example release\
-          copy README.md release\
-          copy iniciar.bat release\
-          copy LICENSE release\
-
-      - name: Build the NSIS installer
+          New-Item -ItemType Directory -Force release, release/docs | Out-Null
+          Copy-Item ChatPlays.exe,.env.example,README.md,iniciar.bat,LICENSE release/
+          Copy-Item docs/GAMEPAD.md,docs/PERFIS.md release/docs/
+      - name: Build NSIS installer
         shell: pwsh
         run: |
           $makensis = Get-Command makensis -ErrorAction SilentlyContinue
           if (-not $makensis) {
-            $candidato = "C:\Program Files (x86)\NSIS\makensis.exe"
-            if (Test-Path $candidato) {
-              $makensis = $candidato
-            } else {
-              Write-Host "NSIS nao encontrado - instalando via chocolatey..."
-              choco install nsis -y --no-progress
-              if (Test-Path $candidato) { $makensis = $candidato }
-            }
+            $candidate = "C:\Program Files (x86)\NSIS\makensis.exe"
+            if (-not (Test-Path $candidate)) { choco install nsis -y --no-progress }
+            if (Test-Path $candidate) { $makensis = $candidate }
           }
-          if (-not $makensis) { throw "makensis nao disponivel" }
+          if (-not $makensis) { throw "makensis unavailable" }
           $exe = if ($makensis -is [string]) { $makensis } else { $makensis.Source }
           & $exe -DVERSION="${{ needs.preparar.outputs.version }}" installer.nsi
-          if ($LASTEXITCODE -ne 0) { throw "makensis falhou (exit $LASTEXITCODE)" }
-          if (-not (Test-Path "ChatPlays-Setup.exe")) { throw "instalador nao foi gerado" }
-          copy ChatPlays-Setup.exe release\
-
-      - name: Create the portable ZIP
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path ChatPlays-Setup.exe)) { throw "installer was not generated" }
+          Copy-Item ChatPlays-Setup.exe release/
+      - name: Create portable ZIP
+        shell: pwsh
         run: |
-          cd release
-          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe .env.example README.md iniciar.bat LICENSE
-
+          Push-Location release
+          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe .env.example README.md iniciar.bat LICENSE docs/GAMEPAD.md docs/PERFIS.md
+          Pop-Location
       - name: Create GitHub Release
         if: needs.preparar.outputs.do_release == 'true'
         uses: softprops/action-gh-release@v2
@@ -178,29 +122,14 @@ jobs:
           tag_name: ${{ needs.preparar.outputs.tag }}
           target_commitish: ${{ needs.preparar.outputs.sha }}
           name: ChatPlays ${{ needs.preparar.outputs.tag }}
+          generate_release_notes: true
+          make_latest: true
           files: |
             release/ChatPlays-Setup.exe
             release/ChatPlays-Windows.zip
-          body: |
-            ## ChatPlays ${{ needs.preparar.outputs.tag }}
-
-            ### Fixes
-
-            * Fixed `save` / `salvar` occasionally being interpreted as Load in Windows window mode.
-            * Added fail-safe savestate handling: if ChatPlays cannot confirm a safe save, it sends nothing instead of risking a Load.
-            * Protects older configurations where Save and Load were accidentally mapped to the same function key.
-            * Portuguese and English game controls remain interchangeable (`cima`/`up`, `direita`/`right`, etc.).
-            * Improved `!comandos` so the command list reflects the PT-BR/EN aliases that actually work.
-
-            ### Validation
-
-            * Automated test suite passed.
-            * `npm audit` passed.
-            * Windows executable, installer and portable ZIP built in GitHub Actions.
           draft: false
           prerelease: false
-
-      - name: Upload artifact (manual build)
+      - name: Upload manual-build artifact
         if: needs.preparar.outputs.do_release != 'true'
         uses: actions/upload-artifact@v4
         with:

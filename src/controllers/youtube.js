@@ -26,6 +26,7 @@
 
 const { google } = require('googleapis');
 const logger = require('../utils/logger');
+const overlay = require('../overlay');
 const { config } = require('../config');
 const { processarMensagem } = require('../handlers');
 
@@ -43,6 +44,12 @@ let pageToken = null;
 let emExecucao = false;
 let falhasSeguidas = 0;
 let paradoPeloUsuario = false;
+let quotaBackoffMs = 60000;
+let iniciando = false;
+
+function setConexao(ativo) {
+  overlay.setConexao('youtube', Boolean(ativo));
+}
 
 /**
  * Classifica um erro da YouTube Data API em algo acionável (v2.6).
@@ -175,8 +182,12 @@ async function descobrirLiveChatId() {
  */
 async function iniciar() {
   paradoPeloUsuario = false;
+  if (iniciando) return false;
+  iniciando = true;
+  setConexao(false);
 
   if (!config.youtube.apiKey || !config.youtube.videoId) {
+    iniciando = false;
     logger.erro('[YouTube] API key ou videoId não configurados. Verifique o arquivo .env.');
     return false;
   }
@@ -196,18 +207,28 @@ async function iniciar() {
       if (resultado.aguardarLive && !paradoPeloUsuario) {
         agendarAguardarLive();
       }
+      iniciando = false;
       return false;
     }
 
     liveChatId = resultado.liveChatId;
     logger.youtube(`Conectado ao chat da live: "${resultado.titulo}" no canal ${resultado.canal}`);
     logger.youtube(`liveChatId: ${liveChatId}`);
-
+    setConexao(true);
+    quotaBackoffMs = 60000;
     iniciarPolling();
+    iniciando = false;
     return true;
   } catch (err) {
     const diagnostico = interpretarErroApi(err);
     logger.erro(`[YouTube] ${diagnostico.mensagem}`);
+    setConexao(false);
+    iniciando = false;
+    if (!paradoPeloUsuario && ['rede', 'api', 'desconhecido', 'quota'].includes(diagnostico.tipo)) {
+      const espera = diagnostico.tipo === 'quota' ? quotaBackoffMs : INTERVALO_RECONNECT_MS;
+      if (diagnostico.tipo === 'quota') quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
+      agendarReconexaoInicial(espera);
+    }
     return false;
   }
 }
@@ -233,10 +254,10 @@ function agendarAguardarLive() {
 /**
  * Inicia o polling de mensagens do live chat.
  */
-function iniciarPolling() {
+function iniciarPolling(opcoes = {}) {
   if (pollTimer) clearInterval(pollTimer);
   emExecucao = false;
-  falhasSeguidas = 0;
+  if (opcoes.preservarFalhas !== true) falhasSeguidas = 0;
 
   // Primeira busca imediata
   buscarMensagens();
@@ -270,15 +291,20 @@ async function buscarMensagens() {
       logger.youtube(`[YouTube] Conexão retomada após ${falhasSeguidas} tentativa(s) falha(s).`);
     }
     falhasSeguidas = 0;
+    quotaBackoffMs = 60000;
+    setConexao(true);
 
     for (const item of mensagens) {
-      const autor = item.authorDetails?.displayName || 'desconhecido';
+      const detalhesAutor = item.authorDetails || {};
+      const autor = detalhesAutor.displayName || 'desconhecido';
+      const autorId = detalhesAutor.channelId || autor;
       const texto = item.snippet?.displayMessage || '';
       if (texto) {
-        // YouTube com API key não permite responder: responder = null
         processarMensagem({
           plataforma: 'youtube',
           usuario: autor,
+          usuarioId: autorId,
+          broadcaster: Boolean(detalhesAutor.isChatOwner),
           texto,
           responder: null,
         });
@@ -296,17 +322,20 @@ async function buscarMensagens() {
     if (diagnostico.tipo === 'live_encerrada') {
       // Live acabou: parar de vez (polling não tem pra onde voltar)
       pararPolling();
+      setConexao(false);
       logger.youtube('[YouTube] Polling encerrado (a live terminou). Até a próxima!');
       return;
     }
 
     if (diagnostico.tipo === 'quota') {
-      // Backoff: 60s dobrando até 5min
-      const espera = Math.min(60000 * Math.pow(2, Math.ceil(falhasSeguidas / 3) - 1), 300000);
+      // Backoff persistente entre retomadas: 60s -> 120s -> 240s -> 300s.
+      const espera = quotaBackoffMs;
+      quotaBackoffMs = Math.min(quotaBackoffMs * 2, 300000);
       agendarReconnect(espera);
     } else if (falhasSeguidas >= FALHAS_CONSECUTIVAS_MAX) {
       // ~5min de falhas sem diagnóstico recuperável: pausa o polling
       pararPolling();
+      setConexao(false);
       logger.erro(
         `[YouTube] ${FALHAS_CONSECUTIVAS_MAX} falhas consecutivas — polling pausado. ` +
         'Verifique sua conexão / chave de API e reinicie o bot.'
@@ -316,6 +345,18 @@ async function buscarMensagens() {
   } finally {
     emExecucao = false;
   }
+}
+
+/** Retenta a descoberta/conexão inicial após erro transitório. */
+function agendarReconexaoInicial(esperaMs = INTERVALO_RECONNECT_MS) {
+  if (reconnectTimer || paradoPeloUsuario) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (paradoPeloUsuario) return;
+    logger.youtube('Tentando conectar ao YouTube de novo...');
+    iniciar().catch(() => { /* iniciar já classifica/loga */ });
+  }, esperaMs);
+  reconnectTimer.unref?.();
 }
 
 /**
@@ -329,7 +370,7 @@ function agendarReconnect(esperaMs = INTERVALO_RECONNECT_MS) {
     reconnectTimer = null;
     if (paradoPeloUsuario) return;
     logger.youtube('Tentando retomar o polling...');
-    iniciarPolling();
+    iniciarPolling({ preservarFalhas: true });
   }, esperaMs);
   reconnectTimer.unref?.();
 }
@@ -360,6 +401,9 @@ function parar() {
   }
   liveChatId = null;
   pageToken = null;
+  emExecucao = false;
+  iniciando = false;
+  setConexao(false);
   logger.youtube('Cliente desconectado.');
 }
 
@@ -372,6 +416,8 @@ module.exports = {
   // "live agendada" (não use em produção)
   __test: {
     agendarAguardarLive,
+    agendarReconexaoInicial,
     timersAtivos: () => ({ pollTimer, reconnectTimer, aguardarLiveTimer }),
+    quotaBackoff: () => quotaBackoffMs,
   },
 };

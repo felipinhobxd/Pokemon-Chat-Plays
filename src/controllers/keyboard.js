@@ -335,8 +335,12 @@ let toquesDescartados = 0;
  *   keydown/keyup AVULSO jamais é descartado — perder o keyup de um hold
  *   deixaria a tecla PRESA no jogo até o "soltar" (v2.9.2).
  */
-function enfileirar(acao, descartavel = false) {
-  acao.descartavel = Boolean(descartavel);
+function enfileirar(acao, opcoes = false) {
+  const opts = typeof opcoes === 'object' && opcoes !== null
+    ? opcoes
+    : { descartavel: Boolean(opcoes) };
+  acao.descartavel = Boolean(opts.descartavel);
+  acao.prioridade = Boolean(opts.prioridade);
   if (filaAcoes.length >= FILA_MAX) {
     // fila cheia: descarta o TOQUE completo mais antigo (autossuficiente —
     // down e up num só processo, nada fica pendurado). Sem toque na fila,
@@ -349,8 +353,22 @@ function enfileirar(acao, descartavel = false) {
       logger.aviso('[Teclado] Fila cheia — toque antigo descartado para não atrasar o jogo.');
     }
   }
-  filaAcoes.push(acao);
+  if (acao.prioridade) filaAcoes.unshift(acao);
+  else filaAcoes.push(acao);
   processarFila();
+}
+
+/** Remove somente taps autocontidos ainda não iniciados. */
+function cancelarToquesPendentes() {
+  let removidos = 0;
+  for (let i = filaAcoes.length - 1; i >= 0; i--) {
+    if (!filaAcoes[i].descartavel) continue;
+    filaAcoes.splice(i, 1);
+    removidos++;
+  }
+  toquesDescartados += removidos;
+  if (removidos > 0) logger.info(`[Teclado] Pânico: ${removidos} toque(s) pendente(s) cancelado(s).`);
+  return removidos;
 }
 
 function processarFila() {
@@ -1006,7 +1024,7 @@ function keyDown(tecla) {
  * Envia um keyup de uma tecla.
  * @param {string} tecla - Tecla genérica
  */
-function keyUp(tecla) {
+function keyUp(tecla, prioridade = false) {
   const plat = process.platform;
   enfileirar((concluir) => {
     if (plat === 'win32') {
@@ -1038,7 +1056,7 @@ function keyUp(tecla) {
     } else {
       concluir();
     }
-  });
+  }, { prioridade });
 }
 
 /**
@@ -1225,13 +1243,15 @@ function soltarTecla(tecla) {
  * Solta TODAS as teclas presas (comando "soltar" do chat).
  * @returns {number} Quantas techas estavam presas
  */
-function soltarTodas() {
+function soltarTodas(opcoes = {}) {
+  const prioridade = Boolean(opcoes && opcoes.prioridade);
+  if (opcoes && opcoes.cancelarPendentes) cancelarToquesPendentes();
   const quantidade = teclasSeguradas.size;
   for (const tecla of [...teclasSeguradas.keys()]) {
     const info = teclasSeguradas.get(tecla);
     clearTimeout(info.timer);
     teclasSeguradas.delete(tecla);
-    keyUp(tecla);
+    keyUp(tecla, prioridade);
   }
   if (quantidade > 0) {
     logger.comando(`[Teclado] ${quantidade} tecla(s) liberada(s) pelo chat.`);
@@ -1468,6 +1488,7 @@ module.exports = {
   segurar,
   soltarTodas,
   soltarTodasSync,
+  cancelarToquesPendentes,
   totalSeguradas,
   listarSeguradas,
   teclaSuportada,
@@ -1505,6 +1526,8 @@ module.exports = {
       enfileirar,
       limpar: () => { filaAcoes.length = 0; processandoAcao = false; toquesDescartados = 0; },
       inspecao: () => filaAcoes.map((a) => (a.descartavel ? 'toque' : 'tecla')),
+      inspecaoDetalhada: () => filaAcoes.map((a) => ({ tipo: a.descartavel ? 'toque' : 'tecla', prioridade: Boolean(a.prioridade) })),
+      cancelarToquesPendentes,
     },
   },
 };

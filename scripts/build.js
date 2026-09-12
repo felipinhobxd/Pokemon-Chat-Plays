@@ -60,6 +60,12 @@ for (const arq of arquivosCopiar) {
     console.log(`  ${arq} copiado.`);
   }
 }
+const docsDist = path.join(DIST, 'docs');
+fs.mkdirSync(docsDist, { recursive: true });
+for (const arq of ['GAMEPAD.md', 'PERFIS.md']) {
+  const origem = path.join(ROOT, 'docs', arq);
+  if (fs.existsSync(origem)) fs.copyFileSync(origem, path.join(docsDist, arq));
+}
 
 console.log('[4/4] Gerando instalador setup.exe (opcional — exige NSIS)...');
 try {

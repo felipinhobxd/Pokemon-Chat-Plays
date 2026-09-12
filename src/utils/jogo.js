@@ -49,7 +49,9 @@ function normalizarCaminhoJogo(entrada) {
   const aspas = (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"));
   if (aspas && t.length >= 2) t = t.slice(1, -1).trim();
   t = t.replace(/[\r\n]+/g, '');
-  t = t.replace(/\\\\+/g, '\\');
+  const ehUnc = t.startsWith('\\\\');
+  t = t.replace(/\\{2,}/g, '\\');
+  if (ehUnc && !t.startsWith('\\\\')) t = '\\' + t;
   return t.trim();
 }
 
@@ -180,6 +182,8 @@ let procAtual = null;      // child process quando o bot abriu o jogo
 let inicioDaVida = 0;      // quando esta rodada nasceu (p/ vida da rodada)
 let timerReabrir = null;
 let timerPing = null;
+let pingEmVoo = false;
+let geracao = 0;
 let modoOperacao = 'off';  // 'spawn' | 'anexar' | 'off'
 let rodando = false;
 let reinicios = 0;
@@ -247,7 +251,17 @@ function jogoEstaRodando() {
     }
 
     let saida = '';
+    let concluido = false;
+    const timeout = setTimeout(() => {
+      if (concluido) return;
+      try { proc.kill(); } catch { /* best effort */ }
+      concluir(null);
+    }, 4000);
+    timeout.unref?.();
     const concluir = (valor) => {
+      if (concluido) return;
+      concluido = true;
+      clearTimeout(timeout);
       proc.removeAllListeners?.();
       resolve(valor);
     };
@@ -285,7 +299,8 @@ function lancar() {
     rodando = true;
     modoOperacao = 'spawn';
 
-    const ehAtual = () => filho === procAtual;
+    const geracaoLancamento = geracao;
+    const ehAtual = () => filho === procAtual && geracaoLancamento === geracao;
 
     filho.on('error', (err) => {
       // spawn falhou (exe não existe etc.) — o 'exit' pode nem chegar
@@ -341,6 +356,8 @@ function tratarFechamento() {
     return;
   }
 
+  if (timerReabrir) return; // queda duplicada/evento tardio não agenda outro processo
+
   // v2.7.1: reinicios conta reaberturas REAIS (incrementa no relançamento,
   // não na decisão — parar() antes do delay não deixa contagem fantasma)
   notificar('reabrindo');
@@ -348,9 +365,10 @@ function tratarFechamento() {
     `[Jogo] 🔄 Jogo fechou (${decisao.motivo}). Reabrindo em ${Math.round(cfg.delayMs / 1000)}s` +
     `${cfg.rom ? ` com a ROM ${nomeDoProcesso(cfg.rom)}` : ''} — tentativa rápida ${tentativasRapidas}/${cfg.tentativasMax}.`
   );
+  const geracaoAgendada = geracao;
   timerReabrir = setTimeout(() => {
     timerReabrir = null;
-    if (encerrando || desistiu) return;
+    if (encerrando || desistiu || geracaoAgendada !== geracao) return;
     const nasceu = lancar();
     if (nasceu) {
       reinicios++;
@@ -365,22 +383,31 @@ function tratarFechamento() {
 
 function iniciarPing() {
   pararPing();
-  timerPing = setInterval(async () => {
-    if (encerrando || desistiu || procAtual) { if (procAtual) pararPing(); return; }
-    const vivo = await jogoEstaRodando();
-    if (vivo === null || vivo) return;      // null = não sei vigiar — desiste do ping
+  const minhaGeracao = geracao;
+  const ciclo = async () => {
+    timerPing = null;
+    if (minhaGeracao !== geracao || encerrando || desistiu || procAtual) return;
+    if (pingEmVoo) return;
+    pingEmVoo = true;
+    let vivo = null;
+    try { vivo = await jogoEstaRodando(); } finally { pingEmVoo = false; }
+    if (minhaGeracao !== geracao || encerrando || desistiu || procAtual) return;
     if (vivo === false) {
-      pararPing();
       logger.info('[Jogo] Detectei que o jogo foi fechado (vigília por ping).');
-      inicioDaVida = inicioDaVida || (Date.now() - INTERVALO_PING_MS * 2); // ~vida estimada
+      inicioDaVida = inicioDaVida || (Date.now() - INTERVALO_PING_MS * 2);
       tratarFechamento();
+      return;
     }
-  }, INTERVALO_PING_MS);
+    // true ou null: nunca sobrepõe uma nova consulta à anterior.
+    timerPing = setTimeout(ciclo, INTERVALO_PING_MS);
+    timerPing.unref?.();
+  };
+  timerPing = setTimeout(ciclo, INTERVALO_PING_MS);
   timerPing.unref?.();
 }
 
 function pararPing() {
-  if (timerPing) { clearInterval(timerPing); timerPing = null; }
+  if (timerPing) { clearTimeout(timerPing); timerPing = null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -413,8 +440,10 @@ function configurar(opts = {}) {
 async function iniciar() {
   if (!cfg.exe) return { ok: false, modo: 'off' };
   encerrando = false;
+  const minhaGeracao = ++geracao;
 
   const jaRodando = await jogoEstaRodando();
+  if (minhaGeracao !== geracao || encerrando) return { ok: false, modo: 'off', obsoleto: true };
   if (jaRodando === true) {
     // o streamer já abriu o jogo — só vigia (não abre 2ª instância)
     modoOperacao = 'anexar';
@@ -443,6 +472,7 @@ async function iniciar() {
 
 /** Encerra a vigilância (NÃO mata o jogo — ele é do streamer). */
 function parar() {
+  geracao++;
   encerrando = true;
   if (timerReabrir) { clearTimeout(timerReabrir); timerReabrir = null; }
   pararPing();
@@ -480,6 +510,8 @@ function __resetTeste() {
   inicioDaVida = 0;
   aoEvento = () => {};
   detectorDeProcesso = null;
+  pingEmVoo = false;
+  geracao = 0;
   cfg = {
     exe: '', rom: '', args: '', autoReiniciar: true,
     delayMs: 3000, tentativasMax: 5, vidaMinimaMs: 15000,

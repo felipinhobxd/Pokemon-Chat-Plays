@@ -62,14 +62,23 @@ function resetarAntiFlood() {
   ultimaResposta.clear();
 }
 
-function ehStreamer(usuario) {
-  const canal = String(config.twitch.channel || '').toLowerCase().trim();
-  return Boolean(canal) && String(usuario || '').toLowerCase().trim() === canal;
+function identidadeAtor(ctx = {}) {
+  const plataforma = String(ctx.plataforma || 'chat').toLowerCase().trim() || 'chat';
+  const id = String(ctx.usuarioId || ctx.usuario || 'desconhecido').toLowerCase().trim() || 'desconhecido';
+  return `${plataforma}:${id}`;
 }
 
-function verificarCooldown(usuario, chaveComando) {
-  if (ehStreamer(usuario)) return { permitido: true };
-  return cooldown.podeExecutar(usuario, chaveComando);
+/** Privilégio de streamer nunca depende do displayName de outra plataforma. */
+function ehStreamerContexto(ctx = {}) {
+  if (ctx.broadcaster === true) return true;
+  if (String(ctx.plataforma || '').toLowerCase() !== 'twitch') return false;
+  const canal = String(config.twitch.channel || '').toLowerCase().trim();
+  return Boolean(canal) && String(ctx.usuario || '').toLowerCase().trim() === canal;
+}
+
+function verificarCooldown(ctx, chaveComando) {
+  if (ehStreamerContexto(ctx)) return { permitido: true };
+  return cooldown.podeExecutar(identidadeAtor(ctx), chaveComando);
 }
 
 let ultimoLogPausa = 0;
@@ -92,7 +101,9 @@ function responderSeguro(responder, texto, prioridade) {
   }
 }
 
-function processarMensagem({ plataforma, usuario, texto, responder }) {
+function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false, texto, responder }) {
+  const contexto = { plataforma, usuario, usuarioId, broadcaster };
+  const ator = identidadeAtor(contexto);
   // Macros/comandos especiais são resolvidos antes dos controles simples.
   // `dialogo` aperta A repetidamente; mouse usa um parser próprio para não
   // poluir o registro configurável de teclas.
@@ -149,8 +160,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
               ? 'democracia'
               : (votacao.modoAtual() === 'anarquia' ? 'democracia' : 'anarquia');
 
-          const eleitor = `${plataforma}:${String(usuario || '').toLowerCase()}`;
-          const resultado = votacao.votarModo(destino, eleitor);
+          const resultado = votacao.votarModo(destino, ator);
 
           if (resultado.mudou) {
             if (podeResponder('modo')) {
@@ -211,7 +221,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
     case 'hold': {
       if (bloqueadoPelaPausa(usuario, `hold ${parsed.botao}`)) return;
       const chaveCooldown = `hold:${parsed.botao}`;
-      const verificacao = verificarCooldown(usuario, chaveCooldown);
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado no hold: ${verificacao.motivo}`);
@@ -219,12 +229,12 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         return;
       }
       if (votacao.modoAtual() === 'democracia') {
-        votacao.votar(parsed.botao, usuario);
+        votacao.votar(parsed.botao, ator);
         return;
       }
       const ok = teclado.segurar(parsed.botao, parsed.duracaoMs, usuario);
       if (ok) {
-        cooldown.registrarExecucao(usuario, chaveCooldown);
+        cooldown.registrarExecucao(ator, chaveCooldown);
         stats.registrar(`hold ${parsed.botao}`, plataforma, usuario);
         overlay.registrarAcao(usuario, parsed.botao, 'hold', parsed.duracaoMs);
         if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
@@ -237,7 +247,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
     case 'dialogo': {
       if (bloqueadoPelaPausa(usuario, 'dialogo')) return;
       const chaveCooldown = 'dialogo';
-      const verificacao = verificarCooldown(usuario, chaveCooldown);
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado no dialogo: ${verificacao.motivo}`);
@@ -255,7 +265,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         estaPausado: () => pausa.estaPausado(),
       });
       if (iniciou) {
-        cooldown.registrarExecucao(usuario, chaveCooldown);
+        cooldown.registrarExecucao(ator, chaveCooldown);
         stats.registrar('dialogo', plataforma, usuario);
         overlay.registrarAcao(usuario, 'a', 'dialogo', dialogo.DURACAO_MS);
         logger.comando(`[Chat] 💬 @${usuario} iniciou DIALOGO — pressionando A repetidamente por 5s.`);
@@ -274,7 +284,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
       if (bloqueadoPelaPausa(usuario, descricao)) return;
 
       const chaveCooldown = parsed.tipo;
-      const verificacao = verificarCooldown(usuario, chaveCooldown);
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado no mouse: ${verificacao.motivo}`);
@@ -291,7 +301,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
 
       const ok = mouse.executar(parsed);
       if (ok) {
-        cooldown.registrarExecucao(usuario, chaveCooldown);
+        cooldown.registrarExecucao(ator, chaveCooldown);
         stats.registrar(descricao, plataforma, usuario);
         overlay.registrarAcao(usuario, null, 'mouse');
         logger.comando(`[Chat] 🖱️ @${usuario}: ${descricao}`);
@@ -302,7 +312,7 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
     case 'botao': {
       if (bloqueadoPelaPausa(usuario, parsed.botao)) return;
       const chaveCooldown = parsed.botao;
-      const verificacao = verificarCooldown(usuario, chaveCooldown);
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
       if (!verificacao.permitido) {
         if (config.geral.debug) {
           logger.debug(`[Chat] @${usuario} bloqueado: ${verificacao.motivo}`);
@@ -310,12 +320,12 @@ function processarMensagem({ plataforma, usuario, texto, responder }) {
         return;
       }
       if (votacao.modoAtual() === 'democracia') {
-        votacao.votar(parsed.botao, usuario);
+        votacao.votar(parsed.botao, ator);
         return;
       }
       const ok = teclado.executarBotao(parsed.botao);
       if (ok) {
-        cooldown.registrarExecucao(usuario, chaveCooldown);
+        cooldown.registrarExecucao(ator, chaveCooldown);
         stats.registrar(parsed.botao, plataforma, usuario);
         overlay.registrarAcao(usuario, parsed.botao, 'tap');
       }
@@ -331,4 +341,6 @@ module.exports = {
   processarMensagem,
   resetarCooldownResposta,
   resetarAntiFlood,
+  identidadeAtor,
+  ehStreamerContexto,
 };

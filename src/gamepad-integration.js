@@ -6,7 +6,6 @@
  */
 
 const logger = require('./utils/logger');
-const { config } = require('./config');
 const cooldown = require('./utils/cooldown');
 const stats = require('./utils/stats');
 const pausa = require('./utils/pausa');
@@ -20,11 +19,6 @@ let instalado = false;
 let removerObservadorPausa = null;
 let originalProcessarMensagem = null;
 
-function ehStreamer(usuario) {
-  const canal = String(config.twitch.channel || '').toLowerCase().trim();
-  return Boolean(canal) && String(usuario || '').toLowerCase().trim() === canal;
-}
-
 function chaveCooldownGamepad(parsed) {
   if (parsed.tipo === 'gamepad-botao') return `pad:${String(parsed.botao || '').toLowerCase()}`;
   if (parsed.tipo === 'gamepad-stick') return `pad:${String(parsed.stick || '').toLowerCase()}`;
@@ -32,12 +26,13 @@ function chaveCooldownGamepad(parsed) {
   return 'gamepad';
 }
 
-function permitidoPeloCooldown(usuario, chave) {
-  if (ehStreamer(usuario)) return true;
-  return cooldown.podeExecutar(usuario, chave).permitido;
+function permitidoPeloCooldown(ctx, chave) {
+  if (handlers.ehStreamerContexto(ctx)) return true;
+  return cooldown.podeExecutar(handlers.identidadeAtor(ctx), chave).permitido;
 }
 
-function processarGamepad({ plataforma, usuario, parsed }) {
+function processarGamepad({ plataforma, usuario, usuarioId, broadcaster = false, parsed }) {
+  const contexto = { plataforma, usuario, usuarioId, broadcaster };
   if (parsed.tipo === 'gamepad-reset') {
     const ok = gamepad.resetar();
     if (ok) {
@@ -53,7 +48,7 @@ function processarGamepad({ plataforma, usuario, parsed }) {
     return;
   }
   const chaveCooldown = chaveCooldownGamepad(parsed);
-  if (!permitidoPeloCooldown(usuario, chaveCooldown)) return;
+  if (!permitidoPeloCooldown(contexto, chaveCooldown)) return;
 
   if (votacao.modoAtual() === 'democracia') {
     if (config.geral.debug) logger.debug(`[Gamepad] "${parsed.descricao}" ignorado em democracia.`);
@@ -63,7 +58,7 @@ function processarGamepad({ plataforma, usuario, parsed }) {
   const ok = gamepad.executar(parsed);
   if (!ok) return;
 
-  cooldown.registrarExecucao(usuario, chaveCooldown);
+  cooldown.registrarExecucao(handlers.identidadeAtor(contexto), chaveCooldown);
   stats.registrar(parsed.descricao, plataforma, usuario);
   overlay.registrarAcao(usuario, null, 'gamepad');
   logger.comando(`[Chat] 🎮 @${usuario}: ${parsed.descricao}`);
@@ -87,6 +82,8 @@ function instalar() {
     return processarGamepad({
       plataforma: ctx.plataforma,
       usuario: ctx.usuario,
+      usuarioId: ctx.usuarioId,
+      broadcaster: ctx.broadcaster,
       parsed,
     });
   };

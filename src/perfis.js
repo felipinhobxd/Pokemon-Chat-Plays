@@ -39,6 +39,9 @@ const CHAVES_PERFIL = Object.freeze([
   'MODO_TECLADO',
   'MODO_MOUSE',
   'MOUSE_PASSO_PX',
+  'GAMEPAD_ENABLED',
+  'GAMEPAD_TAP_MS',
+  'GAMEPAD_ANALOG_MS',
   'KEY_PRESS_DURATION_MS',
   'COMMAND_COOLDOWN_MS',
   'COMMAND_COOLDOWNS',
@@ -462,6 +465,7 @@ function argumentoPerfil(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  CHAVES_PERFIL,
   VERSAO_ARQUIVO,
   CHAVES_PERFIL,
   criarStore,

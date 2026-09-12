@@ -36,9 +36,9 @@ function lerPasso(valor) {
   return Number.isFinite(n) ? limitar(n, 5, 500) : 40;
 }
 
-let modo = normalizarModo(process.env.MODO_MOUSE, normalizarModo(config.teclado.modo, 'janela'));
+let modo = normalizarModo(config.mouse?.modo, normalizarModo(config.teclado.modo, 'janela'));
 let alvoExe = String(config.teclado.emuladorExe || '').trim() || null;
-let passoPx = lerPasso(process.env.MOUSE_PASSO_PX);
+let passoPx = lerPasso(config.mouse?.passoPx);
 let ultimoAviso = 0;
 
 const worker = {

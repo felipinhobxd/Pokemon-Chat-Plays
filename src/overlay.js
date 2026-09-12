@@ -212,16 +212,39 @@ function snapshot() {
 let servidor = null;
 let portaReal = null;
 
+function hostPermitido(req) {
+  const host = String(req.headers.host || '').trim().toLowerCase();
+  if (!host) return false;
+  const semPorta = host.replace(/:\d+$/, '');
+  return semPorta === 'localhost' || semPorta === '127.0.0.1' || semPorta === '[::1]';
+}
+
+function origemPermitida(req) {
+  const origem = req.headers.origin;
+  if (!origem) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/$|$)/i.test(origem);
+}
+
 /** Trata uma requisição HTTP do overlay. */
 function tratarRequisicao(req, res) {
   const caminho = (req.url || '/').split('?')[0];
+  if (!hostPermitido(req) || !origemPermitida(req)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('403');
+    return;
+  }
   if (req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('405');
     return;
   }
   if (caminho === '/' || caminho === '/index.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+    });
     res.end(PAGINA);
     return;
   }
@@ -230,6 +253,7 @@ function tratarRequisicao(req, res) {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
     });
     res.end(PAGINA_DASHBOARD);
     return;
@@ -237,8 +261,8 @@ function tratarRequisicao(req, res) {
   if (caminho === '/api/estado') {
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(JSON.stringify(snapshot()));
     return;
@@ -737,4 +761,5 @@ module.exports = {
   configurarProvedores,
   PAGINA,
   PAGINA_DASHBOARD,
+  __test: { hostPermitido, origemPermitida, tratarRequisicao },
 };

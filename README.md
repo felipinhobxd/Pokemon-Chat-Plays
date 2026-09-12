@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/felipinhobxd/ChatPlays?label=release)](https://github.com/felipinhobxd/ChatPlays/releases)
 [![License](https://img.shields.io/github/license/felipinhobxd/ChatPlays)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-292%20%E2%9C%94-brightgreen)](#development-nodejs--18)
+[![CI](https://github.com/felipinhobxd/ChatPlays/actions/workflows/ci.yml/badge.svg)](https://github.com/felipinhobxd/ChatPlays/actions/workflows/ci.yml)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9146FF)](#development-nodejs--18)
 [![Twitch chat](https://img.shields.io/badge/chat-Twitch-9146FF?logo=twitch&logoColor=white)](https://www.twitch.tv/sindromegames)
 [![YouTube chat](https://img.shields.io/badge/chat-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@SindromeGames)
@@ -16,12 +16,15 @@
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
+- **Mouse + virtual gamepad** — chat can move/click inside the game window or globally, and on Windows can drive a virtual Xbox 360 controller via ViGEm.
+- **Game profiles** — keep separate executable/ROM/input/cooldown/control settings per game (`iniciar.bat --perfis`).
+- **Command tester + diagnostics** — safely preview how a chat message is parsed in the wizard; inspect runtime health at `http://localhost:8899/dashboard`.
 - **Fully configurable chat controls** — the wizard's **🎮 Chat Controls** section maps *any action* to *any key* and *any chat word*: remap A/B/directions, or add brand-new actions (`Pular → Space → pular, jump, espaço`). Aliases are auto-suggested (PT-BR + EN), editable, and checked for conflicts/reserved words before saving. Works for **any game** — Minecraft, Terraria, whatever — with no code changes. Both Twitch and YouTube read the same registry; `!comandos` and the auto-announcement always reflect what you configured. Presets (VBA-M, mGBA, DeSmuME, RetroArch) are just **starting templates**.
 - **Democracy / Anarchy** — the classic vote mode: chat votes each step, only the most-voted input runs (works with custom controls too).
 - **Save states from chat** — `salvar` / `carregar` let the crowd rewind time.
 - **Hold keys** — real keydown/keyup: the chat can hold a direction to run or swim (custom controls too, when the key is holdable).
 - **Streamer kit** — hotkey pause (F9), OBS overlay with live feed and ranking, persistent stats, auto update check.
-- **Solid** — 292 automated tests, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
+- **Solid** — extensive automated regression suite, async key queue, anti-spam, auto-reconnect, clean `Ctrl+C`.
 
 ## Quick start (Windows)
 
@@ -45,6 +48,9 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 | `hold cima` · `hold baixo 3` · `hold up 500ms` | Hold a key (seconds by default, `s`/`ms` suffixes) |
 | `soltar` / `release` | Release all held keys |
 | `salvar` / `carregar` (or `save` / `load`) | Emulator save state / load state |
+| `dialogo` / `dialogue` | Repeated A presses for 5 seconds |
+| `mouse cima/baixo/esquerda/direita`, `mouse 50 50`, `clique` | Mouse controls |
+| `pad a`, `pad direita`, `pad ls direita`, `pad rt 75` | Virtual Xbox gamepad (Windows + ViGEm) |
 
 **Info commands** (with `!`): `!comandos` (full list) · `!stats` · `!top` · `!uptime` · `!recorde` · `!democracia` / `!anarquia` / `!votacao` · `!segurar` (hold help). Greetings like `oi`/`hello` get a friendly reply with a command tip.
 
@@ -55,7 +61,8 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 | ⚡ **Anarchy** (default) | Every command runs immediately, in arrival order — classic chaos |
 | 🗳️ **Democracy** | Chat votes during a window (default 10 s); only the most-voted command runs at the end |
 
-- Switch with `!democracia` / `!anarquia` / `!votacao` — chat changes respect a 30 s cooldown; the **channel owner** switches instantly.
+- `!democracia` / `!anarquia` are **mode votes**: a strict majority of recent voters is required, with at least 2 unique people. Votes expire after 30 s and approved chat switches respect the anti-flip-flop cooldown.
+- The streamer hotkey **F8** switches immediately.
 - **Streamer hotkey F8** toggles the mode at any time.
 - Voting works like playing: sending `up` or `a` counts as one vote (changeable — last vote wins). Ties go to whoever got the first vote sooner.
 - The OBS overlay shows the live tally with countdown.
@@ -67,6 +74,7 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 | ⏸️ **Pause the chat** | Press **F9** anywhere (configurable via `TECLA_PAUSA`). Releases held keys, warns the chat, overlay turns red. ENTER in the terminal also works. |
 | 🗳️ **Switch mode** | Press **F8** (configurable via `TECLA_MODO`). Or type `modo` in the terminal. |
 | 🖥️ **OBS overlay** | Add a Browser source pointing to `http://localhost:8899` — live feed, vote tally, gamepad, top players, held keys and status. |
+| 🩺 **Diagnostics** | Open `http://localhost:8899/dashboard` locally for platform, queue, cooldown, gamepad and recent warning/error status. |
 | 📊 **Persistent stats** | Ranking and uptime survive restarts (`dados/stats.json`). |
 | 📦 **Update check** | The bot warns in the terminal when a new release is out. |
 
@@ -123,6 +131,10 @@ Copy `.env.example` → `.env` — or just open `iniciar.bat` (the wizard opens 
 | `COMMAND_COOLDOWN_MS` | `1500` | Per-user cooldown — nobody solo-controls the game |
 | `KEY_PRESS_DURATION_MS` | `230` | How long each key tap lasts |
 | `EMULADOR_PRESET` / `EMULADOR_EXE` / `MODO_TECLADO` | `vbam` / *(ask at boot)* / `janela` | Emulator layout, target exe and key delivery mode |
+| `MODO_MOUSE` / `MOUSE_PASSO_PX` | `janela` / `40` | Window/global/off mouse mode and movement step |
+| `GAMEPAD_ENABLED` / `GAMEPAD_TAP_MS` / `GAMEPAD_ANALOG_MS` | `auto` / `220` / `320` | Virtual Xbox controller mode/timings (Windows + ViGEm) |
+| `GAMEPAD_VIGEM_DLL` | — | Optional path to `ViGEmClient.dll` |
+| `COMMAND_COOLDOWNS` | — | Per-command/group cooldowns, e.g. `dialogo=10s, mouse=2s` |
 | `CONTROLES_ARQUIVO` | `dados/controles.json` | Where the wizard-saved control registry lives (has priority over `EMULADOR_PRESET`/`TECLA_*`) |
 | `JOGO_ROM` / `JOGO_ARGS` / `JOGO_AUTO_REINICIAR` | — / — / `true` | Game manager: ROM opened with the exe, extra launch args, auto-reopen on crash |
 | `JOGO_REINICIAR_DELAY_MS` / `JOGO_TENTATIVAS_MAX` / `JOGO_VIDA_MINIMA_MS` | `3000` / `5` / `15000` | Reopen delay and crash-loop limits |

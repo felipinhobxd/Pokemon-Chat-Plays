@@ -142,6 +142,12 @@ const PADROES = {
   CONFIRM_COMMANDS: 'true',
   EMULADOR_PRESET: 'vbam',
   MODO_TECLADO: 'janela',
+  MODO_MOUSE: 'janela',
+  MOUSE_PASSO_PX: '40',
+  GAMEPAD_ENABLED: 'auto',
+  GAMEPAD_VIGEM_DLL: '',
+  GAMEPAD_TAP_MS: '220',
+  GAMEPAD_ANALOG_MS: '320',
   JOGO_AUTO_REINICIAR: 'true',
   JOGO_REINICIAR_DELAY_MS: '3000',
   JOGO_TENTATIVAS_MAX: '5',
@@ -238,6 +244,18 @@ function montarConteudoEnv(v, envAtual = '') {
     `JOGO_ARGS=${val('JOGO_ARGS')}`,
     '# janela = teclas só no emulador | global = janela em foco',
     `MODO_TECLADO=${val('MODO_TECLADO')}`,
+    '# Mouse: janela (sem roubar cursor), global (cursor real) ou off',
+    `MODO_MOUSE=${val('MODO_MOUSE')}`,
+    `MOUSE_PASSO_PX=${val('MOUSE_PASSO_PX')}`,
+    '',
+    '# ----- GAMEPAD VIRTUAL (Windows / ViGEmBus) -----',
+    '# auto = cria no primeiro comando; on = prepara no boot; off = desativa',
+    `GAMEPAD_ENABLED=${val('GAMEPAD_ENABLED')}`,
+    '# Caminho opcional da ViGEmClient.dll (vazio = procura ao lado do app/PATH)',
+    `GAMEPAD_VIGEM_DLL=${val('GAMEPAD_VIGEM_DLL')}`,
+    `GAMEPAD_TAP_MS=${val('GAMEPAD_TAP_MS')}`,
+    `GAMEPAD_ANALOG_MS=${val('GAMEPAD_ANALOG_MS')}`,
+    '',
     '# Tecla do streamer que pausa/libera o chat',
     `TECLA_PAUSA=${val('TECLA_PAUSA')}`,
     '',
@@ -395,6 +413,12 @@ function estadoAtual(cfg = config) {
       KEY_PRESS_DURATION_MS: String(cfg.geral.tempoPressionarTeclaMs),
       EMULADOR_PRESET: cfg.teclado.preset,
       MODO_TECLADO: cfg.teclado.modo,
+      MODO_MOUSE: cfg.mouse?.modo || cfg.teclado.modo,
+      MOUSE_PASSO_PX: String(cfg.mouse?.passoPx ?? 40),
+      GAMEPAD_ENABLED: cfg.gamepad?.enabled || 'auto',
+      GAMEPAD_VIGEM_DLL: cfg.gamepad?.vigemDll || '',
+      GAMEPAD_TAP_MS: String(cfg.gamepad?.tapMs ?? 220),
+      GAMEPAD_ANALOG_MS: String(cfg.gamepad?.analogMs ?? 320),
       // v2.7: jogo genérico (path do .exe + ROM + reabrir sozinho)
       EMULADOR_EXE: cfg.teclado.emuladorExe,
       JOGO_ROM: cfg.jogo.rom,
@@ -587,6 +611,14 @@ function avaliarSalvamento(v = {}, atuais = {}) {
   const limparArgs = (t) => String(t || '').replace(/[\r\n]+/g, ' ').trim();
   finais.JOGO_ARGS = limparArgs(finais.JOGO_ARGS) || limparArgs(config.jogo.args);
   finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
+  const modoMouse = String(finais.MODO_MOUSE || config.mouse?.modo || finais.MODO_TECLADO || 'janela').toLowerCase();
+  finais.MODO_MOUSE = ['janela', 'global', 'off'].includes(modoMouse) ? modoMouse : 'janela';
+  finais.MOUSE_PASSO_PX = String(Math.max(5, Math.min(500, parseInt(finais.MOUSE_PASSO_PX, 10) || 40)));
+  const modoPad = String(finais.GAMEPAD_ENABLED || config.gamepad?.enabled || 'auto').toLowerCase();
+  finais.GAMEPAD_ENABLED = ['auto', 'on', 'off'].includes(modoPad) ? modoPad : 'auto';
+  finais.GAMEPAD_VIGEM_DLL = String(finais.GAMEPAD_VIGEM_DLL ?? config.gamepad?.vigemDll ?? '').replace(/[\r\n]+/g, ' ').trim();
+  finais.GAMEPAD_TAP_MS = String(Math.max(40, Math.min(10000, parseInt(finais.GAMEPAD_TAP_MS, 10) || 220)));
+  finais.GAMEPAD_ANALOG_MS = String(Math.max(40, Math.min(10000, parseInt(finais.GAMEPAD_ANALOG_MS, 10) || 320)));
 
   // v2.8.1: segredos vêm com a MÁSCARA do prefill — máscara intacta =
   // MANTER o valor atual; vazio = apagar de verdade; outro valor = trocar.
@@ -648,9 +680,27 @@ function salvarConfiguracao(v) {
     return { ok: false, erros };
   }
 
-  // v2.9: controles PRIMEIRO (se falhar — pasta sem permissão etc. — o .env
-  // nem é tocado; nada de meia-configuração)
+  // Transação entre controles + .env: se o segundo commit falhar, o
+  // registro anterior (arquivo e memória) volta exatamente como estava.
+  let rollbackControles = null;
   if (finais.controles) {
+    const caminhoCtl = controles.caminhoArquivo();
+    const existiaCtl = fs.existsSync(caminhoCtl);
+    const bytesCtl = existiaCtl ? fs.readFileSync(caminhoCtl) : null;
+    rollbackControles = () => {
+      try {
+        if (existiaCtl) {
+          fs.mkdirSync(path.dirname(caminhoCtl), { recursive: true });
+          const tmpCtl = `${caminhoCtl}.rollback.tmp`;
+          fs.writeFileSync(tmpCtl, bytesCtl);
+          fs.renameSync(tmpCtl, caminhoCtl);
+        } else {
+          try { fs.unlinkSync(caminhoCtl); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+        }
+        controles.inicializar();
+        return null;
+      } catch (err) { return err; }
+    };
     const r = controles.salvarArquivo(finais.controles);
     if (!r.ok) {
       return { ok: false, erros: [`Não consegui salvar os controles (${r.erro}). Verifique permissões na pasta dados/.`] };
@@ -672,7 +722,9 @@ function salvarConfiguracao(v) {
       throw errRename;
     }
   } catch (err) {
-    return { ok: false, erros: [`Não consegui gravar o .env (${err.message}). Verifique permissões na pasta do app.`] };
+    const erroRollback = rollbackControles ? rollbackControles() : null;
+    const extra = erroRollback ? ` Também falhou ao restaurar controles (${erroRollback.message}).` : '';
+    return { ok: false, erros: [`Não consegui gravar o .env (${err.message}). Verifique permissões na pasta do app.${extra}`] };
   }
 
   recarregar();
@@ -846,7 +898,8 @@ async function tratarRequisicao(req, res) {
       const body = await lerBody(req);
       const resultado = testarComando(
         body.texto,
-        Array.isArray(body.controles) ? body.controles : undefined
+        Array.isArray(body.controles) ? body.controles : undefined,
+        body.contexto || {}
       );
       responderJson(res, 200, resultado);
       return;
