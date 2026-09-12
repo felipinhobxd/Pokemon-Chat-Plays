@@ -799,6 +799,129 @@ function hostPermitido(req) {
 }
 
 /**
+ * Monta o PowerShell que lista apenas aplicativos com janela aberta.
+ * Serviços/processos de fundo ficam fora para a lista continuar útil.
+ */
+function montarScriptAplicativosAbertos() {
+  return String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$apps = @(
+  Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.MainWindowHandle -ne 0 -and -not [string]::IsNullOrWhiteSpace([string]$_.MainWindowTitle)
+  } | ForEach-Object {
+    $p = $_
+    $exe = ''
+    try { $exe = [string]$p.Path } catch { }
+    if ([string]::IsNullOrWhiteSpace($exe)) {
+      try {
+        $cim = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $p.Id) -ErrorAction SilentlyContinue
+        if ($cim) { $exe = [string]$cim.ExecutablePath }
+      } catch { }
+    }
+    $procName = [string]$p.ProcessName
+    if ($procName -notmatch '(?i)\.exe$') { $procName += '.exe' }
+    [PSCustomObject]@{
+      pid = [int]$p.Id
+      titulo = [string]$p.MainWindowTitle
+      processo = $procName
+      caminho = $exe
+    }
+  }
+)
+$ordenados = @($apps | Sort-Object titulo, processo, pid)
+ConvertTo-Json -InputObject $ordenados -Depth 3 -Compress
+`;
+}
+
+function normalizarAplicativosAbertos(saida) {
+  let bruto;
+  try { bruto = JSON.parse(String(saida || '').trim() || '[]'); }
+  catch { return []; }
+  const lista = Array.isArray(bruto) ? bruto : [bruto];
+  const vistos = new Set();
+  const normalizados = [];
+  for (const item of lista) {
+    if (!item || typeof item !== 'object') continue;
+    const pid = Number(item.pid || 0);
+    const titulo = String(item.titulo || '').trim();
+    let processo = String(item.processo || '').trim();
+    const caminho = String(item.caminho || '').trim();
+    if (!pid || !titulo || !processo) continue;
+    if (!/\.exe$/i.test(processo)) processo += '.exe';
+    const chave = `${pid}|${titulo}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    normalizados.push({ pid, titulo, processo, caminho });
+  }
+  normalizados.sort((a, b) =>
+    a.titulo.localeCompare(b.titulo, 'pt-BR', { sensitivity: 'base' }) ||
+    a.processo.localeCompare(b.processo, 'pt-BR', { sensitivity: 'base' }) ||
+    a.pid - b.pid
+  );
+  return normalizados;
+}
+
+function listarAplicativosAbertos() {
+  if (process.platform !== 'win32') {
+    return Promise.resolve({
+      ok: false,
+      aplicativos: [],
+      mensagem: 'A seleção automática de aplicativos abertos está disponível no Windows.',
+    });
+  }
+  return new Promise((resolve) => {
+    let filho;
+    let stdout = '';
+    let stderr = '';
+    let terminou = false;
+    let timer = null;
+    const finalizar = (r) => {
+      if (terminou) return;
+      terminou = true;
+      if (timer) clearTimeout(timer);
+      resolve(r);
+    };
+    try {
+      filho = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'],
+        { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+      );
+    } catch (err) {
+      finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos (${err.message}).` });
+      return;
+    }
+    timer = setTimeout(() => {
+      try { filho.kill(); } catch { }
+      finalizar({ ok: false, aplicativos: [], mensagem: 'A busca por aplicativos abertos demorou demais.' });
+    }, 7000);
+    timer.unref?.();
+    filho.stdout.setEncoding('utf8');
+    filho.stderr.setEncoding('utf8');
+    filho.stdout.on('data', (d) => { stdout = (stdout + String(d)).slice(-1024 * 1024); });
+    filho.stderr.on('data', (d) => { stderr = (stderr + String(d)).slice(-12000); });
+    filho.on('error', (err) => finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos (${err.message}).` }));
+    filho.on('close', (codigo) => {
+      if (terminou) return;
+      if (codigo !== 0) {
+        finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui listar os aplicativos${stderr.trim() ? ` (${stderr.trim()})` : '.'}` });
+        return;
+      }
+      const aplicativos = normalizarAplicativosAbertos(stdout);
+      finalizar({
+        ok: true,
+        aplicativos,
+        mensagem: aplicativos.length
+          ? `${aplicativos.length} aplicativo(s) com janela aberta encontrado(s).`
+          : 'Nenhum aplicativo com janela aberta foi encontrado.',
+      });
+    });
+    try { filho.stdin.end(montarScriptAplicativosAbertos()); }
+    catch (err) { finalizar({ ok: false, aplicativos: [], mensagem: `Não consegui consultar os aplicativos (${err.message}).` }); }
+  });
+}
+
+/**
  * Abre o jogo na hora (botão "abrir agora" do wizard) — lançamento
  * best-effort, sem vigilância: serve para o usuário VER o jogo abrir.
  * @param {object} p - { exe, rom, args }
@@ -867,6 +990,11 @@ async function tratarRequisicao(req, res) {
       responderJson(res, 200, estadoAtual());
       return;
     }
+
+    if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
+    responderJson(res, 200, await listarAplicativosAbertos());
+    return;
+  }
 
     if (req.method === 'POST' && url === '/api/testar-twitch') {
       const body = await lerBody(req);
@@ -1160,6 +1288,9 @@ module.exports = {
   salvarConfiguracao,
   verificarCaminhosJogo,
   abrirJogoAgora,
+  listarAplicativosAbertos,
+  montarScriptAplicativosAbertos,
+  normalizarAplicativosAbertos,
   // v2.8.1: validadores de segurança (testes de DNS rebinding / CSRF)
   hostPermitido,
   origemPermitida,
