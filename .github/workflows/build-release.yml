@@ -223,7 +223,7 @@ jobs:
           Expand-Archive -Path release\ChatPlays-Windows.zip -DestinationPath $tmp -Force
           $required = @(
             'ChatPlays.exe','ViGEmClient.dll','.env.example','README.md','iniciar.bat','LICENSE',
-            'docs\GAMEPAD.md','docs\PERFIS.md',
+            'docs\GAMEPAD.md','docs\PERFIS.md','docs\MINECRAFT-ATLAUNCHER.md',
             'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe',
             'licenses\ViGEmBus-LICENSE.txt','licenses\ViGEmClient-LICENSE.txt'
           )
@@ -253,7 +253,7 @@ jobs:
           $inst = Join-Path $env:LOCALAPPDATA 'Programs\ChatPlays'
           foreach ($f in @(
             'ChatPlays.exe','ViGEmClient.dll','.env.example','README.md','iniciar.bat','LICENSE',
-            'docs\GAMEPAD.md','docs\PERFIS.md',
+            'docs\GAMEPAD.md','docs\PERFIS.md','docs\MINECRAFT-ATLAUNCHER.md',
             'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe',
             'licenses\ViGEmBus-LICENSE.txt','licenses\ViGEmClient-LICENSE.txt',
             'uninstall.exe'

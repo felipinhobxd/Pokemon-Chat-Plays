@@ -62,7 +62,9 @@ for (const arq of arquivosCopiar) {
 }
 const docsDist = path.join(DIST, 'docs');
 fs.mkdirSync(docsDist, { recursive: true });
-for (const arq of ['GAMEPAD.md', 'PERFIS.md']) {
+// v3.3.1: todo .md de docs/ citado pelo README acompanha o pacote — a
+// lista é conferida por src/tests/empacotamento.test.js (drift = build falha).
+for (const arq of ['GAMEPAD.md', 'PERFIS.md', 'MINECRAFT-ATLAUNCHER.md']) {
   const origem = path.join(ROOT, 'docs', arq);
   if (fs.existsSync(origem)) fs.copyFileSync(origem, path.join(docsDist, arq));
 }
