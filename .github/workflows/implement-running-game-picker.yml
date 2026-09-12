@@ -29,8 +29,9 @@ jobs:
           def one(path, old, new):
               p = Path(path)
               s = p.read_text(encoding='utf-8')
-              if s.count(old) != 1:
-                  raise SystemExit(f'expected one anchor in {path}, got {s.count(old)}: {old[:100]!r}')
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one anchor in {path}, got {count}: {old[:120]!r}')
               p.write_text(s.replace(old, new, 1), encoding='utf-8')
 
           # Backend ----------------------------------------------------------
@@ -167,37 +168,22 @@ jobs:
               raise SystemExit('backend insertion anchor missing')
           p.write_text(s.replace(anchor, backend, 1), encoding='utf-8')
 
-          one('src/assistente.js',
-          """    if (req.method === 'GET' && url === '/api/estado') {
-              responderJson(res, 200, estadoAtual());
-              return;
-            }
-
-            if (req.method === 'POST' && url === '/api/testar-twitch') {""",
-          """    if (req.method === 'GET' && url === '/api/estado') {
-              responderJson(res, 200, estadoAtual());
-              return;
-            }
-
-            if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
+          route_marker = "    if (req.method === 'POST' && url === '/api/testar-twitch') {"
+          route_insert = """    if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
               responderJson(res, 200, await listarAplicativosAbertos());
               return;
             }
 
-            if (req.method === 'POST' && url === '/api/testar-twitch') {""")
+          """ + route_marker
+          one('src/assistente.js', route_marker, route_insert)
 
           one('src/assistente.js',
               "  abrirJogoAgora,\n",
               "  abrirJogoAgora,\n  listarAplicativosAbertos,\n  montarScriptAplicativosAbertos,\n  normalizarAplicativosAbertos,\n")
 
           # UI ---------------------------------------------------------------
-          one('src/assistente-pagina.js',
-          """  '      <div class=\"dica\">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
-            '    </div>',
-            '    <div class=\"campo caminho\">',""",
-          """  '      <div class=\"dica\">Emuladores/jogos: cole o <b>.exe</b>. Para <b>Minecraft Java</b>, cole o launcher. Com o modelo Minecraft + <b>ATLauncher</b>, o ChatPlays abre/reutiliza o launcher, entra em <b>Instances</b> e aperta <b>Play</b> automaticamente.</div>',
-            '    </div>',
-            '    <div class=\"campo\">',
+          html_marker = "  '    <div class=\"campo caminho\">',\n  '      <label for=\"f-rom\">ROM do jogo (só se for emulador)</label>',"
+          html_insert = """  '    <div class=\"campo\">',
             '      <label for=\"f-app-aberto\">Ou escolha um jogo/aplicativo que já está aberto</label>',
             '      <div class=\"linha-modelo\">',
             '        <button class=\"btn teste\" id=\"btn-apps-abertos\" type=\"button\">🪟 Procurar apps abertos</button>',
@@ -205,72 +191,69 @@ jobs:
             '      </div>',
             '      <div class=\"dica\">No Windows, o ChatPlays lista as <b>janelas abertas</b> por título + processo, por exemplo <b>Minecraft* 26.2 — javaw.exe</b> ou <b>Peggle — Peggle.exe</b>. Ao selecionar, o caminho real do .exe é preenchido acima.</div>',
             '    </div>',
-            '    <div class=\"campo caminho\">',""")
+          """ + html_marker
+          one('src/assistente-pagina.js', html_marker, html_insert)
 
-          one('src/assistente-pagina.js',
-          """  'function testarJogo() {',
-            '  var res = $(\"res-jogo\");',""",
-          """  'function carregarAplicativosAbertos() {',
-            '  var btn = $(\"btn-apps-abertos\");',
-            '  var sel = $(\"f-app-aberto\");',
-            '  var res = $(\"res-jogo\");',
-            '  botaoCarregando(btn, true, \"Procurando...\");',
-            '  api(\"/api/aplicativos-abertos\").then(function (r) {',
-            '    botaoCarregando(btn, false, \"🔄 Atualizar apps abertos\");',
-            '    sel.textContent = \"\";',
-            '    var primeiro = document.createElement(\"option\");',
-            '    primeiro.value = \"\";',
-            '    txt(primeiro, \"Selecione um aplicativo...\");',
-            '    sel.appendChild(primeiro);',
-            '    var apps = r.aplicativos || [];',
-            '    for (var i = 0; i < apps.length; i++) {',
-            '      var a = apps[i];',
-            '      var op = document.createElement(\"option\");',
-            '      op.value = a.caminho || \"\";',
-            '      op.disabled = !a.caminho;',
-            '      op.setAttribute(\"data-titulo\", a.titulo || \"\");',
-            '      op.setAttribute(\"data-processo\", a.processo || \"\");',
-            '      op.setAttribute(\"data-pid\", String(a.pid || \"\"));',
-            '      txt(op, (a.titulo || a.processo) + \" — \" + a.processo + (a.caminho ? \"\" : \" (caminho protegido pelo Windows)\"));',
-            '      sel.appendChild(op);',
-            '    }',
-            '    sel.style.display = \"block\";',
-            '    mostrarRes(res, r.ok ? \"ok\" : \"err\", (r.ok ? \"✔ \" : \"✖ \") + (r.mensagem || \"Busca concluída.\"));',
-            '  }).catch(function (e) {',
-            '    botaoCarregando(btn, false, \"🪟 Procurar apps abertos\");',
-            '    mostrarRes(res, \"err\", \"✖ Falha ao procurar aplicativos: \" + e);',
-            '  });',
-            '}',
-            '',
-            'function selecionarAplicativoAberto() {',
-            '  var sel = $(\"f-app-aberto\");',
-            '  var op = sel.options[sel.selectedIndex];',
-            '  if (!op || !op.value) return;',
-            '  $(\"f-exe\").value = op.value;',
-            '  var titulo = op.getAttribute(\"data-titulo\") || \"\";',
-            '  var processo = op.getAttribute(\"data-processo\") || \"\";',
-            '  var pid = op.getAttribute(\"data-pid\") || \"\";',
-            '  var minecraftJava = /minecraft/i.test(titulo) && /^javaw?\\\\.exe$/i.test(processo);',
-            '  if (minecraftJava) {',
-            '    $(\"f-modo-teclado\").value = \"global\";',
-            '    $(\"f-modo-mouse\").value = \"global\";',
-            '    $(\"tg-reabrir\").checked = false;',
-            '    mostrarRes($(\"res-jogo\"), \"ok\", \"✔ Minecraft já aberto selecionado (\" + processo + \", PID \" + pid + \"). Teclado/mouse foram para Global e o reabrir automático foi desligado: javaw.exe sozinho não sabe iniciar o Minecraft. Para abertura/reabertura automática, use o launcher (ex.: ATLauncher).\");',
-            '  } else {',
-            '    mostrarRes($(\"res-jogo\"), \"ok\", \"✔ Selecionado: \" + titulo + \" — \" + processo + (pid ? \" (PID \" + pid + \")\" : \"\") + \". O caminho do .exe foi preenchido acima.\");',
-            '  }',
-            '}',
-            '',
-            'function testarJogo() {',
-            '  var res = $(\"res-jogo\");',""")
+          function_marker = "  'function testarJogo() {',\n  '  var res = $(\"res-jogo\");',"
+          function_insert = r'''  'function carregarAplicativosAbertos() {',
+          '  var btn = $("btn-apps-abertos");',
+          '  var sel = $("f-app-aberto");',
+          '  var res = $("res-jogo");',
+          '  botaoCarregando(btn, true, "Procurando...");',
+          '  api("/api/aplicativos-abertos").then(function (r) {',
+          '    botaoCarregando(btn, false, "🔄 Atualizar apps abertos");',
+          '    sel.textContent = "";',
+          '    var primeiro = document.createElement("option");',
+          '    primeiro.value = "";',
+          '    txt(primeiro, "Selecione um aplicativo...");',
+          '    sel.appendChild(primeiro);',
+          '    var apps = r.aplicativos || [];',
+          '    for (var i = 0; i < apps.length; i++) {',
+          '      var a = apps[i];',
+          '      var op = document.createElement("option");',
+          '      op.value = a.caminho || "";',
+          '      op.disabled = !a.caminho;',
+          '      op.setAttribute("data-titulo", a.titulo || "");',
+          '      op.setAttribute("data-processo", a.processo || "");',
+          '      op.setAttribute("data-pid", String(a.pid || ""));',
+          '      txt(op, (a.titulo || a.processo) + " — " + a.processo + (a.caminho ? "" : " (caminho protegido pelo Windows)"));',
+          '      sel.appendChild(op);',
+          '    }',
+          '    sel.style.display = "block";',
+          '    mostrarRes(res, r.ok ? "ok" : "err", (r.ok ? "✔ " : "✖ ") + (r.mensagem || "Busca concluída."));',
+          '  }).catch(function (e) {',
+          '    botaoCarregando(btn, false, "🪟 Procurar apps abertos");',
+          '    mostrarRes(res, "err", "✖ Falha ao procurar aplicativos: " + e);',
+          '  });',
+          '}',
+          '',
+          'function selecionarAplicativoAberto() {',
+          '  var sel = $("f-app-aberto");',
+          '  var op = sel.options[sel.selectedIndex];',
+          '  if (!op || !op.value) return;',
+          '  $("f-exe").value = op.value;',
+          '  var titulo = op.getAttribute("data-titulo") || "";',
+          '  var processo = op.getAttribute("data-processo") || "";',
+          '  var pid = op.getAttribute("data-pid") || "";',
+          '  var minecraftJava = /minecraft/i.test(titulo) && /^javaw?\.exe$/i.test(processo);',
+          '  if (minecraftJava) {',
+          '    $("f-modo-teclado").value = "global";',
+          '    $("f-modo-mouse").value = "global";',
+          '    $("tg-reabrir").checked = false;',
+          '    mostrarRes($("res-jogo"), "ok", "✔ Minecraft já aberto selecionado (" + processo + ", PID " + pid + "). Teclado/mouse foram para Global e o reabrir automático foi desligado: javaw.exe sozinho não sabe iniciar o Minecraft. Para abertura/reabertura automática, use o launcher (ex.: ATLauncher).");',
+          '  } else {',
+          '    mostrarRes($("res-jogo"), "ok", "✔ Selecionado: " + titulo + " — " + processo + (pid ? " (PID " + pid + ")" : "") + ". O caminho do .exe foi preenchido acima.");',
+          '  }',
+          '}',
+          '',
+          ''' + function_marker
+          one('src/assistente-pagina.js', function_marker, function_insert)
 
-          one('src/assistente-pagina.js',
-          """  '  $(\"btn-youtube\").addEventListener(\"click\", testarYoutube);',
-            '  $(\"btn-verificar-jogo\").addEventListener(\"click\", testarJogo);',""",
-          """  '  $(\"btn-youtube\").addEventListener(\"click\", testarYoutube);',
-            '  $(\"btn-apps-abertos\").addEventListener(\"click\", carregarAplicativosAbertos);',
+          listener_marker = "  '  $(\"btn-verificar-jogo\").addEventListener(\"click\", testarJogo);',"
+          listener_insert = """  '  $(\"btn-apps-abertos\").addEventListener(\"click\", carregarAplicativosAbertos);',
             '  $(\"f-app-aberto\").addEventListener(\"change\", selecionarAplicativoAberto);',
-            '  $(\"btn-verificar-jogo\").addEventListener(\"click\", testarJogo);',""")
+          """ + listener_marker
+          one('src/assistente-pagina.js', listener_marker, listener_insert)
 
           # Docs -------------------------------------------------------------
           one('README.md',
