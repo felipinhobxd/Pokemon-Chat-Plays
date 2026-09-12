@@ -51,6 +51,7 @@ const { PAGINA } = require('./assistente-pagina');
 const controles = require('./controles');
 const { testarComando } = require('./testar-comando');
 const { analisarCooldownsPorComando } = require('./utils/cooldown-config');
+const emulador = require('./utils/emulador');
 
 const PORTA_PADRAO = 8124;
 const LIMITE_BODY_BYTES = 64 * 1024;
@@ -247,7 +248,7 @@ function montarConteudoEnv(v, envAtual = '') {
     `JOGO_ARGS=${val('JOGO_ARGS')}`,
     '# janela = teclas só no emulador | global = janela em foco',
     `MODO_TECLADO=${val('MODO_TECLADO')}`,
-    '# Mouse: janela (sem roubar cursor), global (cursor real) ou off',
+    '# Mouse: janela (PostMessage), jogo (SendInput relativo + foco), global (cursor clássico) ou off',
     `MODO_MOUSE=${val('MODO_MOUSE')}`,
     `MOUSE_PASSO_PX=${val('MOUSE_PASSO_PX')}`,
     '',
@@ -381,6 +382,10 @@ function verificarCaminhosJogo({ exe, rom } = {}) {
  */
 function estadoAtual(cfg = config) {
   const plataformas = cfg.geral.plataformasAtivas;
+  const alvoAberto = emulador.carregarAlvo(
+    emulador.caminhoArquivoAlvo(),
+    cfg.teclado.emuladorExe
+  );
   return {
     versao: VERSAO,
     modo,
@@ -425,6 +430,11 @@ function estadoAtual(cfg = config) {
       GAMEPAD_ANALOG_MS: String(cfg.gamepad?.analogMs ?? 320),
       // v2.7: jogo genérico (path do .exe + ROM + reabrir sozinho)
       EMULADOR_EXE: cfg.teclado.emuladorExe,
+      // Janela escolhida em "apps abertos". O PID evita acertar outro
+      // javaw.exe; título/processo permitem reencontrar o jogo após restart.
+      ALVO_PID: String(alvoAberto?.pid || ''),
+      ALVO_TITULO: alvoAberto?.titulo || '',
+      ALVO_PROCESSO: alvoAberto?.processo || '',
       JOGO_ROM: cfg.jogo.rom,
       JOGO_AUTO_REINICIAR: String(cfg.jogo.autoReiniciar),
       TECLA_PAUSA: cfg.pausa.tecla,
@@ -608,13 +618,27 @@ function avaliarSalvamento(v = {}, atuais = {}) {
     finais[chave] = normalizarCaminhoJogo(finais[chave]);
   }
 
+  // Metadados do seletor de aplicativos não entram no .env: ficam junto do
+  // alvo lembrado em dados/emulador.json. Páginas antigas, que não enviam
+  // essas chaves, deixam o arquivo como está.
+  const informouAlvoAberto = ['ALVO_PID', 'ALVO_TITULO', 'ALVO_PROCESSO']
+    .some((chave) => Object.prototype.hasOwnProperty.call(v, chave));
+  if (informouAlvoAberto) {
+    finais.alvoAberto = emulador.normalizarAlvoAberto({
+      exe: finais.EMULADOR_EXE,
+      pid: finais.ALVO_PID,
+      titulo: finais.ALVO_TITULO,
+      processo: finais.ALVO_PROCESSO,
+    });
+  }
+
   // ATLauncher é um launcher de Minecraft, não um executável do jogo. Se o
   // seletor de controles ficou "personalizado", não deixe o save cair em
   // outro preset e desativar a integração no próximo boot.
   if (require('./utils/minecraft-launcher').ehAtLauncher(finais.EMULADOR_EXE)) {
     finais.EMULADOR_PRESET = 'minecraft';
     finais.MODO_TECLADO = 'global';
-    finais.MODO_MOUSE = 'global';
+    finais.MODO_MOUSE = 'jogo';
   }
   // JOGO_ARGS: o wizard NÃO tem campo para ela — vazio significa MANTER o
   // valor atual do .env (não apagar configs manuais, ex.: "-L core.dll" do
@@ -625,7 +649,7 @@ function avaliarSalvamento(v = {}, atuais = {}) {
   finais.JOGO_ARGS = limparArgs(finais.JOGO_ARGS) || limparArgs(config.jogo.args);
   finais.JOGO_AUTO_REINICIAR = finais.jogoAutoReiniciar === false ? 'false' : 'true';
   const modoMouse = String(finais.MODO_MOUSE || config.mouse?.modo || finais.MODO_TECLADO || 'janela').toLowerCase();
-  finais.MODO_MOUSE = ['janela', 'global', 'off'].includes(modoMouse) ? modoMouse : 'janela';
+  finais.MODO_MOUSE = ['janela', 'jogo', 'global', 'off'].includes(modoMouse) ? modoMouse : 'janela';
   finais.MOUSE_PASSO_PX = String(Math.max(5, Math.min(500, parseInt(finais.MOUSE_PASSO_PX, 10) || 40)));
   const modoPad = String(finais.GAMEPAD_ENABLED || config.gamepad?.enabled || 'auto').toLowerCase();
   finais.GAMEPAD_ENABLED = ['auto', 'on', 'off'].includes(modoPad) ? modoPad : 'auto';
@@ -720,6 +744,43 @@ function salvarConfiguracao(v) {
     }
   }
 
+  // O PID/título selecionado precisa ser salvo na mesma operação lógica do
+  // .env. Assim o próximo passo do boot já conhece a janela exata, e uma
+  // falha posterior restaura o arquivo anterior em vez de deixar alvo/config
+  // desencontrados.
+  let rollbackAlvo = null;
+  if (Object.prototype.hasOwnProperty.call(finais, 'alvoAberto')) {
+    const caminhoAlvo = emulador.caminhoArquivoAlvo();
+    let existiaAlvo;
+    let bytesAlvo;
+    try {
+      existiaAlvo = fs.existsSync(caminhoAlvo);
+      bytesAlvo = existiaAlvo ? fs.readFileSync(caminhoAlvo) : null;
+    } catch (err) {
+      const erroRollbackCtl = rollbackControles ? rollbackControles() : null;
+      const extra = erroRollbackCtl ? ` Também falhou ao restaurar controles (${erroRollbackCtl.message}).` : '';
+      return { ok: false, erros: [`Não consegui ler o aplicativo/jogo selecionado (${err.message}).${extra}`] };
+    }
+    rollbackAlvo = () => {
+      try {
+        if (existiaAlvo) {
+          fs.mkdirSync(path.dirname(caminhoAlvo), { recursive: true });
+          const tmpAlvo = `${caminhoAlvo}.rollback.tmp`;
+          fs.writeFileSync(tmpAlvo, bytesAlvo);
+          fs.renameSync(tmpAlvo, caminhoAlvo);
+        } else {
+          try { fs.unlinkSync(caminhoAlvo); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+        }
+        return null;
+      } catch (err) { return err; }
+    };
+    if (!emulador.salvarAlvo(caminhoAlvo, finais.alvoAberto)) {
+      const erroRollbackCtl = rollbackControles ? rollbackControles() : null;
+      const extra = erroRollbackCtl ? ` Também falhou ao restaurar controles (${erroRollbackCtl.message}).` : '';
+      return { ok: false, erros: [`Não consegui salvar o aplicativo/jogo selecionado. Verifique permissões na pasta dados/.${extra}`] };
+    }
+  }
+
   try {
     // v2.9.1: gravação ATÔMICA (.tmp + rename) — uma queda no meio da
     // escrita nunca deixa um .env truncado/meio-escrito (mesmo padrão do
@@ -735,8 +796,12 @@ function salvarConfiguracao(v) {
       throw errRename;
     }
   } catch (err) {
+    const erroRollbackAlvo = rollbackAlvo ? rollbackAlvo() : null;
     const erroRollback = rollbackControles ? rollbackControles() : null;
-    const extra = erroRollback ? ` Também falhou ao restaurar controles (${erroRollback.message}).` : '';
+    const extras = [];
+    if (erroRollbackAlvo) extras.push(`alvo (${erroRollbackAlvo.message})`);
+    if (erroRollback) extras.push(`controles (${erroRollback.message})`);
+    const extra = extras.length ? ` Também falhou ao restaurar ${extras.join(' e ')}.` : '';
     return { ok: false, erros: [`Não consegui gravar o .env (${err.message}). Verifique permissões na pasta do app.${extra}`] };
   }
 
@@ -840,13 +905,17 @@ function normalizarAplicativosAbertos(saida) {
   const lista = Array.isArray(bruto) ? bruto : [bruto];
   const vistos = new Set();
   const normalizados = [];
+  const umaLinha = (valor, limite) => String(valor || '')
+    .replace(/[\r\n\0]+/g, ' ')
+    .trim()
+    .slice(0, limite);
   for (const item of lista) {
     if (!item || typeof item !== 'object') continue;
     const pid = Number(item.pid || 0);
-    const titulo = String(item.titulo || '').trim();
-    let processo = String(item.processo || '').trim();
-    const caminho = String(item.caminho || '').trim();
-    if (!pid || !titulo || !processo) continue;
+    const titulo = umaLinha(item.titulo, 512);
+    let processo = umaLinha(item.processo, 260);
+    const caminho = umaLinha(item.caminho, 32767);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0x7fffffff || !titulo || !processo) continue;
     if (!/\.exe$/i.test(processo)) processo += '.exe';
     const chave = `${pid}|${titulo}`;
     if (vistos.has(chave)) continue;
@@ -992,9 +1061,9 @@ async function tratarRequisicao(req, res) {
     }
 
     if (req.method === 'GET' && url === '/api/aplicativos-abertos') {
-    responderJson(res, 200, await listarAplicativosAbertos());
-    return;
-  }
+      responderJson(res, 200, await listarAplicativosAbertos());
+      return;
+    }
 
     if (req.method === 'POST' && url === '/api/testar-twitch') {
       const body = await lerBody(req);

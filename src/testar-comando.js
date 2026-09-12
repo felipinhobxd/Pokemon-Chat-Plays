@@ -72,6 +72,11 @@ function respostaBase(entrada, parsed) {
   };
 }
 
+function mousePodeUsarJanelaEmFoco(contexto = {}) {
+  const modo = String(contexto.modoMouse || '').toLowerCase();
+  return modo === 'global' || modo === 'jogo';
+}
+
 function descrever(entrada, parsed, contexto = {}) {
   if (!parsed) {
     return {
@@ -113,7 +118,7 @@ function descrever(entrada, parsed, contexto = {}) {
     'soltar/release ou F9 interrompe imediatamente.',
   ];
   if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
-  else if (!String(contexto.alvoExe || '').trim() && String(contexto.modoMouse || '').toLowerCase() !== 'global') { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+  else if (!String(contexto.alvoExe || '').trim() && !mousePodeUsarJanelaEmFoco(contexto)) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
   else if (contexto.democracia) { r.resumo += ' Em Democracia, hold de movimento fica bloqueado.'; r.executaria = false; }
   else r.executaria = true;
   return r;
@@ -132,7 +137,7 @@ function descrever(entrada, parsed, contexto = {}) {
       parsed.duracaoMs == null ? 'Duração: padrão (1000ms)' : `Duração normalizada: ${parsed.duracaoMs}ms → ${duracao}ms`,
     ];
     if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
-    else if (!String(contexto.alvoExe || '').trim()) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+    else if (!String(contexto.alvoExe || '').trim() && !mousePodeUsarJanelaEmFoco(contexto)) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
     else if (contexto.democracia) { r.resumo += ' Em Democracia, hold de mouse fica bloqueado.'; r.executaria = false; }
     else r.executaria = true;
     return r;
@@ -146,7 +151,7 @@ function descrever(entrada, parsed, contexto = {}) {
     if (parsed.tipo === 'mouse-pos') r.detalhes.push(`Posição na área do jogo: ${parsed.xPct}% × ${parsed.yPct}%`);
     if (parsed.tipo === 'mouse-click') r.detalhes.push(`Botão: ${parsed.botao || 'esquerdo'}`);
     if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
-    else if (!String(contexto.alvoExe || '').trim()) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+    else if (!String(contexto.alvoExe || '').trim() && !mousePodeUsarJanelaEmFoco(contexto)) { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
     else if (contexto.democracia) { r.resumo += ' Em Democracia, mouse fica bloqueado.'; r.executaria = false; }
     else r.executaria = true;
     return r;

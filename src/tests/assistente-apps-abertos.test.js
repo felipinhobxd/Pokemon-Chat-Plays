@@ -39,4 +39,8 @@ test('assistente: página expõe seletor de app aberto e mantém caminho manual'
   assert.match(PAGINA, /\/api\/aplicativos-abertos/);
   assert.match(PAGINA, /id="f-exe"/);
   assert.match(PAGINA, /Minecraft\* 26\.2/);
+  assert.match(PAGINA, /ALVO_PID: ALVO_ABERTO\.pid/);
+  assert.match(PAGINA, /ALVO_TITULO: ALVO_ABERTO\.titulo/);
+  assert.match(PAGINA, /value="jogo"/);
+  assert.match(PAGINA, /Raw Input/);
 });

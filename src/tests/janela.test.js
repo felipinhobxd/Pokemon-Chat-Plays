@@ -221,6 +221,34 @@ test('emulador: salvar e carregar o último caminho usado (dados/emulador.json)'
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('emulador: persiste PID e identidade da janela sem quebrar o formato antigo', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcp-emulador-alvo-'));
+  const arquivo = path.join(dir, 'emulador.json');
+  const alvo = {
+    exe: 'C:\\Java\\bin\\javaw.exe',
+    pid: 4242,
+    titulo: 'Minecraft* 26.2',
+    processo: 'javaw',
+  };
+
+  assert.strictEqual(emulador.salvarAlvo(arquivo, alvo), true);
+  assert.deepStrictEqual(emulador.carregarAlvo(arquivo), {
+    ...alvo,
+    processo: 'javaw.exe',
+  });
+  assert.strictEqual(emulador.carregarAlvo(arquivo, 'C:\\Outro\\javaw.exe'), null);
+  assert.strictEqual(fs.existsSync(`${arquivo}.tmp`), false);
+
+  fs.writeFileSync(arquivo, JSON.stringify({ exe: EXE }));
+  assert.deepStrictEqual(emulador.carregarAlvo(arquivo), {
+    exe: EXE,
+    pid: 0,
+    titulo: '',
+    processo: '',
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('perguntar: resolve com a resposta digitada (streams falsos)', async () => {
   const entrada = new PassThrough();
   const saida = new PassThrough();

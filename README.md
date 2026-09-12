@@ -16,7 +16,7 @@
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch, or on Windows choose a game/app that is already open. `--direto` skips it; `npm run assistente` opens it standalone.
 - **Any game, any emulator — plus Minecraft launchers** — normal games/emulators use their `.exe`; for Minecraft Java, select the Minecraft preset and paste the launcher path. **ATLauncher is automated**: ChatPlays opens/reuses it, goes to **Instances → Play**, then watches the real Java/Minecraft process and can relaunch it after a crash.
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
-- **Mouse + virtual gamepad** — chat can move/click inside the game window or globally, and on Windows can drive a virtual Xbox 360 controller via ViGEm (installer and `ViGEmClient.dll` bundled, with distinct failure diagnostics on the dashboard).
+- **Mouse + virtual gamepad** — chat can move/click inside the game window or globally. The dedicated **Game / Minecraft** mode focuses the exact saved PID and injects relative `SendInput` motion/clicks for 3D games; Windows can also drive a virtual Xbox 360 controller via ViGEm (installer and `ViGEmClient.dll` bundled, with distinct failure diagnostics on the dashboard).
 - **Game profiles** — keep separate executable/ROM/input/cooldown/control settings per game (`iniciar.bat --perfis`).
 - **Command tester + diagnostics** — safely preview how a chat message is parsed in the wizard; inspect runtime health at `http://localhost:8899/dashboard`.
 - **Fully configurable chat controls** — the wizard's **🎮 Chat Controls** section maps *any action* to *any key* and *any chat word*: remap A/B/directions, or add brand-new actions (`Pular → Space → pular, jump, espaço`). Aliases are auto-suggested (PT-BR + EN), editable, and checked for conflicts/reserved words before saving. Works for **any game** — Minecraft, Terraria, whatever — with no code changes. Both Twitch and YouTube read the same registry; `!comandos` and the auto-announcement always reflect what you configured. Presets (VBA-M, mGBA, DeSmuME, RetroArch) are just **starting templates**.
@@ -30,7 +30,7 @@
 
 1. **Download and run** `ChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/ChatPlays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `ChatPlays-Windows.zip`.)* Upgrading from an older *Pokemon Chat Plays* install? It upgrades in place — no duplicates, old shortcuts are cleaned up automatically.
 2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*). Saved keys come back **masked** (`••••••••abcd`): leave the field as-is to keep the saved value, clear it to remove, paste a new one to replace.
-3. In **🎮 Game / Emulator**, paste the game/emulator executable **or click “🪟 Procurar apps abertos” and select a game that is already running** (for example `Minecraft* 26.2 — javaw.exe` or `Peggle — Peggle.exe`). For **Minecraft Java**, choose the Minecraft preset and paste the launcher path (example: `C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.
+3. In **🎮 Game / Emulator**, paste the game/emulator executable **or click “🪟 Procurar apps abertos” and select a game that is already running** (for example `Minecraft* 26.2 — javaw.exe` or `Peggle — Peggle.exe`). The wizard remembers the exact PID/title, so it will not attach to another `javaw.exe`. For **Minecraft Java**, you can instead choose the Minecraft preset and paste the launcher path (example: `C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.
 4. In the wizard's **🎮 Chat Controls** card, check the action → key → chat-word mapping. Apply a **template** (VBA-M, mGBA, DeSmuME, RetroArch) as a starting point and then customize freely: capture keys with the ⌨ button, add controls like `Pular → Space → pular, jump`, disable what the game doesn't use.
 5. Hit **Save & start** — the bot **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
 
@@ -50,7 +50,7 @@ No prefix needed — any message that is exactly a command triggers it. Accents 
 | `salvar` / `carregar` (or `save` / `load`) | Emulator save state / load state |
 | `dialogo` / `dialogue` | Repeated A presses for 5 seconds |
 | `mouse cima/baixo/esquerda/direita`, `olhar cima/baixo/esquerda/direita`, `mouse 50 50`, `clique` | Mouse/camera controls (Minecraft-friendly aliases included) |
-| `hold clique 3s` · `hold clique direito 2.5s` · `segurar botão esquerdo 250ms` | Real mouse-button HOLD (down → duration → up) — window and global modes |
+| `hold clique 3s` · `hold clique direito 2.5s` · `segurar botão esquerdo 250ms` | Real mouse-button HOLD (down → duration → up) — window, game and global modes |
 | `hold pad a 250ms` · `hold pad rt 75 500ms` · `hold pad ls direita 2s` | Virtual gamepad HOLD (buttons, triggers, sticks — same 1 ms–10 s range) |
 | `pad a`, `pad direita`, `pad ls direita`, `pad rt 75` | Virtual Xbox gamepad (Windows + ViGEm) |
 
@@ -133,7 +133,7 @@ Copy `.env.example` → `.env` — or just open `iniciar.bat` (the wizard opens 
 | `COMMAND_COOLDOWN_MS` | `1500` | Per-user cooldown — nobody solo-controls the game |
 | `KEY_PRESS_DURATION_MS` | `230` | How long each key tap lasts |
 | `EMULADOR_PRESET` / `EMULADOR_EXE` / `MODO_TECLADO` | `vbam` / *(ask at boot)* / `janela` | Emulator layout, target exe and key delivery mode |
-| `MODO_MOUSE` / `MOUSE_PASSO_PX` | `janela` / `40` | Window/global/off mouse mode and movement step |
+| `MODO_MOUSE` / `MOUSE_PASSO_PX` | `janela` / `40` | `janela`, `jogo` (relative SendInput + focus), `global` or `off`; movement step |
 | `GAMEPAD_ENABLED` / `GAMEPAD_TAP_MS` / `GAMEPAD_ANALOG_MS` | `auto` / `220` / `320` | Virtual Xbox controller mode/timings (Windows + ViGEm) |
 | `GAMEPAD_VIGEM_DLL` | — | Optional path to `ViGEmClient.dll` |
 | `COMMAND_COOLDOWNS` | — | Per-command/group cooldowns, e.g. `dialogo=10s, mouse=2s` |
@@ -153,6 +153,7 @@ See `.env.example` for the full annotated list — every option has a comment ex
 |---|---|
 | Windows blocked the exe | More info → Run anyway (no digital signature) |
 | Keys don't reach the game | Emulator closed? The bot warns when the target window is missing — and with `EMULADOR_EXE` set it **reopens the game for you**. RetroArch: set `MODO_TECLADO=global` |
+| Minecraft cursor moves but the camera/click does not | Select the running Minecraft window and use `MODO_MOUSE=jogo`. Keep Minecraft visible and at the same privilege level as ChatPlays. If Minecraft still ignores camera motion, turn **Raw Input** off in Minecraft's mouse settings; Windows synthetic input does not bypass raw-input or elevated-process restrictions. |
 | Bot stopped reopening the game | Crash-loop guard kicked in: the game died instantly 5× in a row. Check the ROM path (`JOGO_ROM`) and whether the emulator opens it manually |
 | Arrows move the character diagonally / wrong | Emulator remapped? Fix with `TECLA_UP` etc. |
 | `Login authentication failed` | Regenerate the OAuth token — it expired or belongs to another account |

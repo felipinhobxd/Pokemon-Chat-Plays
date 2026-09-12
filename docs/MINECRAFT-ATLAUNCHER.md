@@ -14,7 +14,9 @@ On Windows, ChatPlays now:
 4. if those controls are not exposed, captures the ATLauncher window to a **temporary PNG**, uses window-relative fallback positions calibrated from the reference screenshots, then deletes the PNG immediately;
 5. waits for the real Minecraft Java process (`javaw.exe` / `java.exe`) and watches that process for crashes instead of watching the launcher.
 
-The Minecraft preset switches keyboard + mouse to **Global** because the launcher executable is not the game window.
+The Minecraft preset switches the keyboard to **Global** and the mouse to **Game / Minecraft**. The launcher executable is not the game window, so mouse actions focus the running Minecraft window and use relative Windows `SendInput` events instead of absolute cursor repositioning.
+
+If the Windows cursor moves but Minecraft does not turn or click, keep the game visible and do not run it at a higher privilege level than ChatPlays. Also turn **Raw Input** off in Minecraft's mouse settings: raw-input mode can intentionally bypass synthetic Windows mouse events.
 
 ## Reference screenshots
 

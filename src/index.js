@@ -133,7 +133,7 @@ async function encerrar(sinal) {
 let exeDoJogo = null;
 
 async function configurarAlvoDoEmulador() {
-  const arquivoSalvo = path.resolve(process.cwd(), 'dados', 'emulador.json');
+  const arquivoSalvo = emulador.caminhoArquivoAlvo();
 
   // 1) .env força o comportamento antigo — nem pergunta (o jogo ainda
   //    pode ser gerenciado: teclado global ≠ não abrir o jogo)
@@ -519,7 +519,7 @@ async function main() {
 
   // Minecraft Java é iniciado pelo launcher, mas teclado/mouse precisam agir
   // no JOGO real. No ATLauncher, input global evita usar a janela do launcher
-  // como alvo; o mouse global usa a janela em foco (Minecraft).
+  // como alvo; o mouse no modo jogo usa a janela em foco (Minecraft).
   // Mesmo princípio do gerenciador: ATLauncher.exe identifica o fluxo
   // Minecraft ainda que o perfil tenha virado "personalizado".
   const launcherMinecraftAtivo = minecraftLauncher.ehAtLauncher(exeDoJogo);
@@ -529,11 +529,30 @@ async function main() {
     logger.aviso('[Minecraft] ATLauncher detectado: forçando teclado GLOBAL para controlar o Minecraft, não o launcher.');
   }
 
+  // O assistente salva PID/título/processo da janela escolhida. Isso é
+  // essencial para Minecraft: pode haver vários javaw.exe idênticos, mas só
+  // um deles é a instância do jogo. Se o PID envelheceu após um reinício, o
+  // controlador ainda usa título + processo como fallback seguro.
+  const alvoAberto = launcherMinecraftAtivo
+    ? null
+    : emulador.carregarAlvo(emulador.caminhoArquivoAlvo(), exeDoJogo);
+  const presetMinecraftAtivo = String(config.teclado.preset || '').toLowerCase() === 'minecraft';
+  let modoMouseEfetivo = launcherMinecraftAtivo ? 'jogo' : config.mouse.modo;
+  if (presetMinecraftAtivo && modoMouseEfetivo === 'global') {
+    modoMouseEfetivo = 'jogo';
+    logger.info('[Minecraft] Atualizando o mouse GLOBAL antigo para o modo JOGO (SendInput relativo).');
+  }
+
   // Mouse/gamepad são importados antes do wizard pelo pipeline; sincronize-os
   // agora com a configuração FINAL para não manter modo/alvo antigo.
   mouse.configurar({
-    modo: launcherMinecraftAtivo ? 'global' : config.mouse.modo,
+    modo: modoMouseEfetivo,
     alvoExe: launcherMinecraftAtivo ? null : exeDoJogo,
+    alvoPid: alvoAberto?.pid || 0,
+    // ATLauncher não é o alvo do input. Sem uma seleção exata, restringir
+    // por "Minecraft" é mais seguro do que cair silenciosamente no OBS.
+    alvoTitulo: alvoAberto?.titulo || (presetMinecraftAtivo ? 'Minecraft' : ''),
+    alvoProcesso: alvoAberto?.processo || '',
     passoPx: config.mouse.passoPx,
   });
   gamepad.configurar({

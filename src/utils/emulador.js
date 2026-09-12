@@ -40,31 +40,89 @@ function normalizarCaminhoExe(resposta) {
 }
 
 /**
+ * Normaliza os metadados de uma janela escolhida no assistente.
+ * O PID serve para acertar a instância exata (especialmente javaw.exe); o
+ * título/processo são usados apenas como confirmação/fallback quando o PID
+ * fica obsoleto depois de o jogo reiniciar.
+ *
+ * @param {object} [dados]
+ * @param {string|null} [exeEsperado] - se informado, rejeita metadados de
+ *   outro executável (por exemplo ao trocar de perfil de jogo).
+ * @returns {{exe:string,pid:number,titulo:string,processo:string}|null}
+ */
+function normalizarAlvoAberto(dados = {}, exeEsperado = null) {
+  if (!dados || typeof dados !== 'object') return null;
+  const exe = normalizarCaminhoExe(dados.exe);
+  const esperado = normalizarCaminhoExe(exeEsperado);
+  if (esperado && (!exe || exe.toLowerCase() !== esperado.toLowerCase())) return null;
+
+  const pidBruto = Number(dados.pid);
+  const pid = Number.isSafeInteger(pidBruto) && pidBruto > 0 && pidBruto <= 0x7fffffff
+    ? pidBruto
+    : 0;
+  const umaLinha = (valor, limite) => String(valor || '')
+    .replace(/[\r\n\0]+/g, ' ')
+    .trim()
+    .slice(0, limite);
+  const titulo = umaLinha(dados.titulo, 512);
+  let processo = umaLinha(dados.processo, 260);
+  if (processo && !/\.exe$/i.test(processo)) processo += '.exe';
+
+  if (!exe && !pid) return null;
+  return { exe, pid, titulo, processo };
+}
+
+/** Caminho único usado pelo boot e pelo assistente para lembrar o alvo. */
+function caminhoArquivoAlvo(baseDir = process.cwd()) {
+  return path.resolve(baseDir, 'dados', 'emulador.json');
+}
+
+/**
+ * Carrega o alvo completo salvo. Compatível com o formato antigo, que tinha
+ * apenas { exe }.
+ * @param {string} arquivo
+ * @param {string|null} [exeEsperado]
+ */
+function carregarAlvo(arquivo, exeEsperado = null) {
+  try {
+    const dados = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    return normalizarAlvoAberto(dados, exeEsperado);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Carrega o último caminho salvo (dados/emulador.json).
  * @param {string} arquivo
  * @returns {string|null} caminho salvo ou null
  */
 function carregarSalvo(arquivo) {
-  try {
-    const dados = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-    const exe = normalizarCaminhoExe(dados && dados.exe);
-    return exe || null;
-  } catch {
-    return null; // não existe / corrompido — sem drama
-  }
+  return carregarAlvo(arquivo)?.exe || null;
 }
 
 /**
  * Salva o último caminho usado (vazio = usuário escolheu modo global).
  * @param {string} arquivo
- * @param {string|null} exe
+ * @param {string|object|null} exeOuDados - caminho antigo ou alvo completo
  * @returns {boolean}
  */
-function salvarAlvo(arquivo, exe) {
+function salvarAlvo(arquivo, exeOuDados) {
   try {
     fs.mkdirSync(path.dirname(path.resolve(arquivo)), { recursive: true });
-    const corpo = JSON.stringify({ exe: exe || '', salvoEm: new Date().toISOString() }, null, 2);
-    fs.writeFileSync(arquivo, corpo);
+    const bruto = exeOuDados && typeof exeOuDados === 'object'
+      ? exeOuDados
+      : { exe: exeOuDados };
+    const alvo = normalizarAlvoAberto(bruto) || { exe: '', pid: 0, titulo: '', processo: '' };
+    const corpo = JSON.stringify({ ...alvo, salvoEm: new Date().toISOString() }, null, 2);
+    const tmp = `${arquivo}.tmp`;
+    fs.writeFileSync(tmp, corpo);
+    try {
+      fs.renameSync(tmp, arquivo);
+    } catch (err) {
+      try { fs.unlinkSync(tmp); } catch { /* já não existia */ }
+      throw err;
+    }
     return true;
   } catch (err) {
     logger.aviso(`[Emulador] Não foi possível salvar o caminho (${err.message}).`);
@@ -134,6 +192,9 @@ function perguntar(pergunta, opcoes = {}) {
 
 module.exports = {
   normalizarCaminhoExe,
+  normalizarAlvoAberto,
+  caminhoArquivoAlvo,
+  carregarAlvo,
   carregarSalvo,
   salvarAlvo,
   arquivoExiste,

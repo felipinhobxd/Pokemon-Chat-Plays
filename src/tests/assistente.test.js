@@ -201,6 +201,30 @@ test('avaliarSalvamento: body completo vira finais normalizados e ok', () => {
   assert.strictEqual(r.finais.YOUTUBE_ENABLED, 'true');
 });
 
+test('avaliarSalvamento: preserva a instância exata escolhida fora do .env', () => {
+  const r = avaliarSalvamento({
+    twitchAtivo: true,
+    youtubeAtivo: false,
+    TWITCH_BOT_USERNAME: 'bot',
+    TWITCH_OAUTH_TOKEN: 'oauth:token',
+    TWITCH_CHANNEL: 'canal',
+    EMULADOR_EXE: '"C:\\Java\\bin\\javaw.exe"',
+    ALVO_PID: '4242',
+    ALVO_TITULO: 'Minecraft* 26.2',
+    ALVO_PROCESSO: 'javaw',
+    MODO_MOUSE: 'jogo',
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.finais.MODO_MOUSE, 'jogo');
+  assert.deepStrictEqual(r.finais.alvoAberto, {
+    exe: 'C:\\Java\\bin\\javaw.exe',
+    pid: 4242,
+    titulo: 'Minecraft* 26.2',
+    processo: 'javaw.exe',
+  });
+  assert.doesNotMatch(montarConteudoEnv(r.finais), /ALVO_(PID|TITULO|PROCESSO)=/);
+});
+
 test('salvarConfiguracao: twitch ativo com token VAZIO NÃO grava o .env (v2.8)', () => {
   const caminho = caminhoEnv();
   const antes = fs.existsSync(caminho) ? fs.readFileSync(caminho, 'utf8') : null;
