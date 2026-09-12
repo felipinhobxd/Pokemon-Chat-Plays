@@ -114,6 +114,50 @@ const BUILTINS = [
 const IDS_BUILTIN = new Set(BUILTINS.map((b) => b.id));
 
 // ---------------------------------------------------------------------------
+// Modelo Minecraft (Java Edition — teclas padrão)
+// ---------------------------------------------------------------------------
+
+/**
+ * Controles prontos para Minecraft. Mouse continua usando os comandos globais
+ * do ChatPlays (clique/clique direito e HOLD), então o modelo cobre aqui as
+ * ações de teclado sem duplicar o parser de mouse.
+ */
+const CONTROLES_MINECRAFT = [
+  { id: 'mc_forward', label: 'Frente', icone: '⬆', key: 'w', aliases: ['frente', 'forward', 'w'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_back', label: 'Trás', icone: '⬇', key: 's', aliases: ['tras', 'back', 's'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_left', label: 'Esquerda', icone: '⬅', key: 'a', aliases: ['esquerda', 'left', 'a'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_right', label: 'Direita', icone: '➡', key: 'd', aliases: ['direita', 'right', 'd'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_jump', label: 'Pular', icone: '⤴', key: 'space', aliases: ['pular', 'jump', 'space', 'espaco'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_sneak', label: 'Agachar', icone: '🧎', key: 'shift', aliases: ['agachar', 'sneak', 'shift'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_sprint', label: 'Correr', icone: '🏃', key: 'ctrl', aliases: ['correr', 'sprint', 'ctrl'], holdable: true, builtin: false, enabled: true },
+  { id: 'mc_inventory', label: 'Inventário', icone: '🎒', key: 'e', aliases: ['inventario', 'inventory', 'e'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_drop', label: 'Dropar', icone: '📦', key: 'q', aliases: ['dropar', 'drop', 'q'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_offhand', label: 'Mão secundária', icone: '🤚', key: 'f', aliases: ['mao secundaria', 'offhand', 'f'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_chat', label: 'Chat', icone: '💬', key: 't', aliases: ['chat', 't'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_players', label: 'Jogadores', icone: '👥', key: 'tab', aliases: ['jogadores', 'players', 'tab'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_menu', label: 'Menu', icone: '⏸', key: 'esc', aliases: ['menu', 'escape', 'esc'], holdable: false, builtin: false, enabled: true },
+  { id: 'mc_perspective', label: 'Perspectiva', icone: '👁', key: 'f5', aliases: ['perspectiva', 'perspective', 'f5'], holdable: false, builtin: false, enabled: true },
+  ...Array.from({ length: 9 }, (_, i) => {
+    const n = i + 1;
+    return {
+      id: `mc_slot_${n}`,
+      label: `Slot ${n}`,
+      icone: `#${n}`,
+      key: String(n),
+      aliases: [`slot ${n}`, `slot${n}`, String(n)],
+      holdable: false,
+      builtin: false,
+      enabled: true,
+    };
+  }),
+];
+
+function controlesMinecraft() {
+  return CONTROLES_MINECRAFT.map((c) => ({ ...c, aliases: [...c.aliases] }));
+}
+
+
+// ---------------------------------------------------------------------------
 // Normalização (mesmas regras do parser: minúsculas + sem acentos)
 // ---------------------------------------------------------------------------
 
@@ -252,6 +296,11 @@ function teclasValidas() {
  * @returns {object[]} lista de controles
  */
 function controlesPadrao(nomePreset, overrides) {
+  const solicitado = nomePreset !== undefined ? nomePreset : config.teclado.preset;
+  if (String(solicitado || '').toLowerCase().replace(/[^a-z]/g, '') === 'minecraft') {
+    return controlesMinecraft();
+  }
+
   const { mapa } = montarMapeamento(
     nomePreset !== undefined ? nomePreset : config.teclado.preset,
     overrides !== undefined ? overrides : config.teclado.teclas

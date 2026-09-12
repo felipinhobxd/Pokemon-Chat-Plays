@@ -227,7 +227,7 @@ function montarConteudoEnv(v, envAtual = '') {
     `CONFIRM_COMMANDS=${val('CONFIRM_COMMANDS')}`,
     '',
     '# ----- EMULADOR / JOGO (v2.7) -----',
-    '# Modelo INICIAL dos controles (vbam, mgba, desmume, retroarch).',
+    '# Modelo INICIAL dos controles (vbam, mgba, desmume, retroarch, minecraft).',
     '# Os controles detalhados (tecla + palavras do chat) ficam em',
     '# dados/controles.json — configurados no assistente.',
     `EMULADOR_PRESET=${val('EMULADOR_PRESET')}`,
@@ -389,13 +389,14 @@ function estadoAtual(cfg = config) {
     // v2.9: controles do chat para a seção "Controles do Chat" do wizard
     controles: controles.todos(),
     origemControles: controles.origem(),
-    // modelos (VBA-M/mGBA/DeSmuME/RetroArch) como listas prontas — o wizard
+    // modelos (VBA-M/mGBA/DeSmuME/RetroArch/Minecraft) como listas prontas — o wizard
     // aplica no navegador sem roundtrip; editar depois é livre
     modelos: {
       vbam: controles.controlesPadrao('vbam'),
       mgba: controles.controlesPadrao('mgba'),
       desmume: controles.controlesPadrao('desmume'),
       retroarch: controles.controlesPadrao('retroarch'),
+      minecraft: controles.controlesPadrao('minecraft'),
     },
     // vocabulário reservado + teclas válidas (validação no navegador)
     reservados: [...controles.RESERVADOS].sort(),
