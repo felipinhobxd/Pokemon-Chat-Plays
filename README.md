@@ -14,7 +14,7 @@
 
 - **Plug-and-play** — run `ChatPlays-Setup.exe`, the config wizard opens in your browser, done. No Node.js, no build tools, no Notepad.
 - **Setup wizard on every start** — opening `iniciar.bat` always shows the config UI in your browser, **pre-filled with everything you saved before** (Twitch bot, keys — shown masked —, game paths…): review, tweak, hit *Save & start*. Toggle Twitch/YouTube, **test each connection** before saving, set the **game path + ROM** with a one-click launch. `--direto` skips it; `npm run assistente` opens it standalone.
-- **Any game, any emulator** — paste the path of ANY executable (VBA-M, mGBA, RetroArch, even Minecraft): the bot **opens it with the ROM**, and if the game closes mid-stream it **reopens it automatically** with the same ROM (crash-loop safe: 5 instant-crashes → gives up and warns).
+- **Any game, any emulator — plus Minecraft launchers** — normal games/emulators use their `.exe`; for Minecraft Java, select the Minecraft preset and paste the launcher path. **ATLauncher is automated**: ChatPlays opens/reuses it, goes to **Instances → Play**, then watches the real Java/Minecraft process and can relaunch it after a crash.
 - **Window mode** — keys go **straight to the emulator window** (via `PostMessage`), even minimized or unfocused. You're free to use OBS while the chat plays.
 - **Mouse + virtual gamepad** — chat can move/click inside the game window or globally, and on Windows can drive a virtual Xbox 360 controller via ViGEm (installer and `ViGEmClient.dll` bundled, with distinct failure diagnostics on the dashboard).
 - **Game profiles** — keep separate executable/ROM/input/cooldown/control settings per game (`iniciar.bat --perfis`).
@@ -30,7 +30,7 @@
 
 1. **Download and run** `ChatPlays-Setup.exe` from the [latest release](https://github.com/felipinhobxd/ChatPlays/releases/latest) — installs per-user (no admin), with Start menu shortcuts and uninstaller. *(Portable alternative: `ChatPlays-Windows.zip`.)* Upgrading from an older *Pokemon Chat Plays* install? It upgrades in place — no duplicates, old shortcuts are cleaned up automatically.
 2. **Every start opens the setup wizard** in your browser, **pre-filled with what you saved last time** — toggle Twitch/YouTube, paste your bot credentials and the live URL; the wizard **tests each connection** before saving. Then hit **Save & start** (or *Start without saving*). Saved keys come back **masked** (`••••••••abcd`): leave the field as-is to keep the saved value, clear it to remove, paste a new one to replace.
-3. In the wizard's **🎮 Game / Emulator** card, paste the game executable path (any program works) and, for emulators, the **ROM path** — the bot verifies both and can even **launch the game** for you.
+3. In **🎮 Game / Emulator**, paste the game/emulator executable. For **Minecraft Java**, choose the Minecraft preset and paste the launcher path (example: `C:\Users\Admin\AppData\Roaming\ATLauncher\ATLauncher.exe`). ATLauncher is opened/reused and ChatPlays drives **Instances → Play** automatically.
 4. In the wizard's **🎮 Chat Controls** card, check the action → key → chat-word mapping. Apply a **template** (VBA-M, mGBA, DeSmuME, RetroArch) as a starting point and then customize freely: capture keys with the ⌨ button, add controls like `Pular → Space → pular, jump`, disable what the game doesn't use.
 5. Hit **Save & start** — the bot **opens the game with the ROM automatically** (or attaches to it if already running) and announces the commands in chat. If the game crashes, the bot **reopens it** with the same ROM.
 
@@ -114,12 +114,12 @@ Override any single key with `TECLA_A=x`, `TECLA_SALVAR=shift+f1`, etc. Accepted
 
 Set `EMULADOR_EXE` (the wizard does it for you) and the bot takes care of the game itself:
 
-- **On boot** — game not running? The bot opens it: `spawn(exe, [ROM, ...args])`. Already running? It just **attaches** (no second instance) and watches it.
-- **Watchdog** — the game closes mid-stream → the bot waits `JOGO_REINICIAR_DELAY_MS` (3 s) and **reopens it with the same ROM**. The OBS overlay shows 🎮 running / 🔄 reopening live.
+- **On boot** — normal games use `spawn(exe, [ROM, ...args])`. With the Minecraft preset + ATLauncher, the configured `.exe` is a **launcher**: ChatPlays opens/reuses ATLauncher and triggers **Instances → Play**, while the watchdog tracks the real Java/Minecraft process instead of the launcher.
+- **Watchdog** — the game closes mid-stream → the bot waits `JOGO_REINICIAR_DELAY_MS` (3 s) and reopens it. Minecraft gets a startup grace period while Java loads; the launcher staying open does **not** count as the game running.
 - **Crash-loop guard** — if the game dies "instantly" (under `JOGO_VIDA_MINIMA_MS`, 5 times in a row — wrong ROM, broken exe…), the bot **gives up** and warns instead of reopening forever. A run that lasted longer resets the counter, so real mid-stream crashes always get a reopen.
 - **Ctrl+C never kills your game** — the watchdog stops, the game stays.
 
-It works with anything you can launch: `EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe` + `JOGO_ROM=C:\Games\Pokemon - Emerald.gba`, a launcher `.bat`, a `.jar`… For extra flags (RetroArch cores etc.) use `JOGO_ARGS`.
+It works with anything you can launch: `EMULADOR_EXE=C:\Emuladores\visualboyadvance-m.exe` + `JOGO_ROM=C:\Games\Pokemon - Emerald.gba`. Minecraft Java is special: use `EMULADOR_PRESET=minecraft` + an ATLauncher path. See [Minecraft + ATLauncher](docs/MINECRAFT-ATLAUNCHER.md). For extra flags (RetroArch cores etc.) use `JOGO_ARGS`.
 
 ## Configuration (`.env`)
 

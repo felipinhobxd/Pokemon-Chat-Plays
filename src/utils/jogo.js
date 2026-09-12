@@ -176,6 +176,8 @@ let cfg = {
   delayMs: 3000,
   tentativasMax: 5,
   vidaMinimaMs: 15000,
+  startupGraceMs: 0,
+  nomeGerenciado: '',
 };
 
 let procAtual = null;      // child process quando o bot abriu o jogo
@@ -197,6 +199,12 @@ let aoEvento = () => {};
  * produção é o jogoEstaRodando real: tasklist/pgrep).
  */
 let detectorDeProcesso = null;
+let lancadorCustom = null;
+let aguardandoSubidaAte = 0;
+
+function nomeGerenciado() {
+  return String(cfg.nomeGerenciado || '').trim() || nomeDoProcesso(cfg.exe);
+}
 
 /** Notifica o index.js (log + overlay) do que aconteceu. */
 function notificar(tipo, detalhes = {}) {
@@ -283,8 +291,31 @@ function jogoEstaRodando() {
 // Lançamento + watchdog
 // ---------------------------------------------------------------------------
 
-/** Abre o jogo (exe + ROM + args). Resolve true se o processo nasceu. */
-function lancar() {
+/**
+ * Abre o jogo. Em fluxos normais faz spawn(exe). Com `lancadorCustom`, o
+ * executável configurado é apenas o launcher e o processo real é detectado
+ * separadamente (ex.: ATLauncher -> javaw.exe do Minecraft).
+ */
+async function lancar() {
+  if (lancadorCustom) {
+    const minhaGeracao = geracao;
+    try {
+      const ok = await Promise.resolve().then(() => lancadorCustom());
+      if (!ok || minhaGeracao !== geracao || encerrando) return false;
+      procAtual = null;
+      rodando = false;
+      inicioDaVida = 0;
+      modoOperacao = 'launcher';
+      aguardandoSubidaAte = Date.now() + Math.max(0, Number(cfg.startupGraceMs) || 0);
+      notificar('launcher-acionado', { aguardandoSubida: true });
+      iniciarPing();
+      return true;
+    } catch (err) {
+      logger.erro(`[Jogo] Launcher falhou: ${err?.message || err}`);
+      return false;
+    }
+  }
+
   const { file, args, cwd } = montarLinhaComando(cfg);
   if (!file) return false;
 
@@ -296,6 +327,7 @@ function lancar() {
     });
     procAtual = filho;
     inicioDaVida = Date.now();
+    aguardandoSubidaAte = 0;
     rodando = true;
     modoOperacao = 'spawn';
 
@@ -326,6 +358,7 @@ function tratarFechamento() {
   rodando = false;
   const viveuMs = inicioDaVida ? Date.now() - inicioDaVida : 0;
   inicioDaVida = 0;
+  aguardandoSubidaAte = 0;
 
   const decisao = avaliarQueda({
     autoReiniciar: cfg.autoReiniciar,
@@ -366,11 +399,11 @@ function tratarFechamento() {
     `${cfg.rom ? ` com a ROM ${nomeDoProcesso(cfg.rom)}` : ''} — tentativa rápida ${tentativasRapidas}/${cfg.tentativasMax}.`
   );
   const geracaoAgendada = geracao;
-  timerReabrir = setTimeout(() => {
+  timerReabrir = setTimeout(async () => {
     timerReabrir = null;
     if (encerrando || desistiu || geracaoAgendada !== geracao) return;
-    const nasceu = lancar();
-    if (nasceu) {
+    const nasceu = await lancar();
+    if (nasceu && !encerrando && geracaoAgendada === geracao) {
       reinicios++;
       notificar('reaberto');
     }
@@ -384,26 +417,51 @@ function tratarFechamento() {
 function iniciarPing() {
   pararPing();
   const minhaGeracao = geracao;
+  const reagendar = (ciclo) => {
+    timerPing = setTimeout(ciclo, INTERVALO_PING_MS);
+    timerPing.unref?.();
+  };
   const ciclo = async () => {
     timerPing = null;
     if (minhaGeracao !== geracao || encerrando || desistiu || procAtual) return;
-    if (pingEmVoo) return;
+    if (pingEmVoo) { reagendar(ciclo); return; }
     pingEmVoo = true;
     let vivo = null;
     try { vivo = await jogoEstaRodando(); } finally { pingEmVoo = false; }
     if (minhaGeracao !== geracao || encerrando || desistiu || procAtual) return;
+
+    if (vivo === true) {
+      if (!rodando) {
+        rodando = true;
+        inicioDaVida = Date.now();
+        aguardandoSubidaAte = 0;
+        notificar('detectado');
+        logger.info(`[Jogo] ✅ ${nomeGerenciado()} detectado — vigília ativa.`);
+      }
+      reagendar(ciclo);
+      return;
+    }
+
     if (vivo === false) {
-      logger.info('[Jogo] Detectei que o jogo foi fechado (vigília por ping).');
+      if (!rodando && aguardandoSubidaAte > Date.now()) {
+        // Launcher já foi acionado, mas Java/Minecraft ainda está subindo.
+        reagendar(ciclo);
+        return;
+      }
+      if (!rodando && aguardandoSubidaAte) {
+        logger.aviso(`[Jogo] ${nomeGerenciado()} não apareceu dentro do tempo de inicialização.`);
+      } else {
+        logger.info('[Jogo] Detectei que o jogo foi fechado (vigília por ping).');
+      }
       inicioDaVida = inicioDaVida || (Date.now() - INTERVALO_PING_MS * 2);
       tratarFechamento();
       return;
     }
-    // true ou null: nunca sobrepõe uma nova consulta à anterior.
-    timerPing = setTimeout(ciclo, INTERVALO_PING_MS);
-    timerPing.unref?.();
+
+    // null = detector indisponível: nunca assume que o jogo morreu.
+    reagendar(ciclo);
   };
-  timerPing = setTimeout(ciclo, INTERVALO_PING_MS);
-  timerPing.unref?.();
+  reagendar(ciclo);
 }
 
 function pararPing() {
@@ -417,7 +475,8 @@ function pararPing() {
 /**
  * Define os parâmetros do gerenciador.
  * @param {object} opts - { exe, rom, args, autoReiniciar, delayMs,
- *   tentativasMax, vidaMinimaMs, aoEvento, detector (testes) }
+ *   tentativasMax, vidaMinimaMs, aoEvento, detector, lancador,
+ *   startupGraceMs, nomeGerenciado }
  */
 function configurar(opts = {}) {
   cfg = {
@@ -428,9 +487,12 @@ function configurar(opts = {}) {
     delayMs: Number.isFinite(Number(opts.delayMs)) ? Number(opts.delayMs) : 3000,
     tentativasMax: Number(opts.tentativasMax) > 0 ? Number(opts.tentativasMax) : 5,
     vidaMinimaMs: Number(opts.vidaMinimaMs) >= 0 ? Number(opts.vidaMinimaMs) : 15000,
+    startupGraceMs: Number(opts.startupGraceMs) >= 0 ? Number(opts.startupGraceMs) : 0,
+    nomeGerenciado: String(opts.nomeGerenciado || ''),
   };
   if (typeof opts.aoEvento === 'function') aoEvento = opts.aoEvento;
   detectorDeProcesso = typeof opts.detector === 'function' ? opts.detector : null;
+  lancadorCustom = typeof opts.lancador === 'function' ? opts.lancador : null;
 }
 
 /**
@@ -453,7 +515,7 @@ async function iniciar() {
     tentativasRapidas = 0;
     desistiu = false;
     notificar('anexado');
-    logger.info(`[Jogo] 🎮 "${nomeDoProcesso(cfg.exe)}" já está rodando — só vigiando (reabro se fechar).`);
+    logger.info(`[Jogo] 🎮 "${nomeGerenciado()}" já está rodando — só vigiando (reabro se fechar).`);
     iniciarPing();
     return { ok: true, modo: 'anexar' };
   }
@@ -461,13 +523,17 @@ async function iniciar() {
   reinicios = 0;
   tentativasRapidas = 0;
   desistiu = false;
-  const nasceu = lancar();
+  const nasceu = await lancar();
   if (nasceu) {
     notificar('aberto');
     const romTxt = cfg.rom ? ` com ${nomeDoProcesso(cfg.rom)}` : '';
-    logger.info(`[Jogo] 🚀 Abri o jogo "${nomeDoProcesso(cfg.exe)}"${romTxt} — reabro sozinho se fechar (JOGO_AUTO_REINICIAR=${cfg.autoReiniciar ? 'on' : 'off'}).`);
+    if (lancadorCustom) {
+      logger.info(`[Jogo] 🚀 Launcher acionado para abrir ${nomeGerenciado()} — aguardando o processo real do jogo.`);
+    } else {
+      logger.info(`[Jogo] 🚀 Abri o jogo "${nomeGerenciado()}"${romTxt} — reabro sozinho se fechar (JOGO_AUTO_REINICIAR=${cfg.autoReiniciar ? 'on' : 'off'}).`);
+    }
   }
-  return { ok: nasceu, modo: nasceu ? 'spawn' : 'off' };
+  return { ok: nasceu, modo: nasceu ? (lancadorCustom ? 'launcher' : 'spawn') : 'off' };
 }
 
 /** Encerra a vigilância (NÃO mata o jogo — ele é do streamer). */
@@ -477,6 +543,7 @@ function parar() {
   if (timerReabrir) { clearTimeout(timerReabrir); timerReabrir = null; }
   pararPing();
   procAtual = null;
+  aguardandoSubidaAte = 0;
   rodando = false;
 }
 
@@ -487,7 +554,8 @@ function status() {
     exe: cfg.exe,
     rom: cfg.rom,
     romNome: cfg.rom ? nomeDoProcesso(cfg.rom) : '',
-    nome: nomeDoProcesso(cfg.exe),
+    nome: nomeGerenciado(),
+    aguardandoSubida: Boolean(aguardandoSubidaAte && aguardandoSubidaAte > Date.now()),
     modo: modoOperacao,
     rodando: rodando || Boolean(procAtual),
     reabrindo: Boolean(timerReabrir),
@@ -510,11 +578,14 @@ function __resetTeste() {
   inicioDaVida = 0;
   aoEvento = () => {};
   detectorDeProcesso = null;
+  lancadorCustom = null;
+  aguardandoSubidaAte = 0;
   pingEmVoo = false;
   geracao = 0;
   cfg = {
     exe: '', rom: '', args: '', autoReiniciar: true,
     delayMs: 3000, tentativasMax: 5, vidaMinimaMs: 15000,
+    startupGraceMs: 0, nomeGerenciado: '',
   };
 }
 

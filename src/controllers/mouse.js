@@ -72,6 +72,7 @@ public static class ChatPlaysMouse {
     [DllImport("user32.dll", SetLastError=true)] static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", SetLastError=true)] static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll", SetLastError=true)] static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", SetLastError=true)] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
 
     const uint WM_MOUSEMOVE = 0x0200;
@@ -107,8 +108,8 @@ public static class ChatPlaysMouse {
         return new IntPtr(packed);
     }
 
-    static IntPtr FindWindow() {
-        if (String.IsNullOrWhiteSpace(Target)) return IntPtr.Zero;
+    static IntPtr FindWindow(bool allowForeground) {
+        if (String.IsNullOrWhiteSpace(Target)) return allowForeground ? GetForegroundWindow() : IntPtr.Zero;
         string name;
         try { name = Path.GetFileNameWithoutExtension(Target); }
         catch { return IntPtr.Zero; }
@@ -129,11 +130,12 @@ public static class ChatPlaysMouse {
                 } catch { }
             } catch { }
         }
-        return fallback;
+        if (fallback != IntPtr.Zero) return fallback;
+        return allowForeground ? GetForegroundWindow() : IntPtr.Zero;
     }
 
-    static bool GetArea(out IntPtr hwnd, out RECT rect, out POINT origin) {
-        hwnd = FindWindow();
+    static bool GetArea(out IntPtr hwnd, out RECT rect, out POINT origin, bool allowForeground = false) {
+        hwnd = FindWindow(allowForeground);
         rect = new RECT();
         origin = new POINT();
         if (hwnd == IntPtr.Zero) return false;
@@ -230,7 +232,7 @@ public static class ChatPlaysMouse {
 
     static bool GlobalPoint(out IntPtr hwnd, out RECT rect, out POINT origin, out POINT cursor) {
         cursor = new POINT();
-        if (!GetArea(out hwnd, out rect, out origin)) return false;
+        if (!GetArea(out hwnd, out rect, out origin, true)) return false;
         GetCursorPos(out cursor);
         int left = origin.X;
         int top = origin.Y;
@@ -315,7 +317,7 @@ function pararWorker() {
 }
 
 function iniciarWorker() {
-  if (plataformaAtual() !== 'win32' || modo === 'off' || !alvoExe) return false;
+  if (plataformaAtual() !== 'win32' || modo === 'off' || (modo === 'janela' && !alvoExe)) return false;
   if (worker.proc && worker.alvo === alvoExe && !worker.proc.killed) return true;
 
   pararWorker();
@@ -327,7 +329,7 @@ function iniciarWorker() {
       {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
-        env: { ...process.env, CHATPLAYS_MOUSE_TARGET: alvoExe },
+        env: { ...process.env, CHATPLAYS_MOUSE_TARGET: alvoExe || '' },
       }
     );
     worker.proc = proc;
@@ -376,8 +378,8 @@ function enviar(linha) {
     avisar('mouse em modo janela/global está disponível no Windows nesta versão.');
     return false;
   }
-  if (!alvoExe) {
-    avisar('configure EMULADOR_EXE para limitar o mouse à janela do jogo.');
+  if (modo === 'janela' && !alvoExe) {
+    avisar('configure EMULADOR_EXE para usar o mouse em modo janela.');
     return false;
   }
   if (!iniciarWorker() || !worker.proc || !worker.proc.stdin.writable) return false;
@@ -450,8 +452,8 @@ function segurar(botao = 'left', duracaoMs = 1000, dono = null) {
     avisar('mouse em modo janela/global está disponível no Windows nesta versão.');
     return false;
   }
-  if (!alvoExe) {
-    avisar('configure EMULADOR_EXE para limitar o mouse à janela do jogo.');
+  if (modo === 'janela' && !alvoExe) {
+    avisar('configure EMULADOR_EXE para usar o mouse em modo janela.');
     return false;
   }
   if (!iniciarWorker() || !worker.proc || !worker.proc.stdin.writable) return false;

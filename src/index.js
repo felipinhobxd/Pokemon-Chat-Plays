@@ -48,6 +48,7 @@ const overlay = require('./overlay');
 const atualizacao = require('./utils/atualizacao');
 const emulador = require('./utils/emulador');
 const jogo = require('./utils/jogo');
+const minecraftLauncher = require('./utils/minecraft-launcher');
 const votacao = require('./utils/votacao');
 const controles = require('./controles');
 const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
@@ -216,6 +217,14 @@ async function configurarAlvoDoEmulador() {
 function iniciarGerenciadorJogo() {
   if (!exeDoJogo) return;
 
+  const usarLauncherMinecraft =
+    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&
+    minecraftLauncher.ehAtLauncher(exeDoJogo);
+
+  if (usarLauncherMinecraft) {
+    logger.info('[Minecraft] ATLauncher configurado — o ChatPlays vai abrir/reutilizar o launcher e acionar Instances → Play.');
+  }
+
   jogo.configurar({
     exe: exeDoJogo,
     rom: config.jogo.rom,
@@ -224,6 +233,10 @@ function iniciarGerenciadorJogo() {
     delayMs: config.jogo.reiniciarDelayMs,
     tentativasMax: config.jogo.tentativasMax,
     vidaMinimaMs: config.jogo.vidaMinimaMs,
+    detector: usarLauncherMinecraft ? () => minecraftLauncher.minecraftEstaRodando() : undefined,
+    lancador: usarLauncherMinecraft ? () => minecraftLauncher.iniciarAtLauncher(exeDoJogo) : undefined,
+    startupGraceMs: usarLauncherMinecraft ? 180000 : 0,
+    nomeGerenciado: usarLauncherMinecraft ? 'Minecraft' : '',
     aoEvento: (ev) => {
       // reflete na overlay (rodapé: 🎮 rodando / 🔄 reabrindo)
       overlay.setJogo(jogo.status());
@@ -504,11 +517,23 @@ async function main() {
   // Emulador alvo: resolvido DEPOIS do wizard, quando config já foi recarregada.
   await configurarAlvoDoEmulador();
 
+  // Minecraft Java é iniciado pelo launcher, mas teclado/mouse precisam agir
+  // no JOGO real. No ATLauncher, input global evita usar a janela do launcher
+  // como alvo; o mouse global usa a janela em foco (Minecraft).
+  const launcherMinecraftAtivo =
+    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&
+    minecraftLauncher.ehAtLauncher(exeDoJogo);
+  if (launcherMinecraftAtivo && config.teclado.modo !== 'global') {
+    teclado.configurarAlvoJanela(null);
+    overlay.setAlvo(null);
+    logger.aviso('[Minecraft] ATLauncher detectado: forçando teclado GLOBAL para controlar o Minecraft, não o launcher.');
+  }
+
   // Mouse/gamepad são importados antes do wizard pelo pipeline; sincronize-os
   // agora com a configuração FINAL para não manter modo/alvo antigo.
   mouse.configurar({
-    modo: config.mouse.modo,
-    alvoExe: exeDoJogo,
+    modo: launcherMinecraftAtivo ? 'global' : config.mouse.modo,
+    alvoExe: launcherMinecraftAtivo ? null : exeDoJogo,
     passoPx: config.mouse.passoPx,
   });
   gamepad.configurar({
