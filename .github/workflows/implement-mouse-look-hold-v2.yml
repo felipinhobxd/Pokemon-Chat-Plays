@@ -1,0 +1,76 @@
+name: Implement mouse look HOLD v2
+
+on:
+  push:
+    branches:
+      - feat/mouse-look-hold
+    paths:
+      - .github/workflows/implement-mouse-look-hold-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Apply implementation and message fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/implement-mouse-look-hold.yml').read_text(encoding='utf-8')
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "          PY\n\n      - name: Install and validate"
+          start = src.index(start_marker) + len(start_marker)
+          end = src.index(end_marker, start)
+          lines = src[start:end].splitlines()
+          code = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          Path('/tmp/mouse-look-hold.py').write_text(code, encoding='utf-8')
+          PY
+          python3 /tmp/mouse-look-hold.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/messages.js')
+          s = p.read_text(encoding='utf-8')
+          # Não injeta nomes de direção no !comandos dinâmico: isso poderia
+          # parecer um controle desligado. A descoberta completa fica no !hold.
+          s = s.replace("    itens.push('hold olhar cima 2s');\n", '', 1)
+          # Mantém cada linha curta, como exigem os testes de legibilidade.
+          s = s.replace(
+              "    '🖱 hold olhar cima 2s / hold camera direita 500ms',\n",
+              "    '🖱 hold olhar cima 2s',\n    '🖱 hold camera direita 500ms',\n",
+              1,
+          )
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Install and validate
+        run: |
+          npm ci
+          npm test
+          npm audit --audit-level=high
+
+      - name: Commit clean implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/implement-mouse-look-hold.yml
+          rm -f .github/workflows/implement-mouse-look-hold-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add continuous HOLD for mouse look"
+          git push origin HEAD:feat/mouse-look-hold
