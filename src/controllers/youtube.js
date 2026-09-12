@@ -300,14 +300,22 @@ async function buscarMensagens() {
       const autorId = detalhesAutor.channelId || autor;
       const texto = item.snippet?.displayMessage || '';
       if (texto) {
-        processarMensagem({
-          plataforma: 'youtube',
-          usuario: autor,
-          usuarioId: autorId,
-          broadcaster: Boolean(detalhesAutor.isChatOwner),
-          texto,
-          responder: null,
-        });
+        // O pipeline de chat é isolado da CONTABILIZAÇÃO de falhas da API:
+        // um erro pontual ao processar uma mensagem (bug de handler) não
+        // pode ser interpretado como falha do polling — senão 30 mensagens
+        // problemáticas davam por encerrado o cliente do YouTube.
+        try {
+          processarMensagem({
+            plataforma: 'youtube',
+            usuario: autor,
+            usuarioId: autorId,
+            broadcaster: Boolean(detalhesAutor.isChatOwner),
+            texto,
+            responder: null,
+          });
+        } catch (err) {
+          logger.erro(`[YouTube] Erro ao processar mensagem de @${autor}: ${err?.message || err}`);
+        }
       }
     }
   } catch (err) {

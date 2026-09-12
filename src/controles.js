@@ -62,6 +62,16 @@ const RESERVADOS = new Set([
   ...PALAVRAS_SOLTAR,
   ...PALAVRAS_OLA,
   ...Object.values(NOMES_INFO).flat(),
+  // v3: comandos exatos dos namespaces de mouse/macro. O runtime resolve
+  // esses parsers ANTES do registro de controles — um alias assim seria
+  // silenciosamente sombreado (o chat clicaria o mouse em vez de apertar a
+  // tecla configurada), então o assistente precisa recusá-los na origem.
+  'dialogo', 'dialogue',
+  'clique', 'click', 'clicar', 'rightclick',
+  'clique esquerdo', 'click esquerdo', 'left click',
+  'mouse clique', 'mouse click',
+  'clique direito', 'click direito', 'right click',
+  'mouse clique direito', 'mouse click direito',
 ]);
 
 // ---------------------------------------------------------------------------

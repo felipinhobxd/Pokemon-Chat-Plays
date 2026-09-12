@@ -6,6 +6,7 @@
  */
 
 const logger = require('./utils/logger');
+const { config } = require('./config');
 const cooldown = require('./utils/cooldown');
 const stats = require('./utils/stats');
 const pausa = require('./utils/pausa');

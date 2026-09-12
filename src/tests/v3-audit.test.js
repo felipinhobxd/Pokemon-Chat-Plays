@@ -5,6 +5,8 @@ const handlers = require('../handlers');
 const jogo = require('../utils/jogo');
 const overlay = require('../overlay');
 const votacao = require('../utils/votacao');
+const pausa = require('../utils/pausa');
+const controles = require('../controles');
 const { testarComando } = require('../testar-comando');
 const perfis = require('../perfis');
 const teclado = require('../controllers/keyboard');
@@ -85,4 +87,79 @@ test('v3 panic queue: cancellable taps can be purged and priority goes to front'
   assert.strictEqual(q.cancelarToquesPendentes(), 1);
   assert.ok(q.inspecao().every((x) => x !== 'toque'));
   q.limpar();
+});
+
+// ---------------------------------------------------------------------------
+// v3.0.1: regressões de auditoria de release
+// ---------------------------------------------------------------------------
+
+test('v3.0.1 gamepad pipeline: "pad" durante PAUSA não lança exceção (config ausente)', () => {
+  const gamepadIntegration = require('../gamepad-integration');
+  gamepadIntegration.instalar();
+  pausa.definir(true, 'teste');
+  try {
+    assert.doesNotThrow(() => {
+      handlers.processarMensagem({ plataforma: 'twitch', usuario: 'alguem', usuarioId: '7', broadcaster: false, texto: 'pad a' });
+    });
+  } finally {
+    pausa.definir(false, 'teste');
+  }
+});
+
+test('v3.0.1 gamepad pipeline: "pad" em DEMOCRACIA não lança exceção nem executa', () => {
+  const gamepadIntegration = require('../gamepad-integration');
+  gamepadIntegration.instalar();
+  votacao.resetar();
+  votacao.definirModo('democracia', 'teste');
+  try {
+    assert.doesNotThrow(() => {
+      handlers.processarMensagem({ plataforma: 'youtube', usuario: 'alguem', usuarioId: 'UC9', broadcaster: false, texto: 'pad a' });
+    });
+    // em democracia o gamepad é bloqueado: nenhum voto de botão contabilizado
+    const st = votacao.status();
+    assert.strictEqual(st.totalVotantes, 0);
+  } finally {
+    votacao.resetar();
+  }
+});
+
+test('v3.0.1 dialogo em democracia: voto usa identidade estável, não displayName', () => {
+  votacao.resetar();
+  votacao.definirModo('democracia', 'teste');
+  try {
+    // Dois usuários DIFERENTES do YouTube com o MESMO displayName: 2 votos.
+    // (Com displayName como chave, o segundo voto era ignorado como
+    // "mesmo usuário" — e displayNames do YouTube podem colidir.)
+    handlers.processarMensagem({ plataforma: 'youtube', usuario: 'Nome Igual', usuarioId: 'UC1', broadcaster: false, texto: 'dialogo' });
+    handlers.processarMensagem({ plataforma: 'youtube', usuario: 'Nome Igual', usuarioId: 'UC2', broadcaster: false, texto: 'dialogo' });
+    const st = votacao.status();
+    assert.strictEqual(st.totalVotantes, 2);
+    const candidatoA = st.candidatos.find((c) => c.botao === 'a');
+    assert.strictEqual(candidatoA ? candidatoA.votos : 0, 2);
+    // repetir o voto do MESMO usuário é idempotente (não soma)
+    handlers.processarMensagem({ plataforma: 'youtube', usuario: 'Nome Igual', usuarioId: 'UC1', broadcaster: false, texto: 'dialogo' });
+    const st2 = votacao.status();
+    assert.strictEqual(st2.totalVotantes, 2);
+    const a2 = st2.candidatos.find((c) => c.botao === 'a');
+    assert.strictEqual(a2 ? a2.votos : 0, 2);
+  } finally {
+    votacao.resetar();
+  }
+});
+
+test('v3.0.1 aliases: palavras exatas dos namespaces mouse/macro são reservadas', () => {
+  // 'clique'/'dialogo' etc. são comandos que o runtime resolve ANTES do
+  // registro de controles — o assistente precisa recusir o alias na origem.
+  const lista = [{ label: 'Tiro', key: 'f', aliases: ['clique', 'tiro'] }];
+  const v = controles.validarLista(lista);
+  assert.ok(v.erros.some((e) => e.includes('"clique"') && e.includes('reservada')));
+  assert.ok(!v.erros.some((e) => e.includes('"tiro"')));
+
+  const lista2 = [{ label: 'Macro', key: 'f', aliases: ['dialogo'] }];
+  const v2 = controles.validarLista(lista2);
+  assert.ok(v2.erros.some((e) => e.includes('"dialogo"') && e.includes('reservada')));
+
+  // o wizard recebe a lista reservada do servidor (espelho em tempo real)
+  assert.ok(controles.RESERVADOS.has('dialogo'));
+  assert.ok(controles.RESERVADOS.has('right click'));
 });

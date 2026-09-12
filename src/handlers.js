@@ -256,7 +256,10 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
       }
 
       if (votacao.modoAtual() === 'democracia') {
-        votacao.votar('a', usuario);
+        // identidade estável (platform:id) — displayNames do YouTube podem
+        // colidir; o voto tem que ser 1 por usuário REAL (mesma regra do
+        // hold/botao acima)
+        votacao.votar('a', ator);
         return;
       }
 
