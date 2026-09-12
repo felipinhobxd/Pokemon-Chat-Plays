@@ -91,6 +91,17 @@ test('botão simples vai para o teclado', () => {
   assert.strictEqual(responder ? 0 : 0, 0); // sem respostas de chat para toques
 });
 
+test('sequência a+direita+baixo chega ao teclado exatamente na ordem', () => {
+  chamadasTeclado = [];
+  const { responder } = criarResponderEspiao();
+  processarMensagem({ plataforma: 'twitch', usuario: 'combo', texto: 'a+direita+baixo', responder });
+  assert.deepStrictEqual(chamadasTeclado, [
+    { fn: 'executarBotao', botao: 'a' },
+    { fn: 'executarBotao', botao: 'right' },
+    { fn: 'executarBotao', botao: 'down' },
+  ]);
+});
+
 test('hold vai para o teclado com duração correta', () => {
   chamadasTeclado = [];
   const { respostas, responder } = criarResponderEspiao();

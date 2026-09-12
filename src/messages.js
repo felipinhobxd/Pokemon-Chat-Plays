@@ -217,6 +217,9 @@ function itensAvancados() {
     itens.push('pad rt 75');
   }
 
+  const sequencia = controles.ativos().map((c) => palavraPrincipal(c)).filter(Boolean).slice(0, 3);
+  if (sequencia.length >= 2) itens.push(`🔗 sequência: ${sequencia.join('+')}`);
+
   itens.push('🔓 soltar/release libera tudo');
   if (faixaHold) itens.push(`⏱ HOLD: 1ms–${formatarDuracao(config.geral.holdMaxMs)}`);
   return itens;

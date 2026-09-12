@@ -392,6 +392,49 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
       return;
     }
 
+    case 'sequencia': {
+      const botoes = Array.isArray(parsed.botoes) ? parsed.botoes : [];
+      const descricao = botoes.join('+');
+      if (!botoes.length || bloqueadoPelaPausa(usuario, descricao)) return;
+
+      // Sequência é uma ação direta de Anarquia. Em Democracia não
+      // executamos um macro multi-ação nem transformamos uma mensagem
+      // em vários votos (isso quebraria a regra de 1 voto por pessoa).
+      if (votacao.modoAtual() === 'democracia') {
+        if (config.geral.debug) {
+          logger.debug(`[Chat] sequência "${descricao}" ignorada em democracia.`);
+        }
+        return;
+      }
+
+      // Valida TODOS os cooldowns antes de executar o primeiro item.
+      // Assim nunca fica uma sequência pela metade por cooldown e o `+`
+      // não vira atalho para contornar cooldown específico de comando.
+      for (const botao of botoes) {
+        const verificacao = verificarCooldown(contexto, botao);
+        if (!verificacao.permitido) {
+          if (config.geral.debug) {
+            logger.debug(`[Chat] @${usuario} bloqueado na sequência ${descricao}: ${botao} — ${verificacao.motivo}`);
+          }
+          return;
+        }
+      }
+
+      let executados = 0;
+      for (const botao of botoes) {
+        const ok = teclado.executarBotao(botao);
+        if (!ok) break;
+        executados++;
+        cooldown.registrarExecucao(ator, botao);
+        stats.registrar(botao, plataforma, usuario);
+        overlay.registrarAcao(usuario, botao, 'tap');
+      }
+      if (executados > 0) {
+        logger.comando(`[Chat] 🔗 @${usuario}: sequência ${descricao} (${executados}/${botoes.length})`);
+      }
+      return;
+    }
+
     case 'botao': {
       if (bloqueadoPelaPausa(usuario, parsed.botao)) return;
       const chaveCooldown = parsed.botao;

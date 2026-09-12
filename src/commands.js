@@ -78,6 +78,36 @@ const MODO_INFO_CANONICO = Object.freeze({
   voting: 'votacao',
 });
 
+
+/** Máximo de ações em uma única mensagem encadeada (anti-abuso). */
+const MAX_SEQUENCIA_COMANDOS = 10;
+
+/**
+ * Interpreta uma sequência de controles ativos separados por `+`.
+ * A resolução usa o MESMO registro/aliases dos controles normais,
+ * portanto funciona com qualquer jogo/perfil e controles customizados.
+ * Um alias exato contendo `+` continua tendo prioridade porque o parser
+ * tenta resolver o texto inteiro antes de chamar esta função.
+ *
+ * Ex.: "a+direita+baixo" -> { tipo: 'sequencia', botoes: ['a','right','down'] }
+ * @param {string} texto Texto já normalizado.
+ * @returns {object|null}
+ */
+function parseSequencia(texto) {
+  if (typeof texto !== 'string' || !texto.includes('+')) return null;
+  const partes = texto.split('+').map((p) => p.trim());
+  if (partes.length < 2 || partes.length > MAX_SEQUENCIA_COMANDOS) return null;
+  if (partes.some((p) => !p)) return null;
+
+  const botoes = [];
+  for (const parte of partes) {
+    const botao = resolverControle(parte);
+    if (!botao) return null;
+    botoes.push(botao);
+  }
+  return { tipo: 'sequencia', botoes };
+}
+
 /**
  * Resolve um texto para um controle ativo.
  *
@@ -243,9 +273,15 @@ function parseComando(mensagemBruta) {
     return { tipo: 'ola' };
   }
 
-  // 5) Controle simples (alias configurado ou fallback PT-BR/EN)
+  // 5) Controle simples (alias configurado ou fallback PT-BR/EN).
+  // Tenta o texto INTEIRO primeiro para não quebrar um alias custom que
+  // legitimamente contenha `+`.
   const botao = resolverControle(texto);
   if (botao) return { tipo: 'botao', botao };
+
+  // 6) Sequência genérica: a+direita+baixo, frente+pular, etc.
+  const sequencia = parseSequencia(texto);
+  if (sequencia) return sequencia;
 
   return null;
 }
@@ -255,5 +291,7 @@ module.exports = {
   removerAcentos,
   resolverControle,
   aliasesEfetivos,
+  parseSequencia,
+  MAX_SEQUENCIA_COMANDOS,
   ALIASES_BILINGUES,
 };

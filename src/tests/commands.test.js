@@ -41,6 +41,27 @@ test('botões simples em português', () => {
   }
 });
 
+test('sequência com + executa aliases na ordem e aceita espaços/PT-EN', () => {
+  assert.deepStrictEqual(parseComando('a+direita+baixo'), {
+    tipo: 'sequencia',
+    botoes: ['a', 'right', 'down'],
+  });
+  assert.deepStrictEqual(parseComando('  A + right + baixo  '), {
+    tipo: 'sequencia',
+    botoes: ['a', 'right', 'down'],
+  });
+  assert.deepStrictEqual(parseComando('cima+baixo+cima'), {
+    tipo: 'sequencia',
+    botoes: ['up', 'down', 'up'],
+  });
+});
+
+test('sequência é atômica no parser: vazio, alias inválido ou >10 itens são rejeitados', () => {
+  assert.strictEqual(parseComando('a++direita'), null);
+  assert.strictEqual(parseComando('a+pizza+baixo'), null);
+  assert.strictEqual(parseComando(Array(11).fill('a').join('+')), null);
+});
+
 test('mensagens normais não são comandos', () => {
   const naoComandos = [
     'oi pessoal tudo bem?',

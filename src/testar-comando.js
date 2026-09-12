@@ -180,6 +180,22 @@ function descrever(entrada, parsed, contexto = {}) {
     return r;
   }
 
+  if (parsed.tipo === 'sequencia') {
+    const botoes = Array.isArray(parsed.botoes) ? parsed.botoes : [];
+    r.categoria = 'teclado';
+    r.titulo = '🔗 Sequência de comandos';
+    r.resumo = `Executaria ${botoes.length} comandos em ordem: ${botoes.join(' → ')}.`;
+    r.detalhes = botoes.map((id, i) => {
+      const c = controlePorId(id);
+      return `${i + 1}. ${c?.label || id} → tecla ${c?.key || '(não encontrada)'}`;
+    });
+    if (contexto.democracia) {
+      r.resumo = 'Em Democracia, sequências ficam bloqueadas para preservar um voto por pessoa.';
+      r.executaria = false;
+    } else r.executaria = botoes.length > 0;
+    return r;
+  }
+
   if (parsed.tipo === 'botao' || parsed.tipo === 'hold') {
     const c = controlePorId(parsed.botao);
     r.categoria = 'teclado';
