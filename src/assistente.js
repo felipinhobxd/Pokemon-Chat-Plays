@@ -49,6 +49,7 @@ const {
 const { interpretarErroApi } = require('./controllers/youtube');
 const { PAGINA } = require('./assistente-pagina');
 const controles = require('./controles');
+const { testarComando } = require('./testar-comando');
 
 const PORTA_PADRAO = 8124;
 const LIMITE_BODY_BYTES = 64 * 1024;
@@ -826,6 +827,18 @@ async function tratarRequisicao(req, res) {
         exe: body.EMULADOR_EXE ?? config.teclado.emuladorExe,
         rom: body.JOGO_ROM ?? config.jogo.rom,
       });
+      responderJson(res, 200, resultado);
+      return;
+    }
+
+    // Passo 4: simula o MESMO parser do chat sem enviar input ao jogo.
+    // A lista atual do wizard pode vir junto para testar aliases ainda não salvos.
+    if (req.method === 'POST' && url === '/api/testar-comando') {
+      const body = await lerBody(req);
+      const resultado = testarComando(
+        body.texto,
+        Array.isArray(body.controles) ? body.controles : undefined
+      );
       responderJson(res, 200, resultado);
       return;
     }

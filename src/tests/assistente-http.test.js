@@ -300,6 +300,27 @@ test('POST /api/gerar-aliases sem corpo não explode (400 do JSON inválido)', a
   assert.strictEqual(r.status, 400);
 });
 
+test('POST /api/testar-comando simula alias ainda não salvo sem executar o jogo', async () => {
+  const lista = controles.todos();
+  lista.push({
+    id: 'dash_teste', label: 'Dash', icone: '🎮', key: 'space',
+    aliases: ['dashagora'], holdable: true, builtin: false, enabled: true,
+  });
+  const r = await pedir(porta, '/api/testar-comando', {
+    metodo: 'POST',
+    headers: { 'Content-Type': 'application/json', Host: `localhost:${porta}` },
+    body: JSON.stringify({ texto: 'dashagora', controles: lista }),
+  });
+  assert.strictEqual(r.status, 200);
+  const d = JSON.parse(r.corpo);
+  assert.equal(d.ok, true);
+  assert.equal(d.reconhecido, true);
+  assert.equal(d.categoria, 'teclado');
+  assert.equal(d.parsed.botao, 'dash teste');
+  assert.ok(d.detalhes.includes('Tecla: space'));
+  assert.equal(parseComando('dashagora'), null, 'simulação não pode persistir o alias temporário');
+});
+
 // ---------------------------------------------------------------------------
 // REGRESSÃO v2.9.1 — o wizard entrega os controles PERSISTIDOS no boot
 //

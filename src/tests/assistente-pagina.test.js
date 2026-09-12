@@ -147,3 +147,12 @@ for (const motivo of ['cancelar', 'blur']) {
     h.conferirLimpeza();
   });
 }
+
+
+test('modo Testar Comandos aparece no wizard e deixa claro que é simulação', () => {
+  assert.match(PAGINA, /🧪 Testar Comandos/);
+  assert.match(PAGINA, /\/api\/testar-comando/);
+  assert.match(PAGINA, /Não envia nenhuma tecla, clique ou gamepad/);
+  assert.match(PAGINA, /hold direita 2/);
+  assert.match(PAGINA, /pad a/);
+});
