@@ -86,3 +86,43 @@ test('mouse global: opera sem EMULADOR_EXE usando a janela em foco', () => {
     mouse.configurar({ modo: antes.modo, alvoExe: antes.alvoExe, passoPx: antes.passoPx });
   }
 });
+
+test('ATLauncher: Minecraft JÁ rodando não clica Play de novo (guarda anti-duplicado)', async () => {
+  const scripts = [];
+  launcher.__test.definirExecutor(async (script) => {
+    scripts.push(script);
+    return /Get-CimInstance/.test(script)
+      ? { ok: true, codigo: 0, stdout: 'RUNNING=1', stderr: '', timeout: false }
+      : { ok: true, codigo: 0, stdout: 'RESULT=ok;METHOD=uia', stderr: '', timeout: false };
+  });
+  launcher.__test.definirPlataforma('win32');
+  try {
+    const ok = await launcher.iniciarAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
+    assert.strictEqual(ok, true);
+    assert.strictEqual(scripts.length, 1, 'só a detecção deve rodar; Instances → Play não pode ser acionado');
+    assert.match(scripts[0], /Get-CimInstance/);
+  } finally {
+    launcher.__test.definirExecutor(null);
+    launcher.__test.definirPlataforma(null);
+  }
+});
+
+test('ATLauncher: Minecraft parado → detecção + automação normal (Instances → Play)', async () => {
+  const scripts = [];
+  launcher.__test.definirExecutor(async (script) => {
+    scripts.push(script);
+    return /Get-CimInstance/.test(script)
+      ? { ok: true, codigo: 0, stdout: 'RUNNING=0', stderr: '', timeout: false }
+      : { ok: true, codigo: 0, stdout: 'RESULT=ok;METHOD=uia', stderr: '', timeout: false };
+  });
+  launcher.__test.definirPlataforma('win32');
+  try {
+    const ok = await launcher.iniciarAtLauncher('C:\\ATLauncher\\ATLauncher.exe');
+    assert.strictEqual(ok, true);
+    assert.strictEqual(scripts.length, 2, 'detecção + automação');
+    assert.match(scripts[1], /Find-ByName \$root 'Play'/);
+  } finally {
+    launcher.__test.definirExecutor(null);
+    launcher.__test.definirPlataforma(null);
+  }
+});

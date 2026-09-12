@@ -226,6 +226,55 @@ test('mouse: hold de olhar repete movimento e soltar cancela imediatamente', asy
   }
 });
 
+test('mouse: corrida de timers — soltar troca olhar cima por baixo e o timer VELHO nunca interfere', async () => {
+  mouse.configurar({ modo: 'global', alvoExe: null, passoPx: 40 });
+  const linhas = [];
+  mouse.__test.simular({ plataforma: 'win32', linhas });
+  try {
+    // hold olhar cima 600ms (o "10s" do caso real, encurtado p/ teste)
+    assert.strictEqual(mouse.segurarMovimento(0, -1, 600, 'a'), true);
+    await sleep(100);
+    assert.ok(linhas.filter((l) => l === 'MG 0 -40').length >= 1, 'cima deve ter andado antes do soltar');
+    // soltar (F9/soltar chamariam soltarTodos) e novo hold baixo 250ms
+    assert.strictEqual(mouse.soltarTodos(), 1);
+    const marco = linhas.length;
+    assert.strictEqual(mouse.segurarMovimento(0, 1, 250, 'b'), true);
+    // espera o novo terminar (250ms) E o prazo do timer antigo (600ms) vencer
+    await sleep(560);
+    const depois = linhas.slice(marco);
+    assert.ok(depois.length >= 2, 'baixo deve ter se movido (imediato + tick)');
+    assert.ok(depois.every((l) => l === 'MG 0 40'), 'nenhum tick de CIMA pode vazar após o soltar');
+    assert.strictEqual(mouse.totalSegurando(), 0, 'nada fica segurado no fim');
+    const tamanho = linhas.length;
+    await sleep(150);
+    assert.strictEqual(linhas.length, tamanho, 'zero ticks depois que os dois holds acabaram');
+  } finally {
+    mouse.__test.restaurar();
+    mouse.configurar({ modo: 'janela', alvoExe: null });
+  }
+});
+
+test('mouse: re-hold da MESMA direção substitui os timers antigos (não soma, não estende)', async () => {
+  mouse.configurar({ modo: 'global', alvoExe: null, passoPx: 40 });
+  const linhas = [];
+  mouse.__test.simular({ plataforma: 'win32', linhas });
+  try {
+    assert.strictEqual(mouse.segurarMovimento(0, -1, 400, 'a'), true);
+    await sleep(80);
+    // novo hold da mesma direção, mais curto: substitui, não empilha
+    assert.strictEqual(mouse.segurarMovimento(0, -1, 150, 'b'), true);
+    assert.strictEqual(mouse.totalSegurando(), 1, 'mesma direção = 1 hold ativo (substituiu)');
+    await sleep(420); // novo (150ms) e o velho (400ms) já venceram ambos
+    assert.strictEqual(mouse.totalSegurando(), 0, 'o hold substituído não pode manter nada vivo');
+    const tamanho = linhas.length;
+    await sleep(150);
+    assert.strictEqual(linhas.length, tamanho, 'nenhum tick do timer antigo após a substituição terminar');
+  } finally {
+    mouse.__test.restaurar();
+    mouse.configurar({ modo: 'janela', alvoExe: null });
+  }
+});
+
 test('mouse: hold real down→up com worker simulado (janela e global)', async () => {
   mouse.configurar({ modo: 'janela', alvoExe: 'C:\\Game\\game.exe', passoPx: 40 });
   const linhas = [];

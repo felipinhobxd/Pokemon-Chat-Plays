@@ -62,6 +62,24 @@ test('sequência é atômica no parser: vazio, alias inválido ou >10 itens são
   assert.strictEqual(parseComando(Array(11).fill('a').join('+')), null);
 });
 
+test('alias exato contendo "+" tem prioridade sobre o parser de sequência', () => {
+  // A validação oficial REJEITA "+" em palavras de chat (validarLista), mas o
+  // parser mantém a defesa: o texto INTEIRO é tentado ANTES da sequência.
+  // Aqui o alias entra pela via de teste (__definirLista) para provar a ordem.
+  controles.__definirLista([
+    { id: 'supercombo', label: 'Super Combo', icone: '⭐', key: 'ctrl', aliases: ['super+combo'], holdable: false, builtin: false, enabled: true },
+    { id: 'cima', label: 'Cima', icone: '⬆', key: 'up', aliases: ['cima'], holdable: true, builtin: false, enabled: true },
+  ]);
+  try {
+    // o texto INTEIRO casa com o alias configurado: é UM botão, não sequência
+    assert.deepStrictEqual(parseComando('super+combo'), { tipo: 'botao', botao: 'supercombo' });
+    // texto normal com "+" que não é alias: continua não-comando (item inválido)
+    assert.strictEqual(parseComando('pizza+combo'), null);
+  } finally {
+    controles.restaurarPadrao();
+  }
+});
+
 test('mensagens normais não são comandos', () => {
   const naoComandos = [
     'oi pessoal tudo bem?',

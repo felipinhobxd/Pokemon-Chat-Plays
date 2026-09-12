@@ -410,6 +410,13 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
       // Valida TODOS os cooldowns antes de executar o primeiro item.
       // Assim nunca fica uma sequência pela metade por cooldown e o `+`
       // não vira atalho para contornar cooldown específico de comando.
+      // Repetição do MESMO botão na sequência também não pode virar bypass:
+      // se existe cooldown específico configurado para ele (ex.:
+      // COMMAND_COOLDOWNS="a=5s"), o 2º "a" de "a+a+a+a+a" já estaria
+      // bloqueado — a sequência inteira é rejeitada, igual a qualquer
+      // outro item frio. Sem regra específica, repetir continua legítimo
+      // ("cima+baixo+cima" é um caso de uso real).
+      const vistos = new Set();
       for (const botao of botoes) {
         const verificacao = verificarCooldown(contexto, botao);
         if (!verificacao.permitido) {
@@ -418,6 +425,13 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
           }
           return;
         }
+        if (vistos.has(botao) && cooldown.limiteEspecificoMs(botao) > 0) {
+          if (config.geral.debug) {
+            logger.debug(`[Chat] @${usuario}: sequência ${descricao} rejeitada — "${botao}" repetido tem cooldown específico.`);
+          }
+          return;
+        }
+        vistos.add(botao);
       }
 
       let executados = 0;

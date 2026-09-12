@@ -19,6 +19,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 const logger = require('./logger');
 
+/** Executor de PowerShell usado internamente (substituível só em testes). */
+let executorPowerShell = executarPowerShell;
+
+/** Plataforma atual (substituível só em testes). */
+let plataformaAtual = () => process.platform;
+
 function nomeBase(exe) {
   return String(exe || '').trim().replace(/\\/g, '/').split('/').pop().toLowerCase();
 }
@@ -289,9 +295,18 @@ async function iniciarAtLauncher(launcherExe) {
     logger.aviso('[Minecraft] Launcher ainda não suportado automaticamente; por enquanto o fluxo automático é para ATLauncher.');
     return false;
   }
-  if (process.platform !== 'win32') {
+  if (plataformaAtual() !== 'win32') {
     logger.aviso('[Minecraft] Automação do ATLauncher está disponível no Windows.');
     return false;
+  }
+
+  // Guarda anti-clique-duplo: se o Minecraft JÁ está de pé (ex.: corrida
+  // entre o watchdog decidir reabrir e o Java terminar de subir), clicar em
+  // Play de novo poderia abrir uma 2ª instância. Nesse caso só retomamos
+  // a vigília — o detector do gerenciador cuida do resto.
+  if (await minecraftEstaRodando() === true) {
+    logger.info('[Minecraft] ✅ Minecraft já está rodando — Instances → Play desnecessário.');
+    return true;
   }
 
   const screenshotPath = path.join(
@@ -299,7 +314,7 @@ async function iniciarAtLauncher(launcherExe) {
     `chatplays-atlauncher-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.png`
   );
 
-  const res = await executarPowerShell(
+  const res = await executorPowerShell(
     montarScriptAtLauncher(launcherExe, screenshotPath),
     { timeoutMs: 60000 }
   );
@@ -319,7 +334,7 @@ async function iniciarAtLauncher(launcherExe) {
 }
 
 async function minecraftEstaRodando() {
-  if (process.platform !== 'win32') return null;
+  if (plataformaAtual() !== 'win32') return null;
   const script = String.raw`
 $found = $null
 try {
@@ -339,9 +354,19 @@ if (-not $found) {
 
 if ($found) { Write-Output 'RUNNING=1' } else { Write-Output 'RUNNING=0' }
 `;
-  const res = await executarPowerShell(script, { timeoutMs: 6000 });
+  const res = await executorPowerShell(script, { timeoutMs: 6000 });
   if (!res.ok) return null;
   return /RUNNING=1/.test(res.stdout);
+}
+
+/** Substitui o executor de PowerShell (exclusivo para testes). */
+function __definirExecutor(fn) {
+  executorPowerShell = typeof fn === 'function' ? fn : executarPowerShell;
+}
+
+/** Substitui a plataforma vista pelo módulo (exclusivo para testes). */
+function __definirPlataforma(p) {
+  plataformaAtual = typeof p === 'string' ? () => p : () => process.platform;
 }
 
 module.exports = {
@@ -353,4 +378,5 @@ module.exports = {
   executarPowerShell,
   iniciarAtLauncher,
   minecraftEstaRodando,
+  __test: { definirExecutor: __definirExecutor, definirPlataforma: __definirPlataforma },
 };

@@ -95,6 +95,22 @@ class CooldownManager {
     }
   }
 
+  /**
+   * (Somente leitura) Maior cooldown ESPECÍFICO configurado que se aplica à
+   * chave (ex.: "a" → 5000; "hold:w" → 3000). Retorna 0 quando não há
+   * regra específica — usado para decisões como "pode repetir esta ação
+   * dentro de uma mesma sequência sem driblar a política de cooldown?".
+   * Não registra nem consume NADA (não tem efeito colateral).
+   */
+  limiteEspecificoMs(chaveComando = '') {
+    const cfg = this._config();
+    let max = 0;
+    for (const limite of this._limitesEspecificos(chaveComando, cfg.especificos)) {
+      if (limite.ms > max) max = limite.ms;
+    }
+    return max;
+  }
+
   diagnostico() {
     const cfg = this._config();
     return {

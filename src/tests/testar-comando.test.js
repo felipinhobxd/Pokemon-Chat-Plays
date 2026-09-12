@@ -58,3 +58,35 @@ test('lista de controles inválida é recusada sem alterar registro atual', () =
   assert.ok(r.erros.some((e) => /jump/i.test(e)));
   assert.deepEqual(controles.todos(), antes);
 });
+
+test('tester descreve sequência com ordem explícita sem executar nada', () => {
+  const r = testarComando('a+direita+baixo');
+  assert.equal(r.reconhecido, true);
+  assert.equal(r.categoria, 'teclado');
+  assert.equal(r.executaria, true);
+  assert.match(r.resumo, /a → right → down/);
+  assert.ok(r.detalhes.some((d) => /→ tecla /.test(d)), 'detalhes devem mostrar a tecla de cada item');
+});
+
+test('tester explica que sequência não roda em democracia (1 voto por pessoa)', () => {
+  const r = testarComando('a+direita+baixo', null, { democracia: true });
+  assert.equal(r.reconhecido, true);
+  assert.equal(r.executaria, false);
+  assert.match(r.resumo, /Democracia/);
+});
+
+test('tester descreve hold de olhar/camera com duração normalizada e bloqueios', () => {
+  const ok = testarComando('hold olhar cima 2s', null, { modoMouse: 'global' });
+  assert.equal(ok.reconhecido, true);
+  assert.equal(ok.categoria, 'mouse');
+  assert.equal(ok.executaria, true);
+  assert.match(ok.resumo, /cima por 2000ms/);
+
+  const off = testarComando('hold olhar cima 2s', null, { modoMouse: 'off' });
+  assert.equal(off.executaria, false);
+  assert.match(off.resumo, /desativado/i);
+
+  const demo = testarComando('hold olhar cima 2s', null, { modoMouse: 'global', democracia: true });
+  assert.equal(demo.executaria, false);
+  assert.match(demo.resumo, /Democracia/);
+});
