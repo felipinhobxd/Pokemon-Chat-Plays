@@ -13,11 +13,24 @@
  */
 
 const controles = require('./controles');
-const { aliasesEfetivos } = require('./commands');
+const { aliasesEfetivos, ALIASES_BILINGUES } = require('./commands');
 const { config } = require('./config');
 
-/** Limite prático de caracteres por mensagem (Twitch = 500). */
+/** Limite prático de caracteres por mensagem (Twitch = 500; margem). */
 const LIMITE_CARACTERES = 480;
+
+/**
+ * Alvo de legibilidade por mensagem do !comandos (v3.1.x): cabe numa linha
+ * de chat sem virar parede de texto. Acima disso a geração compacta
+ * (sinônimos fora) ou divide a lista em mais partes.
+ */
+const ALVO_IDEAL = 430;
+
+/** Custo estimado do cabeçalho "🎮 JOGO (i/N)" ao dividir listas grandes. */
+const CUSTO_CABECALHO = 16;
+
+/** Custo da dica "💬 sem ! nos controles" anexada à PRIMEIRA parte. */
+const CUSTO_DICA = 25;
 
 /**
  * Formata duração em texto amigável.
@@ -58,112 +71,203 @@ function palavraPrincipal(c) {
 }
 
 /**
- * Linha de lista para um controle: "⬆ cima (ou up, subir, sobe)".
- * Mostra apenas aliases que realmente resolvem para este controle agora,
- * incluindo os fallbacks PT-BR/EN de compatibilidade.
- * Cabe sempre em 45 caracteres (reduz os extras se precisar).
+ * Complemento de alias "mais útil" para exibir junto da primária (v3.1.x).
+ *
+ * Controles clássicos: usa o par PT/EN oficial da tabela bilíngue
+ * ("cima/up", "salvar/save", "select/selecionar"...). Controles
+ * personalizados: o primeiro alias que não é mera variação da primária
+ * (evita "salvar/salva"; prefere "salvar/save"). Determinístico: mesma
+ * lista de aliases produz sempre o mesmo complemento.
  * @param {object} c - controle do registro
- * @returns {string}
+ * @param {string} primaria
+ * @returns {string|null} alias complementar ou null (só a primária)
  */
-function linhaControle(c) {
+function complementoAlias(c, primaria) {
   const aliases = aliasesEfetivos(c);
+  const par = ALIASES_BILINGUES[c.id];
+  if (Array.isArray(par)) {
+    const outro = par.find((a) => a !== primaria && aliases.includes(a));
+    if (outro) return outro;
+  }
+  for (const candidato of aliases) {
+    if (candidato === primaria || candidato.length < 2) continue;
+    // variação da mesma palavra ("salva" p/ "salvar", "abrir" p/ "a")
+    // não ajuda ninguém — é prefixo da primária (ou o contrário)
+    if (candidato.startsWith(primaria) || primaria.startsWith(candidato)) continue;
+    return candidato;
+  }
+  return null;
+}
+
+/** Item de controle para a parte 1: "⬆ cima/up" (complemento opcional). */
+function itemControle(c, comComplemento) {
   const primaria = palavraPrincipal(c);
-  const labelLimpo = controles.removerAcentos(String(c.label || '')).trim();
-  const outros = aliases.filter((a) => a !== primaria);
-
-  const base = labelLimpo.toLowerCase() === primaria
-    ? `${c.icone} ${primaria}`
-    : `${c.icone} ${labelLimpo}: ${primaria}`;
-
-  for (const qtd of [4, 3, 2, 1, 0]) {
-    const exibidos = outros.slice(0, qtd);
-    const extras = exibidos.length
-      ? ` (ou ${exibidos.join(', ')}${outros.length > qtd ? '…' : ''})`
-      : '';
-    const linha = `${base}${extras}`;
-    if (linha.length <= 45) return linha;
-  }
-  return base.slice(0, 45);
-}
-
-/**
- * Divide linhas em blocos que caibam no limite do IRC.
- * Reserva espaço suficiente para cabeçalho/dica, evitando que garantirLimite
- * corte a última linha de controle em listas grandes.
- * @param {string[]} linhas
- * @returns {string[][]}
- */
-function agruparLinhas(linhas) {
-  const blocos = [];
-  let atual = [];
-  let tamanho = 0;
-  for (const linha of linhas) {
-    const custo = linha.length + 1; // + quebra de linha
-    if (atual.length > 0 && tamanho + custo > LIMITE_CARACTERES - 70) {
-      blocos.push(atual);
-      atual = [];
-      tamanho = 0;
+  let texto = primaria;
+  if (comComplemento) {
+    const complemento = complementoAlias(c, primaria);
+    if (complemento && `${primaria}/${complemento}`.length <= 24) {
+      texto = `${primaria}/${complemento}`;
     }
-    atual.push(linha);
-    tamanho += custo;
   }
-  if (atual.length) blocos.push(atual);
-  return blocos;
+  return `${c.icone} ${texto}`;
+}
+
+/** Custo de uma linha "título • itens..." (sem montar a string). */
+function custoLinha(itens) {
+  let total = 0;
+  for (const item of itens) total += item.length + 3; // " • " entre todos
+  return total;
+}
+
+/** Monta "TITULO (i/total) • item • item ...". */
+function montarLinha(titulo, indice, total, itens) {
+  return [`${titulo} (${indice}/${total})`, ...itens].join(' • ');
 }
 
 /**
- * Mensagem completa de comandos (resposta ao !comandos / !commands / !ajuda).
- * Montada a partir dos controles ATIVOS do registro: controles
- * personalizados aparecem aqui sem nenhum código extra.
+ * Divide os controles em partes que cabem no ALVO_IDEAL (v3.1.x).
+ * Cada parte usa os pares de alias quando cabem; quando não cabem, cai
+ * para só a primária (sinônimos são opcional — controles, nunca).
+ * @param {object[]} ativos - controles ativos do registro
+ * @returns {string[][]} listas de itens por parte
+ */
+function partesJogo(ativos) {
+  const completos = ativos.map((c) => itemControle(c, true));
+  const primarios = ativos.map((c) => itemControle(c, false));
+  // a primeira parte carrega a dica "sem !" — o orçamento dela é menor
+  const orcamento = ALVO_IDEAL - CUSTO_CABECALHO;
+  const orcamentoPrimeira = orcamento - CUSTO_DICA;
+
+  // 1) tudo numa parte só, com os pares PT/EN
+  if (custoLinha(completos) <= orcamentoPrimeira) return [completos];
+  // 2) tudo numa parte só, só palavras principais (sinônimos fora)
+  if (custoLinha(primarios) <= orcamentoPrimeira) return [primarios];
+
+  // 3) divide: empacota por primárias (garante que cabe) e tenta subir
+  //    para a versão com pares em cada parte que sobrar espaço
+  const grupos = [];
+  let atual = [];
+  let gasto = 0;
+  for (let i = 0; i < primarios.length; i++) {
+    const custo = primarios[i].length + 3;
+    const limite = grupos.length === 0 ? orcamentoPrimeira : orcamento;
+    if (atual.length > 0 && gasto + custo > limite) {
+      grupos.push(atual);
+      atual = [];
+      gasto = 0;
+    }
+    atual.push(i);
+    gasto += custo;
+  }
+  if (atual.length) grupos.push(atual);
+
+  return grupos.map((indices, g) => {
+    const comPares = indices.map((i) => completos[i]);
+    const teto = g === 0 ? orcamentoPrimeira : orcamento;
+    return custoLinha(comPares) <= teto ? comPares : indices.map((i) => primarios[i]);
+  });
+}
+
+/** Mouse está ativo na configuração atual? (MODO_MOUSE=off desliga tudo). */
+function mouseAtivo() {
+  return String(config.mouse?.modo || 'janela').trim().toLowerCase() !== 'off';
+}
+
+/** Gamepad está ativo na configuração atual? (GAMEPAD_ENABLED=off/false). */
+function gamepadAtivo() {
+  const modo = String(config.gamepad?.enabled ?? 'auto').trim().toLowerCase();
+  return !['off', 'false', 'no', 'nao', '0', 'desligado'].includes(modo);
+}
+
+/**
+ * Parte 2 — comandos avançados de input direto: HOLD (1ms–10s), mouse,
+ * gamepad e soltar. Só anuncia o que ESTÁ ativo e o que o parser de fato
+ * aceita — sem sintaxe inventada.
+ * @returns {string[]} itens da linha
+ */
+function itensAvancados() {
+  const itens = [];
+  const seguraveis = controles.ativos().filter((c) => c.holdable);
+
+  let faixaHold = false;
+  if (seguraveis.length > 0) {
+    // exemplos curtos de palavra única são mais fáceis de ler E digitar;
+    // sem nenhuma, usa as palavras reais do registro (sintaxe continua
+    // válida mesmo para alias de várias palavras)
+    const palavras = seguraveis.map((c) => palavraPrincipal(c));
+    const curtas = palavras.filter((p) => !p.includes(' ') && p.length <= 12);
+    const primeira = curtas[0] || palavras[0];
+    let curta = primeira;
+    for (const palavra of (curtas.length ? curtas : palavras)) {
+      if (palavra.length < curta.length) curta = palavra;
+    }
+    itens.push(`⏱ hold ${primeira} 3s`);
+    itens.push(`hold ${curta} 250ms`);
+    faixaHold = true;
+  }
+
+  if (mouseAtivo()) {
+    itens.push('🖱 hold clique esquerdo 2s');
+    itens.push('hold clique direito 1s');
+  }
+
+  if (gamepadAtivo()) {
+    itens.push('🎮 pad a');
+    itens.push('pad ls direita');
+    itens.push('pad rt 75');
+  }
+
+  itens.push('🔓 soltar/release libera tudo');
+  if (faixaHold) itens.push(`⏱ HOLD: 1ms–${formatarDuracao(config.geral.holdMaxMs)}`);
+  return itens;
+}
+
+/**
+ * Parte 3 — comandos de informação/modo (não são input direto de jogo).
+ * democracia/anarquia são descritos como VOTO porque é isso que fazem
+ * desde v2.9.4 (o chat não troca o modo sozinho).
+ * @returns {string[]}
+ */
+function itensOutros() {
+  return [
+    '💬 dialogo/dialogue — A repetido 5s',
+    '📊 !stats',
+    '🏆 !top',
+    '⏱ !uptime',
+    '👑 !recorde',
+    '🗳 !democracia / !anarquia — votar no modo',
+    '✊ !hold — ajuda do HOLD',
+    '❓ !ajuda / !help / !commands',
+  ];
+}
+
+/**
+ * Mensagem completa de comandos (resposta ao !comandos / !commands /
+ * !ajuda / !help) — v3.1.x: 3 partes curtas e legíveis no chat, em UMA
+ * linha cada (sem depender de o cliente renderizar quebras de linha):
+ *
+ *   1. 🎮 JOGO — controles ATIVOS do registro (dinâmico: Minecraft mostra
+ *      Minecraft), com pares compactos de alias PT/EN;
+ *   2. ✊ AVANÇADO — hold/mouse/gamepad/soltar, só o que está ativo;
+ *   3. 📊 OUTROS — comandos com ! , modos por voto e ajuda.
+ *
+ * Listas enormes de controles continuam dinâmicas: a parte 1 se divide
+ * em mais mensagens numeradas (i/N) sem esconder controle ativo nenhum.
  * @returns {string[]}
  */
 function msgComandos() {
   const ativos = controles.ativos();
+  const gruposJogo = partesJogo(ativos);
+  const total = gruposJogo.length + 2;
 
-  const linhasControles = ativos.map(linhaControle);
-  const blocos = agruparLinhas(linhasControles);
-
-  // savestates continuam merecendo explicação própria (se estiverem ativos)
-  const temSalvar = ativos.some((c) => c.id === 'salvar');
-  const temCarregar = ativos.some((c) => c.id === 'carregar');
-
-  const exemplosHold = exemploHold();
-
-  const linhasHold = [
-    '✊ SEGURAR TECLAS (hold)',
-    ...exemplosHold.map((linha) => garantirLinhaCurta(linha)),
-    `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
-    '🔓 soltar / release — solta todas',
-    ...(temSalvar ? ['💾 salvar / save — salva o jogo'] : []),
-    ...(temCarregar ? ['📂 carregar / load — volta ao salvo'] : []),
-  ];
-
-  const linhasOutros = [
-    '📊 OUTROS COMANDOS',
-    '📊 !stats — estatísticas da live',
-    '🏆 !top — ranking dos jogadores',
-    '⏱ !uptime — tempo do bot no ar',
-    '👑 !recorde / !record — maior jogador',
-    '💬 dialogo / dialogue — A repetido por 5s',
-    '🗳️ !democracia / !democracy — voto',
-    '⚡ !anarquia / !anarchy — voto',
-    '✊ !segurar / !hold — ajuda do hold',
-    '❓ !ajuda / !help — igual a !comandos',
-    '📜 !commands — alias inglês de !comandos',
-  ];
-
-  const total = blocos.length + 2;
-  const cabecalhoHold = temSalvar || temCarregar
-    ? '✊ SEGURAR E VOLTAR NO TEMPO'
-    : '✊ SEGURAR TECLAS (hold)';
   const partes = [];
-  blocos.forEach((bloco, i) => {
-    const cabecalho = `🎮 COMANDOS DO JOGO PT/EN (${i + 1}/${total})`;
-    const dica = i === 0 ? ['💬 controles do jogo não usam !'] : [];
-    partes.push(garantirLimite([cabecalho, ...dica, ...bloco].join('\n')));
+  gruposJogo.forEach((itens, i) => {
+    const linha = montarLinha('🎮 JOGO', i + 1, total, itens);
+    // a dica "sem !" vai na primeira parte (a mais lida)
+    partes.push(garantirLimite(i === 0 ? `${linha} • 💬 sem ! nos controles` : linha));
   });
-  partes.push(garantirLimite([`${cabecalhoHold} (${blocos.length + 1}/${total})`, ...linhasHold.slice(1)].join('\n')));
-  partes.push(garantirLimite([`📊 OUTROS COMANDOS (${total}/${total})`, ...linhasOutros.slice(1)].join('\n')));
+  partes.push(garantirLimite(montarLinha('✊ AVANÇADO', gruposJogo.length + 1, total, itensAvancados())));
+  partes.push(garantirLimite(montarLinha('📊 OUTROS', total, total, itensOutros())));
   return partes;
 }
 
@@ -179,12 +283,6 @@ function exemploHold() {
     `hold ${palavra} 3 — segura 3s`,
     `hold ${palavra} 500ms — meio segundo`,
   ];
-}
-
-/** Corta a linha em 45 caracteres sem quebrar no meio da palavra. */
-function garantirLinhaCurta(linha) {
-  if (linha.length <= 45) return linha;
-  return `${linha.slice(0, 44)}…`;
 }
 
 /**

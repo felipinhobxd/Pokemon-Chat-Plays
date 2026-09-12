@@ -120,9 +120,9 @@ test('"!comandos" responde com a lista completa em 3 mensagens', () => {
   processarMensagem({ plataforma: 'twitch', usuario: 'curioso', texto: '!comandos', responder });
   const partes = respostas.map((r) => r.texto);
   assert.strictEqual(partes.length, 3, '!comandos deve mandar 3 mensagens');
-  assert.ok(partes[0].includes('COMANDOS DO JOGO'));
-  assert.ok(partes[1].includes('SEGURAR'));
-  assert.ok(partes[2].includes('OUTROS COMANDOS'));
+  assert.ok(partes[0].includes('🎮 JOGO'));
+  assert.ok(partes[1].includes('AVANÇADO'));
+  assert.ok(partes[2].includes('OUTROS'));
 });
 
 test('anti-flood: "!comandos" em rajada responde só uma vez', () => {

@@ -93,14 +93,20 @@ test('fallback não reativa controle embutido desativado', () => {
   assert.strictEqual(parseComando('up'), null);
 });
 
-test('!comandos mostra os aliases PT-BR/EN que realmente funcionam', () => {
+test('!comandos mostra os aliases PT-BR/EN que realmente funcionam (formato compacto)', () => {
   usarAliasesSomenteIngles();
 
   const texto = msg.msgComandos().join('\n').toLowerCase();
   for (const palavra of ['cima', 'up', 'baixo', 'down', 'esquerda', 'left', 'direita', 'right']) {
     assert.ok(texto.includes(palavra), `!comandos deveria mostrar ${palavra}`);
   }
-  assert.ok(texto.includes('controles do jogo não usam !'));
+  // v3.1: par compacto "cima/up" — PT e EN juntos, sem listar todo sinônimo
+  assert.ok(texto.includes('cima/up'), 'par compacto cima/up deveria aparecer');
+  assert.ok(texto.includes('esquerda/left'), 'par compacto esquerda/left deveria aparecer');
+  assert.ok(texto.includes('salvar/save'));
+  assert.ok(texto.includes('carregar/load'));
+  // a dica de que controles não levam ! continua (forma compacta)
+  assert.ok(texto.includes('sem !'));
   assert.ok(texto.includes('!commands'));
 
   const up = controles.ativos().find((c) => c.id === 'up');
