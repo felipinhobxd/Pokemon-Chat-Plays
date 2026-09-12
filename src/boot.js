@@ -4,7 +4,8 @@
  * A ordem aqui é intencional:
  *  1. perfis por jogo são resolvidos ANTES de config/teclado serem importados;
  *  2. SaveGuard envolve o teclado;
- *  3. só então o app principal é carregado.
+ *  3. gamepad virtual entra no pipeline depois das proteções do teclado;
+ *  4. só então o app principal é carregado.
  *
  * Assim `--perfil "Pokemon Emerald"` consegue trocar .env/controles antes de
  * qualquer módulo congelar a configuração em memória.
@@ -40,9 +41,6 @@ async function prepararPerfis() {
     return;
   }
 
-  // O assistente pode ter alterado .env/controles na execução anterior.
-  // Sincroniza essas mudanças de volta para o perfil lembrado sem sobrescrever
-  // nada no boot atual.
   const sync = store.sincronizarAtivo();
   if (sync.ok && sync.perfil) {
     console.log(`[Perfis] Perfil lembrado: "${sync.perfil.nome}".`);
@@ -55,6 +53,9 @@ async function prepararPerfis() {
   const teclado = require('./controllers/keyboard');
   const saveGuard = require('./controllers/save-guard');
   saveGuard.instalar(teclado);
+
+  const gamepadIntegration = require('./gamepad-integration');
+  gamepadIntegration.instalar();
 
   require('./index');
 })().catch((err) => {
