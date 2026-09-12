@@ -166,6 +166,28 @@ test('mouse: lixo depois do alvo não é hold (cai no hold-invalido do teclado)'
   assert.strictEqual(parseMouseCommand('clique direito').tipo, 'mouse-click');
 });
 
+test('mouse: hold de olhar/camera/look aceita 1ms–10s e preserva mouse left/right como botão', () => {
+  const casos = [
+    ['hold olhar cima 10s', 'cima', 0, -1, 10000],
+    ['segurar camera direita 2.5s', 'direita', 1, 0, 2500],
+    ['hold look down 500ms', 'baixo', 0, 1, 500],
+    ['hold mouse esquerda 37ms', 'esquerda', -1, 0, 37],
+    ['segurar olhar baixo 1ms', 'baixo', 0, 1, 1],
+  ];
+  for (const [texto, direcao, dx, dy, duracaoMs] of casos) {
+    const r = parseMouseCommand(texto);
+    assert.ok(r, texto);
+    assert.strictEqual(r.tipo, 'mouse-move-hold', texto);
+    assert.strictEqual(r.direcao, direcao, texto);
+    assert.strictEqual(r.dx, dx, texto);
+    assert.strictEqual(r.dy, dy, texto);
+    assert.strictEqual(r.duracaoMs, duracaoMs, texto);
+  }
+  // Compatibilidade histórica: em inglês "mouse left/right" = botão.
+  assert.strictEqual(parseMouseCommand('hold mouse left 500ms').tipo, 'mouse-hold');
+  assert.strictEqual(parseMouseCommand('hold mouse right 500ms').tipo, 'mouse-hold');
+});
+
 test('mouse: worker tem DOWN/UP separados nos dois modos (fonte C#)', () => {
   const fonte = mouse.__test.fonteWorker();
   assert.ok(fonte.includes('DownWindow'), 'DownWindow');
@@ -181,6 +203,28 @@ test('mouse: worker tem DOWN/UP separados nos dois modos (fonte C#)', () => {
 // ---------------------------------------------------------------------------
 // 4. Mouse: runtime do hold (worker simulado, sem Windows)
 // ---------------------------------------------------------------------------
+
+test('mouse: hold de olhar repete movimento e soltar cancela imediatamente', async () => {
+  mouse.configurar({ modo: 'global', alvoExe: null, passoPx: 40 });
+  const linhas = [];
+  mouse.__test.simular({ plataforma: 'win32', linhas });
+  try {
+    assert.strictEqual(mouse.segurarMovimento(0, -1, 180, 'camera'), true);
+    assert.strictEqual(linhas[0], 'MG 0 -40');
+    assert.strictEqual(mouse.totalSegurando(), 1);
+    await sleep(120);
+    assert.ok(linhas.filter((l) => l === 'MG 0 -40').length >= 2, 'deve repetir o movimento');
+    const liberados = mouse.soltarTodos();
+    assert.strictEqual(liberados, 1);
+    assert.strictEqual(mouse.totalSegurando(), 0);
+    const tamanho = linhas.length;
+    await sleep(120);
+    assert.strictEqual(linhas.length, tamanho, 'nenhum tick antigo pode continuar após soltar');
+  } finally {
+    mouse.__test.restaurar();
+    mouse.configurar({ modo: 'janela', alvoExe: null });
+  }
+});
 
 test('mouse: hold real down→up com worker simulado (janela e global)', async () => {
   mouse.configurar({ modo: 'janela', alvoExe: 'C:\\Game\\game.exe', passoPx: 40 });

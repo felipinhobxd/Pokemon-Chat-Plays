@@ -120,6 +120,43 @@ function parseHoldMouse(t) {
 }
 
 /**
+ * Interpreta HOLD de movimento contínuo da câmera/mouse.
+ * Mantém compatibilidade: "hold mouse left/right" continua sendo
+ * botão do mouse; para direção em inglês use "look left/right".
+ *
+ * Exemplos:
+ *   hold olhar cima 10s
+ *   segurar camera direita 2.5s
+ *   hold look down 500ms
+ *   hold mouse esquerda 250ms
+ */
+function parseHoldMovimento(t) {
+  const verbo = VERBOS_HOLD.find((v) => t === v || t.startsWith(`${v} `));
+  if (!verbo) return null;
+
+  const resto = t.slice(verbo.length).trim();
+  const m = resto.match(/^(olhar|look|camera|mouse)\s+(cima|up|baixo|down|esquerda|left|direita|right)(?:\s+(.+))?$/);
+  if (!m) return null;
+
+  // Preserva os aliases históricos de botão: hold mouse left/right.
+  if (m[1] === 'mouse' && (m[2] === 'left' || m[2] === 'right')) return null;
+
+  const d = DIRECOES[m[2]];
+  if (!d) return null;
+  const duracaoTexto = String(m[3] || '').trim();
+  if (duracaoTexto && parseDuracaoMs(duracaoTexto) === null) return null;
+  const duracaoMs = duracaoTexto ? parseDuracaoMs(duracaoTexto) : null;
+  return {
+    tipo: 'mouse-move-hold',
+    dx: d.dx,
+    dy: d.dy,
+    direcao: d.nome,
+    duracaoMs,
+    descricao: `hold olhar ${d.nome}`,
+  };
+}
+
+/**
  * @param {string} texto
  * @returns {object|null}
  */
@@ -130,6 +167,9 @@ function parseMouseCommand(texto) {
   // v3.1: hold real de botão (antes dos taps, para não cair no hold do teclado)
   const hold = parseHoldMouse(t);
   if (hold) return hold;
+
+  const holdMovimento = parseHoldMovimento(t);
+  if (holdMovimento) return holdMovimento;
 
   if (CLIQUE_DIREITO.has(t)) {
     return { tipo: 'mouse-click', botao: 'right', descricao: 'clique direito' };
@@ -182,6 +222,7 @@ function parseMouseCommand(texto) {
 module.exports = {
   parseMouseCommand,
   parseHoldMouse,
+  parseHoldMovimento,
   normalizar,
   DIRECOES,
   ALVOS_HOLD,

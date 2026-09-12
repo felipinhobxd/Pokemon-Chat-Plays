@@ -292,10 +292,12 @@ function exemploHold() {
 function msgHoldAjuda() {
   const [a, b, c] = exemploHold();
   const texto = [
-    '✊ COMO SEGURAR TECLAS:',
+    '✊ HOLD — TECLADO / MOUSE:',
     a,
     b,
     c,
+    '🖱 hold olhar cima 2s',
+    '🖱 hold camera direita 500ms',
     `🔒 tempo máximo: ${formatarDuracao(config.geral.holdMaxMs)}`,
     '🔓 soltar / release — solta tudo',
   ].join('\n');

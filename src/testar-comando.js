@@ -101,6 +101,24 @@ function descrever(entrada, parsed, contexto = {}) {
     return r;
   }
 
+  if (parsed.tipo === 'mouse-move-hold') {
+  const duracao = duracaoEfetiva(parsed.duracaoMs, { holdPadraoMs: 1000, holdMaxMs: 10000 });
+  r.categoria = 'mouse';
+  r.titulo = '🖱️ Mouse / câmera';
+  r.resumo = `Moveria continuamente para ${parsed.direcao} por ${duracao}ms.`;
+  r.detalhes = [
+    `Direção: ${parsed.direcao}`,
+    `Movimento relativo repetido: x=${parsed.dx}, y=${parsed.dy}`,
+    parsed.duracaoMs == null ? 'Duração: padrão (1000ms)' : `Duração normalizada: ${parsed.duracaoMs}ms → ${duracao}ms`,
+    'soltar/release ou F9 interrompe imediatamente.',
+  ];
+  if (String(contexto.modoMouse || '').toLowerCase() === 'off') { r.resumo += ' Mouse está desativado.'; r.executaria = false; }
+  else if (!String(contexto.alvoExe || '').trim() && String(contexto.modoMouse || '').toLowerCase() !== 'global') { r.resumo += ' Falta configurar o executável/alvo do jogo.'; r.executaria = false; }
+  else if (contexto.democracia) { r.resumo += ' Em Democracia, hold de movimento fica bloqueado.'; r.executaria = false; }
+  else r.executaria = true;
+  return r;
+}
+
   if (parsed.tipo === 'mouse-hold') {
     // v3.1: hold REAL de botão — down ... up, com a duração normalizada
     const duracao = duracaoEfetiva(parsed.duracaoMs, { holdPadraoMs: 1000, holdMaxMs: 10000 });

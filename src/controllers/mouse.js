@@ -424,6 +424,80 @@ function clicar(botao = 'left') {
  */
 const botoesSegurados = new Map();
 
+/**
+ * HOLD de movimento contínuo. Cada direção tem timers próprios e um
+ * token por identidade do objeto; timers velhos nunca afetam um hold novo.
+ * Um passo acontece imediatamente e os próximos a cada 50ms.
+ */
+const movimentosSegurados = new Map();
+const MOVIMENTO_HOLD_TICK_MS = 50;
+
+function chaveMovimento(dxUnidade, dyUnidade) {
+  const dx = Math.sign(Number(dxUnidade) || 0);
+  const dy = Math.sign(Number(dyUnidade) || 0);
+  return `${dx},${dy}`;
+}
+
+function segurarMovimento(dxUnidade, dyUnidade, duracaoMs = 1000, dono = null) {
+  const dx = Math.sign(Number(dxUnidade) || 0);
+  const dy = Math.sign(Number(dyUnidade) || 0);
+  if (dx === 0 && dy === 0) return false;
+  const duracao = limitarMs(duracaoMs) || 1000;
+  const chave = chaveMovimento(dx, dy);
+
+  const anterior = movimentosSegurados.get(chave);
+  if (anterior) {
+    clearInterval(anterior.intervalo);
+    clearTimeout(anterior.timer);
+    movimentosSegurados.delete(chave);
+  }
+
+  // Move já no instante do comando; isso também valida worker/alvo.
+  if (!mover(dx, dy)) return false;
+
+  const info = { intervalo: null, timer: null, dono, dx, dy };
+  const intervalo = setInterval(() => {
+    if (movimentosSegurados.get(chave) !== info) return;
+    mover(dx, dy);
+  }, MOVIMENTO_HOLD_TICK_MS);
+  intervalo.unref?.();
+
+  const timer = setTimeout(() => {
+    if (movimentosSegurados.get(chave) !== info) return;
+    clearInterval(info.intervalo);
+    movimentosSegurados.delete(chave);
+  }, duracao);
+  timer.unref?.();
+
+  info.intervalo = intervalo;
+  info.timer = timer;
+  movimentosSegurados.set(chave, info);
+  logger.comando(`[Mouse] Hold movimento: ${dx},${dy} por ${duracao}ms${dono ? ` — @${dono}` : ''}`);
+  return true;
+}
+
+function soltarMovimento(dxUnidade, dyUnidade) {
+  const chave = chaveMovimento(dxUnidade, dyUnidade);
+  const info = movimentosSegurados.get(chave);
+  if (!info) return false;
+  clearInterval(info.intervalo);
+  clearTimeout(info.timer);
+  movimentosSegurados.delete(chave);
+  return true;
+}
+
+function soltarMovimentos() {
+  let liberados = 0;
+  for (const [chave, info] of [...movimentosSegurados.entries()]) {
+    clearInterval(info.intervalo);
+    clearTimeout(info.timer);
+    movimentosSegurados.delete(chave);
+    liberados++;
+  }
+  return liberados;
+}
+
+
 function linhaDown(lado) {
   return modo === 'janela' ? `DW ${lado}` : `DG ${lado}`;
 }
@@ -503,12 +577,13 @@ function soltarTodos() {
   for (const b of [...botoesSegurados.keys()]) {
     if (soltarBotao(b)) liberados++;
   }
+  liberados += soltarMovimentos();
   return liberados;
 }
 
 /** Quantos botões estão segurados agora (diagnóstico). */
 function totalSegurando() {
-  return botoesSegurados.size;
+  return botoesSegurados.size + movimentosSegurados.size;
 }
 
 function executar(comando) {
@@ -541,7 +616,7 @@ function configurar(opcoes = {}) {
 }
 
 function status() {
-  return { modo, alvoExe, passoPx, suportado: plataformaAtual() === 'win32', segurando: botoesSegurados.size };
+  return { modo, alvoExe, passoPx, suportado: plataformaAtual() === 'win32', segurando: totalSegurando(), movimentosSegurando: movimentosSegurados.size };
 }
 
 /**
@@ -558,7 +633,10 @@ module.exports = {
   posicionarPercentual,
   clicar,
   segurar,
+  segurarMovimento,
   soltarBotao,
+  soltarMovimento,
+  soltarMovimentos,
   soltarTodos,
   totalSegurando,
   executar,

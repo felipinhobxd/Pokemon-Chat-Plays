@@ -316,6 +316,43 @@ function processarMensagem({ plataforma, usuario, usuarioId, broadcaster = false
       return;
     }
 
+    // ------------------------------------- hold de movimento do mouse
+    // Movimento contínuo da câmera (Minecraft/3D). É repetido em ticks
+    // pelo controller e cancelado por soltar/F9/troca de alvo/shutdown.
+    case 'mouse-move-hold': {
+      const descricao = parsed.descricao || `hold olhar ${parsed.direcao || ''}`.trim();
+      if (bloqueadoPelaPausa(usuario, descricao)) return;
+
+      const chaveCooldown = `hold:mouse:move:${parsed.direcao || `${parsed.dx},${parsed.dy}`}`;
+      const verificacao = verificarCooldown(contexto, chaveCooldown);
+      if (!verificacao.permitido) {
+        if (config.geral.debug) {
+          logger.debug(`[Chat] @${usuario} bloqueado no hold de movimento do mouse: ${verificacao.motivo}`);
+        }
+        return;
+      }
+
+      if (votacao.modoAtual() === 'democracia') {
+        if (config.geral.debug) {
+          logger.debug(`[Mouse] "${descricao}" ignorado em democracia (hold de movimento ainda não votável).`);
+        }
+        return;
+      }
+
+      const duracao = duracaoEfetiva(parsed.duracaoMs, config.geral);
+      const ok = mouse.segurarMovimento(parsed.dx, parsed.dy, duracao, usuario);
+      if (ok) {
+        cooldown.registrarExecucao(ator, chaveCooldown);
+        stats.registrar(`${descricao} ${duracao}ms`, plataforma, usuario);
+        overlay.registrarAcao(usuario, null, 'hold', duracao);
+        if (config.geral.confirmarComandos && podeResponder('hold-confirmado')) {
+          responderSeguro(responder, msg.msgHoldConfirmado(usuario, `olhar ${parsed.direcao}`, duracao), 'baixa');
+        }
+        logger.comando(`[Chat] 🖱️↔️ @${usuario}: ${descricao} por ${duracao}ms`);
+      }
+      return;
+    }
+
     // ------------------------------------------- hold de botão do mouse
     // v3.1: HOLD real (down ... up), mesma faixa 1ms–10s do teclado. Em
     // democracia fica BLOQUEADO (igual aos demais comandos de mouse) —
