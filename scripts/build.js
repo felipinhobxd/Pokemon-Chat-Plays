@@ -67,6 +67,40 @@ for (const arq of ['GAMEPAD.md', 'PERFIS.md']) {
   if (fs.existsSync(origem)) fs.copyFileSync(origem, path.join(docsDist, arq));
 }
 
+// v3.1: gamepad virtual — ViGEmClient.dll ao lado do exe + driver + licenças.
+// A DLL não fica no repositório: o workflow de release a compila a partir do
+// código-fonte OFICIAL (nefarius/ViGEmClient) e deposita em dist/ antes do
+// NSIS. Build local sem a DLL apenas avisa (teclado/mouse seguem normais).
+const dllOrigem = path.join(ROOT, 'ViGEmClient.dll');
+if (fs.existsSync(dllOrigem)) {
+  fs.copyFileSync(dllOrigem, path.join(DIST, 'ViGEmClient.dll'));
+  console.log('  ViGEmClient.dll copiado.');
+} else if (fs.existsSync(path.join(DIST, 'ViGEmClient.dll'))) {
+  console.log('  ViGEmClient.dll já presente em dist/ (gerado pelo CI).');
+} else {
+  console.log('  [AVISO] ViGEmClient.dll ausente — gamepad virtual não irá nesta build local.');
+  console.log('          O release oficial gera a DLL do código-fonte oficial no CI.');
+}
+
+// Driver ViGEmBus (instalador oficial Nefarius commitado no repositório) +
+// licenças dos componentes de terceiros
+for (const [origemRel, destinoRel] of [
+  ['drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe', 'drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe'],
+  ['licenses/ViGEmBus-LICENSE.txt', 'licenses/ViGEmBus-LICENSE.txt'],
+  ['licenses/ViGEmClient-LICENSE.txt', 'licenses/ViGEmClient-LICENSE.txt'],
+]) {
+  const origem = path.join(ROOT, origemRel);
+  const destino = path.join(DIST, destinoRel);
+  if (fs.existsSync(origem)) {
+    fs.mkdirSync(path.dirname(destino), { recursive: true });
+    fs.copyFileSync(origem, destino);
+    console.log(`  ${origemRel} copiado.`);
+  } else {
+    console.error(`  [ERRO] Faltou ${origemRel} — build de release não pode seguir sem.`);
+    process.exit(1);
+  }
+}
+
 console.log('[4/4] Gerando instalador setup.exe (opcional — exige NSIS)...');
 try {
   const { version } = require(path.join(ROOT, 'package.json'));

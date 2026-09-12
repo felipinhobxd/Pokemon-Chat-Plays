@@ -11,6 +11,17 @@ on:
 permissions:
   contents: read
 
+# Origens oficiais verificadas dos componentes ViGEm (v3.1):
+#  - ViGEmBus driver installer: release oficial v1.22.0 do nefarius/ViGEmBus,
+#    commitado no repositório em drivers/ e conferido por SHA-256 +
+#    assinatura Authenticode (Nefarius Software Solutions e.U.).
+#  - ViGEmClient.dll: compilado AQUI a partir do código-fonte oficial
+#    nefarius/ViGEmClient, tag v1.16.18.0 (commit pinado abaixo), MIT.
+env:
+  VIGEMCLIENT_TAG: v1.16.18.0
+  VIGEMCLIENT_COMMIT: 9e91a124d179bf26a878a952153042ac871da243
+  VIGEMBUS_SHA256: 89220A7865076B342892F98865F3499FB7C4CFD673159E89D352C360FD014C6A
+
 jobs:
   preparar:
     runs-on: ubuntu-latest
@@ -60,6 +71,17 @@ jobs:
             DO_RELEASE=true
           fi
 
+          # v3.1: o driver oficial precisa estar presente e ÍNTEGRO no repo
+          DRIVER="drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe"
+          [[ -f "${DRIVER}" ]] || { echo "missing ${DRIVER}"; exit 1; }
+          ACTUAL="$(sha256sum "${DRIVER}" | awk '{print toupper($1)}')"
+          [[ "${ACTUAL}" == "${VIGEMBUS_SHA256}" ]] || {
+            echo "ViGEmBus installer checksum mismatch!"
+            echo "  expected: ${VIGEMBUS_SHA256}"
+            echo "  actual:   ${ACTUAL}"
+            exit 1
+          }
+
           echo "SHA=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -95,14 +117,77 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install -g pkg
+
+      - name: Build ViGEmClient.dll from official upstream source
+        shell: pwsh
+        run: |
+          # Clona o código-fonte OFICIAL (tag + commit pinados) e compila a
+          # DLL x64 com o MSVC do runner — nada de binários de terceiros.
+          $ErrorActionPreference = 'Stop'
+          git clone --depth 1 --branch $env:VIGEMCLIENT_TAG https://github.com/nefarius/ViGEmClient.git vigemclient
+          $actual = git -C vigemclient rev-parse HEAD
+          if ($actual -ne $env:VIGEMCLIENT_COMMIT) { throw "ViGEmClient checkout mismatch: $actual" }
+
+          # Entra no ambiente do MSVC (cl/rc no PATH, INCLUDE/LIB corretos)
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio (C++ tools) not found" }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64'
+
+          # Recurso de versão + a única translation unit do client
+          rc.exe /nologo /i vigemclient\src /fo ViGEmClient.res vigemclient\src\ViGEmClient.rc
+          if ($LASTEXITCODE -ne 0) { throw "rc.exe failed ($LASTEXITCODE)" }
+          cl.exe /nologo /LD /O2 /DNDEBUG /DWIN32 /D_WINDOWS /DVIGEM_DYNAMIC /DVIGEM_EXPORTS `
+            /I vigemclient\include /I vigemclient\src `
+            vigemclient\src\ViGEmClient.cpp ViGEmClient.res `
+            /Fe:ViGEmClient.dll setupapi.lib /link /MACHINE:X64
+          if ($LASTEXITCODE -ne 0) { throw "cl.exe failed ($LASTEXITCODE)" }
+          if (-not (Test-Path .\ViGEmClient.dll)) { throw "ViGEmClient.dll was not generated" }
+
+          # Verifica arquitetura (PE machine 0x8664) e as exports esperadas
+          $fs = [IO.File]::OpenRead((Resolve-Path .\ViGEmClient.dll))
+          $br = New-Object IO.BinaryReader($fs)
+          $null = $fs.Seek(0x3C, 'Begin')
+          $peOff = $br.ReadInt32()
+          $null = $fs.Seek($peOff + 4, 'Begin')
+          $machine = $br.ReadUInt16()
+          $fs.Close()
+          if ($machine -ne 0x8664) { throw "ViGEmClient.dll is not x64 (machine=0x$($machine.ToString('X4')))" }
+
+          $exports = (dumpbin /exports .\ViGEmClient.dll | Out-String)
+          foreach ($sym in @('vigem_alloc','vigem_connect','vigem_target_x360_alloc','vigem_target_x360_update')) {
+            if ($exports -notmatch [regex]::Escape($sym)) { throw "missing export: $sym" }
+          }
+          Write-Host "ViGEmClient.dll built and verified (x64, exports OK): $((Get-FileHash .\ViGEmClient.dll -Algorithm SHA256).Hash)"
+
+      - name: Verify bundled ViGEmBus driver (SHA-256 + Authenticode)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe'
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          if ($hash -ne $env:VIGEMBUS_SHA256) { throw "ViGEmBus SHA-256 mismatch: $hash" }
+          $sig = Get-AuthenticodeSignature $exe
+          if ($sig.Status -ne 'Valid') { throw "ViGEmBus signature invalid: $($sig.Status)" }
+          if ($sig.SignerCertificate.Subject -notmatch 'Nefarius') { throw "unexpected signer: $($sig.SignerCertificate.Subject)" }
+          Write-Host "ViGEmBus verified — SHA-256 OK, signed by: $($sig.SignerCertificate.Subject)"
+
       - name: Package EXE
         run: pkg . --targets node18-win-x64 --output ChatPlays.exe --compress GZip
+
       - name: Assemble release folder
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force release, release/docs | Out-Null
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force release, release\docs, release\drivers, release\licenses | Out-Null
           Copy-Item ChatPlays.exe,.env.example,README.md,iniciar.bat,LICENSE release/
-          Copy-Item docs/GAMEPAD.md,docs/PERFIS.md release/docs/
+          Copy-Item ViGEmClient.dll release/
+          Copy-Item docs\GAMEPAD.md,docs\PERFIS.md release\docs\
+          Copy-Item drivers\*.exe release\drivers\
+          Copy-Item licenses\*.txt release\licenses\
+          Get-ChildItem release -Recurse -File | ForEach-Object { Write-Host "  $($_.FullName.Replace((Get-Location).Path, ''))" }
+
       - name: Build NSIS installer
         shell: pwsh
         run: |
@@ -118,24 +203,86 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "makensis failed (exit $LASTEXITCODE)" }
           if (-not (Test-Path ChatPlays-Setup.exe)) { throw "installer was not generated" }
           Copy-Item ChatPlays-Setup.exe release/
+
       - name: Create portable ZIP
         shell: pwsh
         run: |
           Push-Location release
-          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe .env.example README.md iniciar.bat LICENSE docs/GAMEPAD.md docs/PERFIS.md
+          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe ViGEmClient.dll .env.example README.md iniciar.bat LICENSE docs\GAMEPAD.md docs\PERFIS.md drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe licenses\ViGEmBus-LICENSE.txt licenses\ViGEmClient-LICENSE.txt
+          if ($LASTEXITCODE -ne 0) { throw "7z failed" }
           Pop-Location
+
+      - name: Verify actual artifact contents (ZIP + DLL + driver)
+        shell: pwsh
+        run: |
+          # Verifica o ARTEFATO de verdade (o ZIP que o usuário baixa), não
+          # apenas a pasta de staging.
+          $ErrorActionPreference = 'Stop'
+          $tmp = Join-Path $env:RUNNER_TEMP 'zipcheck'
+          if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+          Expand-Archive -Path release\ChatPlays-Windows.zip -DestinationPath $tmp -Force
+          $required = @(
+            'ChatPlays.exe','ViGEmClient.dll','.env.example','README.md','iniciar.bat','LICENSE',
+            'docs\GAMEPAD.md','docs\PERFIS.md',
+            'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe',
+            'licenses\ViGEmBus-LICENSE.txt','licenses\ViGEmClient-LICENSE.txt'
+          )
+          foreach ($f in $required) {
+            if (-not (Test-Path (Join-Path $tmp $f))) { throw "missing inside ZIP: $f" }
+          }
+          # PE machine da DLL dentro do ZIP = x64
+          $fs = [IO.File]::OpenRead((Join-Path $tmp 'ViGEmClient.dll'))
+          $br = New-Object IO.BinaryReader($fs)
+          $null = $fs.Seek(0x3C, 'Begin'); $peOff = $br.ReadInt32()
+          $null = $fs.Seek($peOff + 4, 'Begin'); $machine = $br.ReadUInt16()
+          $fs.Close()
+          if ($machine -ne 0x8664) { throw "DLL in ZIP is not x64" }
+          # Driver dentro do ZIP: mesma assinatura válida
+          $sig = Get-AuthenticodeSignature (Join-Path $tmp 'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe')
+          if ($sig.Status -ne 'Valid') { throw "driver signature inside ZIP invalid: $($sig.Status)" }
+          Write-Host "ZIP contents verified: all files present, DLL x64, driver signed by $($sig.SignerCertificate.Subject)"
+
+      - name: Smoke-test NSIS installer silently (install + verify + uninstall)
+        shell: pwsh
+        run: |
+          # Instala de verdade (silencioso: /S NÃO instala o driver — por
+          # design), confere os arquivos no lugar e desinstala silencioso.
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath ".\ChatPlays-Setup.exe" -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited with $($p.ExitCode)" }
+          $inst = Join-Path $env:LOCALAPPDATA 'Programs\ChatPlays'
+          foreach ($f in @(
+            'ChatPlays.exe','ViGEmClient.dll','.env.example','README.md','iniciar.bat','LICENSE',
+            'docs\GAMEPAD.md','docs\PERFIS.md',
+            'drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe',
+            'licenses\ViGEmBus-LICENSE.txt','licenses\ViGEmClient-LICENSE.txt',
+            'uninstall.exe'
+          )) {
+            if (-not (Test-Path (Join-Path $inst $f))) { throw "installed app missing: $f" }
+          }
+          Write-Host "Installer smoke test OK — files present at $inst"
+          # desinstalação silenciosa (best-effort; não derruba o job)
+          try {
+            $u = Start-Process -FilePath (Join-Path $inst 'uninstall.exe') -ArgumentList "/S","_?=$inst" -Wait -PassThru
+            Write-Host "Silent uninstall exit: $($u.ExitCode)"
+          } catch { Write-Host "cleanup uninstall skipped: $_" }
+
+      - name: Extract version from tag
+        id: versao
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
-        if: needs.preparar.outputs.do_release == 'true'
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.preparar.outputs.tag }}
-          target_commitish: ${{ needs.preparar.outputs.sha }}
-          name: ChatPlays ${{ needs.preparar.outputs.tag }}
-          generate_release_notes: true
-          make_latest: true
           files: |
             release/ChatPlays-Setup.exe
             release/ChatPlays-Windows.zip
+          name: ChatPlays ${{ steps.versao.outputs.VERSION }}
+          generate_release_notes: true
+          make_latest: true
           draft: false
           prerelease: false
       - name: Upload manual-build artifact
