@@ -1,0 +1,51 @@
+name: Prepare v3.3.4
+
+on:
+  push:
+    branches:
+      - release-prep/v3.3.4
+    paths:
+      - .github/workflows/release-prep-v3.3.4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: release-prep/v3.3.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Verify Minecraft process detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "Get-Process javaw,java" src/utils/minecraft-launcher.js
+          grep -F "MainWindowTitle -match '(?i)minecraft'" src/utils/minecraft-launcher.js
+
+      - name: Bump version
+        run: npm version 3.3.4 --no-git-tag-version
+
+      - name: Install and validate
+        run: |
+          npm ci
+          npm test
+          npm audit --audit-level=high
+
+      - name: Commit clean release prep
+        shell: bash
+        run: |
+          rm -f .github/workflows/release-prep-v3.3.4.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json .github/workflows/release-prep-v3.3.4.yml
+          git commit -m "release: v3.3.4"
+          git push origin HEAD:release-prep/v3.3.4
