@@ -26,6 +26,7 @@ const http = require('http');
 
 const logger = require('./utils/logger');
 const controles = require('./controles');
+const { PAGINA_DASHBOARD } = require('./dashboard-pagina');
 
 /** Máximo de ações mantidas no feed. */
 const MAX_ACOES = 15;
@@ -55,6 +56,7 @@ let provedores = {
   seguradas: () => [],
   resumoStats: () => ({}),
   votacao: () => ({ modo: 'anarquia', candidatos: [] }),
+  diagnostico: () => ({}),
 };
 
 /**
@@ -164,6 +166,7 @@ function snapshot() {
   let stats = {};
   let seguradas = [];
   let votacao = { modo: 'anarquia', candidatos: [] };
+  let diagnostico = {};
   try {
     stats = provedores.resumoStats() || {};
   } catch { /* segue com vazio */ }
@@ -173,6 +176,9 @@ function snapshot() {
   try {
     votacao = provedores.votacao ? (provedores.votacao() || {}) : votacao;
   } catch { /* segue com vazio */ }
+  try {
+    diagnostico = provedores.diagnostico ? (provedores.diagnostico() || {}) : {};
+  } catch { /* segue com vazio */ }
   const uptimeMs = Date.now() - estado.iniciadoEm;
   return {
     versao: estado.versao,
@@ -180,6 +186,8 @@ function snapshot() {
     teclaPausa: estado.teclaPausa,
     conexoes: { ...estado.conexoes },
     uptimeMs,
+    geradoEm: Date.now(),
+    diagnostico,
     acoes: estado.acoes,
     alvo: { ...estado.alvo },
     jogo: { ...estado.jogo },
@@ -215,6 +223,15 @@ function tratarRequisicao(req, res) {
   if (caminho === '/' || caminho === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(PAGINA);
+    return;
+  }
+  if (caminho === '/dashboard' || caminho === '/dashboard.html') {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.end(PAGINA_DASHBOARD);
     return;
   }
   if (caminho === '/api/estado') {
@@ -255,6 +272,7 @@ function iniciar(porta = 8899) {
         portaReal = srv.address().port || candidata;
         if (candidata !== 0) {
           logger.info(`[Overlay] 🖥️  Overlay do OBS: http://localhost:${candidata}`);
+          logger.info(`[Overlay] 📊 Painel ao vivo: http://localhost:${candidata}/dashboard`);
           logger.info('[Overlay] No OBS: Fontes → + → Navegador → cole o endereço acima.');
         }
         resolve(portaReal);
@@ -718,4 +736,5 @@ module.exports = {
   setTeclaPausa,
   configurarProvedores,
   PAGINA,
+  PAGINA_DASHBOARD,
 };

@@ -324,6 +324,7 @@ function resolverTecla(espec) {
 const filaAcoes = [];
 let processandoAcao = false;
 const FILA_MAX = 25;
+let toquesDescartados = 0;
 
 /**
  * Enfileira uma ação de teclado. Ações são executadas UMA POR VEZ, em ordem,
@@ -344,6 +345,7 @@ function enfileirar(acao, descartavel = false) {
     const idx = filaAcoes.findIndex((a) => a.descartavel);
     if (idx >= 0) {
       filaAcoes.splice(idx, 1);
+      toquesDescartados++;
       logger.aviso('[Teclado] Fila cheia — toque antigo descartado para não atrasar o jogo.');
     }
   }
@@ -1335,6 +1337,32 @@ function listarTeclasValidas() {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnóstico leve (Passo 6)
+// ---------------------------------------------------------------------------
+
+function diagnostico() {
+  const nomeAlvo = alvoExe
+    ? String(alvoExe).replace(/\\/g, '/').split('/').filter(Boolean).pop() || ''
+    : '';
+  return {
+    modo: modoTeclado,
+    alvo: nomeAlvo,
+    fila: filaAcoes.length + (processandoAcao ? 1 : 0),
+    filaMax: FILA_MAX,
+    processando: processandoAcao,
+    descartados: toquesDescartados,
+    seguradas: teclasSeguradas.size,
+    worker: {
+      pronto: worker.pronto,
+      booting: worker.booting,
+      legacy: worker.legacy,
+      pendentes: worker.pendentes.length,
+      emVoo: worker.acoes.length,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // API pública de alto nível
 // ---------------------------------------------------------------------------
 
@@ -1444,6 +1472,7 @@ module.exports = {
   listarSeguradas,
   teclaSuportada,
   listarTeclasValidas,
+  diagnostico,
   configurarMapeamento,
   configurarAlvoJanela,
   modoJanela,
@@ -1474,7 +1503,7 @@ module.exports = {
     // --- v2.9.2: política de descarte da fila (regressão de tecla presa) ---
     fila: {
       enfileirar,
-      limpar: () => { filaAcoes.length = 0; processandoAcao = false; },
+      limpar: () => { filaAcoes.length = 0; processandoAcao = false; toquesDescartados = 0; },
       inspecao: () => filaAcoes.map((a) => (a.descartavel ? 'toque' : 'tecla')),
     },
   },

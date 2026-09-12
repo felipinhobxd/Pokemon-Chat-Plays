@@ -53,6 +53,8 @@ const controles = require('./controles');
 const { msgChatPausado, msgChatLiberado, msgVencedor, msgModoDemocracia, msgModoAnarquia } = require('./messages');
 const { verificarSistema, soltarTodasSync } = teclado;
 const assistente = require('./assistente');
+const cooldown = require('./utils/cooldown');
+const gamepad = require('./controllers/gamepad');
 
 // Silencia avisos experimentais (ex.: "Fetch API is an experimental feature"
 // no Node 18 do .exe) para não poluir o terminal durante a live.
@@ -305,6 +307,12 @@ async function iniciarOverlay() {
     seguradas: () => teclado.listarSeguradas(),
     resumoStats: () => stats.resumo(),
     votacao: () => votacao.status(),
+    diagnostico: () => ({
+      teclado: teclado.diagnostico(),
+      cooldown: cooldown.diagnostico(),
+      gamepad: gamepad.status(),
+      logs: logger.recentes(10),
+    }),
   });
   overlay.setTeclaPausa(config.pausa.tecla);
   await overlay.iniciar(config.overlay.porta);

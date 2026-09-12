@@ -88,6 +88,29 @@ const BUFFER_MAX_LINHAS = 5000;
  */
 let terminalMorto = false;
 
+/** Últimos avisos/erros para o painel local (sem segredos). */
+const EVENTOS_RECENTES_MAX = 30;
+const eventosRecentes = [];
+
+function sanitizarEvento(texto) {
+  return String(texto || '')
+    .replace(/oauth:[^\s]+/gi, 'oauth:***')
+    .replace(/([?&](?:key|api_key|token|access_token)=)[^&\s]+/gi, '$1***')
+    .replace(/([A-Z0-9_]*(?:TOKEN|KEY|SECRET)[A-Z0-9_]*=)[^\s]+/gi, '$1***')
+    .slice(0, 500);
+}
+
+function registrarEventoRecente(nivel, mensagem) {
+  if (nivel !== 'erro' && nivel !== 'aviso') return;
+  eventosRecentes.unshift({ nivel, mensagem: sanitizarEvento(mensagem), ts: Date.now() });
+  if (eventosRecentes.length > EVENTOS_RECENTES_MAX) eventosRecentes.length = EVENTOS_RECENTES_MAX;
+}
+
+function recentes(limite = 10) {
+  const n = Math.max(0, Math.min(EVENTOS_RECENTES_MAX, Number(limite) || 10));
+  return eventosRecentes.slice(0, n).map((e) => ({ ...e }));
+}
+
 /** Formatador de data em cache (criar Intl a cada linha era desperdício). */
 const formatadorData = new Intl.DateTimeFormat('pt-BR', { hour12: false });
 
@@ -109,6 +132,7 @@ function log(nivel, mensagem, extra) {
   const cor = NIVEL_COR[nivel] || CORES.reset;
   const prefixo = `[${nivel.toUpperCase().padEnd(7)}]`;
   const linha = `${prefixo} ${mensagem}`;
+  registrarEventoRecente(nivel, mensagem);
 
   // Linha colorida no console — se o stdout morreu (EPIPE), nunca mais tenta:
   // a excessão de escrever no console morto não pode voltar a cada linha
@@ -198,6 +222,7 @@ module.exports = {
   twitch: (msg, extra) => log('twitch', msg, extra),
   youtube: (msg, extra) => log('youtube', msg, extra),
   comando: (msg, extra) => log('comando', msg, extra),
+  recentes,
   flushSync,
   // Exposto APENAS para os testes unitários — não use em produção.
   __test: {

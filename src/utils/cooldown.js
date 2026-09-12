@@ -19,6 +19,7 @@ class CooldownManager {
     this.comando = new Map();
     this.ultimoGlobal = 0;
     this.opcoes = opcoes;
+    this.metricas = { global: 0, usuario: 0, comando: 0 };
   }
 
   _config() {
@@ -54,12 +55,14 @@ class CooldownManager {
 
     const desdeGlobal = agora - this.ultimoGlobal;
     if (desdeGlobal < cfg.global) {
+      this.metricas.global++;
       return { permitido: false, motivo: `cooldown global: aguarde ${Math.ceil(cfg.global - desdeGlobal)}ms` };
     }
 
     const ultimoUsuario = this.usuario.get(usuario) || 0;
     const desdeUsuario = agora - ultimoUsuario;
     if (desdeUsuario < cfg.base) {
+      this.metricas.usuario++;
       const espera = Math.ceil((cfg.base - desdeUsuario) / 100) / 10;
       return { permitido: false, motivo: `cooldown de usuário: aguarde ${espera}s` };
     }
@@ -69,6 +72,7 @@ class CooldownManager {
       const ultimo = this.comando.get(id) || 0;
       const desde = agora - ultimo;
       if (desde < limite.ms) {
+        this.metricas.comando++;
         const espera = Math.ceil((limite.ms - desde) / 100) / 10;
         return {
           permitido: false,
@@ -89,6 +93,17 @@ class CooldownManager {
     for (const limite of this._limitesEspecificos(chaveComando, cfg.especificos)) {
       this.comando.set(`${usuario}\u0000${limite.chave}`, agora);
     }
+  }
+
+  diagnostico() {
+    const cfg = this._config();
+    return {
+      baseMs: cfg.base,
+      globalMs: cfg.global,
+      regrasEspecificas: Object.keys(cfg.especificos || {}).length,
+      usuariosRastreados: this.usuario.size,
+      bloqueios: { ...this.metricas },
+    };
   }
 
   limparAntigos() {
