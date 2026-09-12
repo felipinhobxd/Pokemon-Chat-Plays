@@ -267,20 +267,16 @@ jobs:
             Write-Host "Silent uninstall exit: $($u.ExitCode)"
           } catch { Write-Host "cleanup uninstall skipped: $_" }
 
-      - name: Extract version from tag
-        id: versao
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: needs.preparar.outputs.do_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: 
+          target_commitish: 
           files: |
             release/ChatPlays-Setup.exe
             release/ChatPlays-Windows.zip
-          name: ChatPlays ${{ steps.versao.outputs.VERSION }}
+          name: ChatPlays 
           generate_release_notes: true
           make_latest: true
           draft: false
