@@ -28,8 +28,113 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp scripts/patch-minecraft-launcher-automation.py /tmp/patch-minecraft-launcher.py
+          # The runtime/docs portion ends before the old test-generation block.
+          # Keep tests explicit below so quoting cannot corrupt the Python patch.
+          head -n 452 scripts/patch-minecraft-launcher-automation.py > /tmp/patch-minecraft-launcher.py
+          python3 -m py_compile /tmp/patch-minecraft-launcher.py
           python3 /tmp/patch-minecraft-launcher.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/tests/minecraft-preset.test.js')
+          s = p.read_text(encoding='utf-8')
+          old = "test('assistente Minecraft configura o mouse global e persiste o preset correto', () => {\n  assert.match(PAGINA, /if \\(sel === \"minecraft\"\\)/);\n  assert.match(PAGINA, /f-modo-mouse/);"
+          new = "test('assistente Minecraft configura teclado e mouse globais e persiste o preset correto', () => {\n  assert.match(PAGINA, /if \\(sel === \"minecraft\"\\)/);\n  assert.match(PAGINA, /f-modo-teclado/);\n  assert.match(PAGINA, /f-modo-mouse/);"
+          if old not in s:
+              raise SystemExit('minecraft preset test pattern not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          cat > src/tests/minecraft-launcher.test.js <<'EOF'
+          'use strict';
+
+          const test = require('node:test');
+          const assert = require('node:assert');
+          const launcher = require('../utils/minecraft-launcher');
+          const jogo = require('../utils/jogo');
+          const mouse = require('../controllers/mouse');
+
+          test('ATLauncher: detecta caminho real sem confundir launcher comum', () => {
+            assert.strictEqual(launcher.ehAtLauncher('C:\\Users\\Admin\\AppData\\Roaming\\ATLauncher\\ATLauncher.exe'), true);
+            assert.strictEqual(launcher.ehAtLauncher('C:\\Apps\\ATLauncher-3.exe'), true);
+            assert.strictEqual(launcher.ehAtLauncher('C:\\Apps\\PrismLauncher.exe'), false);
+          });
+
+          test('ATLauncher: fallback usa coordenadas calibradas das referências', () => {
+            assert.deepStrictEqual(launcher.coordenadaFallback('instances', 1188, 696), { x: 1107, y: 239 });
+            assert.deepStrictEqual(launcher.coordenadaFallback('play', 1187, 696), { x: 427, y: 399 });
+          });
+
+          test('ATLauncher: prioriza UI Automation, captura fallback e apaga screenshot temporária', () => {
+            const s = launcher.montarScriptAtLauncher('C:\\ATLauncher\\ATLauncher.exe', 'C:\\Temp\\cp-shot.png');
+            assert.match(s, /UIAutomationClient/);
+            assert.match(s, /Find-ByName \$root 'Instances'/);
+            assert.match(s, /Find-ByName \$root 'Play'/);
+            assert.match(s, /CopyFromScreen/);
+            assert.match(s, /0\.932 0\.343/);
+            assert.match(s, /0\.360 0\.573/);
+            assert.match(s, /finally \{[\s\S]*Remove-Item -LiteralPath \$shot -Force/);
+          });
+
+          test('gerenciador: launcher customizado não vira falso Minecraft rodando', async () => {
+            jogo.__resetTeste();
+            let lancamentos = 0;
+            try {
+              jogo.configurar({
+                exe: 'C:\\ATLauncher\\ATLauncher.exe',
+                detector: async () => false,
+                lancador: async () => { lancamentos++; return true; },
+                startupGraceMs: 30000,
+                nomeGerenciado: 'Minecraft',
+                autoReiniciar: false,
+              });
+              const r = await jogo.iniciar();
+              assert.strictEqual(r.ok, true);
+              assert.strictEqual(r.modo, 'launcher');
+              assert.strictEqual(lancamentos, 1);
+              assert.strictEqual(jogo.status().nome, 'Minecraft');
+              assert.strictEqual(jogo.status().rodando, false);
+            } finally {
+              jogo.__resetTeste();
+            }
+          });
+
+          test('gerenciador: Minecraft já rodando anexa sem clicar Play', async () => {
+            jogo.__resetTeste();
+            let lancamentos = 0;
+            try {
+              jogo.configurar({
+                exe: 'C:\\ATLauncher\\ATLauncher.exe',
+                detector: async () => true,
+                lancador: async () => { lancamentos++; return true; },
+                nomeGerenciado: 'Minecraft',
+              });
+              const r = await jogo.iniciar();
+              assert.strictEqual(r.ok, true);
+              assert.strictEqual(r.modo, 'anexar');
+              assert.strictEqual(lancamentos, 0);
+            } finally {
+              jogo.__resetTeste();
+            }
+          });
+
+          test('mouse global: opera sem EMULADOR_EXE usando a janela em foco', () => {
+            const antes = mouse.status();
+            const linhas = [];
+            try {
+              mouse.configurar({ modo: 'global', alvoExe: null, passoPx: 40 });
+              mouse.__test.simular({ plataforma: 'win32', linhas });
+              assert.strictEqual(mouse.mover(1, 0), true);
+              assert.deepStrictEqual(linhas, ['MG 40 0']);
+              const fonte = mouse.__test.fonteWorker();
+              assert.match(fonte, /GetForegroundWindow/);
+              assert.match(fonte, /GetArea\(out hwnd, out rect, out origin, true\)/);
+            } finally {
+              mouse.__test.restaurar();
+              mouse.configurar({ modo: antes.modo, alvoExe: antes.alvoExe, passoPx: antes.passoPx });
+            }
+          });
+          EOF
 
       - name: Install and validate
         run: |
