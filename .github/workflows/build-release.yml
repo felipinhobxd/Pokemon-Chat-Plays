@@ -210,7 +210,9 @@ jobs:
         shell: pwsh
         run: |
           Push-Location release
-          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe ViGEmClient.dll .env.example README.md iniciar.bat LICENSE docs\GAMEPAD.md docs\PERFIS.md drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe licenses\ViGEmBus-LICENSE.txt licenses\ViGEmClient-LICENSE.txt
+          # docs\*.md: TODO doc do repositório entra no ZIP portátil — a
+          # checagem seguinte confirma os nomes um a um dentro do artefato.
+          7z a -tzip ChatPlays-Windows.zip ChatPlays.exe ViGEmClient.dll .env.example README.md iniciar.bat LICENSE docs\*.md drivers\ViGEmBus_1.22.0_x64_x86_arm64.exe licenses\ViGEmBus-LICENSE.txt licenses\ViGEmClient-LICENSE.txt
           if ($LASTEXITCODE -ne 0) { throw "7z failed" }
           Pop-Location
 

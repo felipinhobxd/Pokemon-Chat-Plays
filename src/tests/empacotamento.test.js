@@ -80,6 +80,20 @@ test('empacotamento: TODO doc do repositório vai no build, no instalador e nas 
   }
 });
 
+test('empacotamento: o ZIP portátil inclui TODO doc via curinga, não lista fixa', () => {
+  // v3.3.2: o 7z listava os docs um a um e ficou dessincronizado (a própria
+  // checagem do ZIP pegou o MINECRAFT-ATLAUNCHER.md faltando). Agora o ZIP
+  // carrega docs\*.md — qualquer doc novo entra sozinho e a checagem de
+  // nomes (teste acima) continua garantindo a presença individual.
+  const workflow = ler('.github/workflows/build-release.yml');
+  const linha7z = workflow.split('\n').find((l) => l.includes('7z a -tzip'));
+  assert.ok(linha7z, 'workflow precisa criar o ZIP portátil com 7z');
+  assert.ok(
+    /docs\\\*\.md/.test(linha7z),
+    'a linha do 7z deve incluir docs\\*.md (curinga) e não uma lista fixa de docs'
+  );
+});
+
 test('empacotamento: MINECRAFT-ATLAUNCHER.md específico da v3.3.1 acompanha tudo', () => {
   // regressão pontual do bug real da v3.3.0 (o genérico acima já cobre, mas o
   // nome explícito facilita achar a intenção)
