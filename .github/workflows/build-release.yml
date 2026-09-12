@@ -271,12 +271,12 @@ jobs:
         if: needs.preparar.outputs.do_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: 
-          target_commitish: 
+          tag_name: ${{ needs.preparar.outputs.tag }}
+          target_commitish: ${{ needs.preparar.outputs.sha }}
           files: |
             release/ChatPlays-Setup.exe
             release/ChatPlays-Windows.zip
-          name: ChatPlays 
+          name: ChatPlays ${{ needs.preparar.outputs.tag }}
           generate_release_notes: true
           make_latest: true
           draft: false
