@@ -2,10 +2,7 @@ name: Fix ATLauncher preset gate
 
 on:
   push:
-    branches:
-      - fix/atlauncher-preset-gate
-    paths:
-      - .github/workflows/fix-atlauncher-preset-gate.yml
+    branches: ["fix/atlauncher-preset-gate"]
 
 permissions:
   contents: write
@@ -16,96 +13,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: fix/atlauncher-preset-gate
-
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
-      - name: Apply targeted fixes
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              s = p.read_text(encoding='utf-8')
-              count = s.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected 1 match, found {count}')
-              p.write_text(s.replace(old, new, 1), encoding='utf-8')
-
-          index = 'src/index.js'
-          replace_once(index,
-          """  const usarLauncherMinecraft =\n    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&\n    minecraftLauncher.ehAtLauncher(exeDoJogo);\n""",
-          """  // O próprio caminho do ATLauncher é a fonte de verdade. O preset pode\n  // estar personalizado/legado; nunca trate ATLauncher.exe como o jogo real.\n  const usarLauncherMinecraft = minecraftLauncher.ehAtLauncher(exeDoJogo);\n""")
-
-          replace_once(index,
-          """  const launcherMinecraftAtivo =\n    String(config.teclado.preset || '').toLowerCase() === 'minecraft' &&\n    minecraftLauncher.ehAtLauncher(exeDoJogo);\n""",
-          """  // Mesmo princípio do gerenciador: ATLauncher.exe identifica o fluxo\n  // Minecraft ainda que o perfil tenha virado \"personalizado\".\n  const launcherMinecraftAtivo = minecraftLauncher.ehAtLauncher(exeDoJogo);\n""")
-
-          assistente = 'src/assistente.js'
-          replace_once(assistente,
-          """  for (const chave of ['EMULADOR_EXE', 'JOGO_ROM']) {\n    finais[chave] = normalizarCaminhoJogo(finais[chave]);\n  }\n""",
-          """  for (const chave of ['EMULADOR_EXE', 'JOGO_ROM']) {\n    finais[chave] = normalizarCaminhoJogo(finais[chave]);\n  }\n\n  // ATLauncher é um launcher de Minecraft, não um executável do jogo. Se o\n  // seletor de controles ficou \"personalizado\", não deixe o save cair em\n  // outro preset e desativar a integração no próximo boot.\n  if (require('./utils/minecraft-launcher').ehAtLauncher(finais.EMULADOR_EXE)) {\n    finais.EMULADOR_PRESET = 'minecraft';\n    finais.MODO_TECLADO = 'global';\n    finais.MODO_MOUSE = 'global';\n  }\n""")
-
-          pagina = 'src/assistente-pagina.js'
-          replace_once(pagina,
-          """  '      var lista = \"Não foi possível salvar:\";',\n  '      for (var j = 0; j < (r.erros || []).length; j++) lista += \"\\\\n• \" + r.erros[j];',\n  '      txt(errosEl, lista);',\n""",
-          """  '      var lista = \"Não foi possível salvar:\";',\n  '      var detalhes = (r.erros || []).slice();',\n  '      if (!detalhes.length && r.mensagem) detalhes.push(r.mensagem);',\n  '      if (!detalhes.length) detalhes.push(\"Erro desconhecido — confira o terminal do ChatPlays.\");',\n  '      for (var j = 0; j < detalhes.length; j++) lista += \"\\\\n• \" + detalhes[j];',\n  '      txt(errosEl, lista);',\n""")
-
-          test_path = Path('src/tests/atlauncher-integration.test.js')
-          test_path.write_text(r'''\'use strict\';
-
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
-
-function fonte(nome) {
-  return fs.readFileSync(path.join(__dirname, '..', nome), 'utf8');
-}
-
-test('ATLauncher: integração não depende do preset Minecraft', () => {
-  const src = fonte('index.js');
-  assert.match(src, /const usarLauncherMinecraft = minecraftLauncher\.ehAtLauncher\(exeDoJogo\);/);
-  assert.match(src, /const launcherMinecraftAtivo = minecraftLauncher\.ehAtLauncher\(exeDoJogo\);/);
-  assert.doesNotMatch(src, /const usarLauncherMinecraft =[\s\S]{0,180}teclado\.preset[\s\S]{0,180}ehAtLauncher/);
-});
-
-test('Assistente: ATLauncher normaliza preset e input para Minecraft global', () => {
-  const src = fonte('assistente.js');
-  assert.match(src, /ehAtLauncher\(finais\.EMULADOR_EXE\)/);
-  assert.match(src, /finais\.EMULADOR_PRESET = 'minecraft'/);
-  assert.match(src, /finais\.MODO_TECLADO = 'global'/);
-  assert.match(src, /finais\.MODO_MOUSE = 'global'/);
-});
-
-test('Assistente: erro de backend com mensagem nunca fica vazio na tela', () => {
-  const src = fonte('assistente-pagina.js');
-  assert.match(src, /if \(!detalhes\.length && r\.mensagem\) detalhes\.push\(r\.mensagem\)/);
-});
-''', encoding='utf-8')
-          PY
-
-      - name: Install dependencies
+      - name: Apply fix
+        run: python3 scripts/fix-atlauncher-preset-gate.py
+      - name: Install
         run: npm ci
-
-      - name: Test
+      - name: Tests
         run: npm test
-
       - name: Audit
         run: npm audit --audit-level=high
-
-      - name: Commit clean fix
-        shell: bash
+      - name: Commit clean result
         run: |
-          rm -f .github/workflows/fix-atlauncher-preset-gate.yml
+          rm -f .github/workflows/fix-atlauncher-preset-gate.yml scripts/fix-atlauncher-preset-gate.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/index.js src/assistente.js src/assistente-pagina.js src/tests/atlauncher-integration.test.js .github/workflows/fix-atlauncher-preset-gate.yml
+          git add -A
           git commit -m "fix: treat ATLauncher as Minecraft launcher by path"
           git push origin HEAD:fix/atlauncher-preset-gate
