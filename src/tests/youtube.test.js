@@ -122,3 +122,66 @@ test('aguardarLive: chamar duas vezes não duplica o timer (guard de reentrada)'
   youtube.parar();
   assert.strictEqual(timersAtivos().aguardarLiveTimer, null);
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSÃO v3.1.x — quota diária não pode ficar spammando a live inteira.
+// A primeira ocorrência explica o problema. Se a API confirmar quota de novo,
+// o cliente entra em circuit breaker e fica offline até reativação explícita.
+// ---------------------------------------------------------------------------
+
+test('quota: mensagem detalhada aparece uma vez e a segunda ocorrência suspende o YouTube', () => {
+  const youtube = require('../controllers/youtube');
+  const logger = require('../utils/logger');
+  const { registrarFalhaQuota, estadoQuota, resetarEstadoQuota, agendarReconexaoInicial, timersAtivos } = youtube.__test;
+  const erroOriginal = logger.erro;
+  const avisoOriginal = logger.aviso;
+  const erros = [];
+  const avisos = [];
+
+  resetarEstadoQuota();
+  logger.erro = (msg) => erros.push(String(msg));
+  logger.aviso = (msg) => avisos.push(String(msg));
+
+  try {
+    const diagnostico = {
+      tipo: 'quota',
+      mensagem:
+        'Quota diária da API do YouTube excedida (padrão: 10.000 unidades). ' +
+        'Ela zera à 0h (Horário do Pacífico). O bot vai reduzir o ritmo e tentar de novo.',
+    };
+
+    assert.strictEqual(registrarFalhaQuota(diagnostico, ' (falha consecutiva nº 1)'), false);
+    assert.strictEqual(estadoQuota().suspenso, false);
+
+    assert.strictEqual(registrarFalhaQuota(diagnostico, ' (falha consecutiva nº 2)'), true);
+    assert.strictEqual(estadoQuota().suspenso, true);
+
+    // Mesmo que algum callback velho tente registrar outra vez, a mensagem
+    // grande e o aviso de suspensão não podem virar spam.
+    assert.strictEqual(registrarFalhaQuota(diagnostico, ' (falha consecutiva nº 3)'), true);
+
+    assert.strictEqual(
+      erros.filter((msg) => msg.includes('Quota diária da API do YouTube excedida')).length,
+      1,
+      'a mensagem de quota deve aparecer exatamente uma vez por ativação'
+    );
+    assert.strictEqual(
+      avisos.filter((msg) => msg.includes('YouTube marcado como offline')).length,
+      1,
+      'o circuit breaker deve avisar uma única vez'
+    );
+
+    const estado = estadoQuota();
+    assert.strictEqual(estado.ocorrencias, 3);
+    assert.strictEqual(estado.mensagemExibida, true);
+    assert.strictEqual(estado.suspenso, true);
+
+    agendarReconexaoInicial(1);
+    assert.strictEqual(timersAtivos().reconnectTimer, null, 'suspenso por quota não agenda reconexão');
+  } finally {
+    logger.erro = erroOriginal;
+    logger.aviso = avisoOriginal;
+    resetarEstadoQuota();
+    youtube.parar();
+  }
+});
