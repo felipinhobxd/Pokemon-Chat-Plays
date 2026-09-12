@@ -607,6 +607,15 @@ function avaliarSalvamento(v = {}, atuais = {}) {
   for (const chave of ['EMULADOR_EXE', 'JOGO_ROM']) {
     finais[chave] = normalizarCaminhoJogo(finais[chave]);
   }
+
+  // ATLauncher é um launcher de Minecraft, não um executável do jogo. Se o
+  // seletor de controles ficou "personalizado", não deixe o save cair em
+  // outro preset e desativar a integração no próximo boot.
+  if (require('./utils/minecraft-launcher').ehAtLauncher(finais.EMULADOR_EXE)) {
+    finais.EMULADOR_PRESET = 'minecraft';
+    finais.MODO_TECLADO = 'global';
+    finais.MODO_MOUSE = 'global';
+  }
   // JOGO_ARGS: o wizard NÃO tem campo para ela — vazio significa MANTER o
   // valor atual do .env (não apagar configs manuais, ex.: "-L core.dll" do
   // RetroArch). O valor só é higienizado (CR/LF fora) PRESERVANDO aspas:
